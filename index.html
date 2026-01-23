@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0d14">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="GridDown">
+    <meta name="description" content="Offline tactical navigation and planning application">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="favicon.ico" sizes="32x32">
+    <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css">
+    <title>GridDown</title>
+</head>
+<body>
+    <!-- Skip links for keyboard navigation -->
+    <a href="#main" class="sr-only sr-only-focusable">Skip to main content</a>
+    <a href="#panel-content" class="sr-only sr-only-focusable">Skip to panel</a>
+    
+    <div id="app" class="app" role="application" aria-label="GridDown Navigation Application">
+        <nav id="sidebar" class="sidebar" role="navigation" aria-label="Main navigation"></nav>
+        <aside id="panel" class="panel" role="complementary" aria-label="Details panel">
+            <div class="panel__content" id="panel-content" role="region" aria-label="Panel content"></div>
+        </aside>
+        <main id="main" class="main" role="main" aria-label="Map area">
+            <canvas id="map-canvas" role="img" aria-label="Interactive map. Use mouse to pan, scroll to zoom. Click to add waypoints."></canvas>
+            <div id="map-controls" class="map-controls" role="toolbar" aria-label="Map controls"></div>
+            <div id="nav-hud-container" role="region" aria-label="Navigation heads-up display" aria-live="polite"></div>
+            <div class="scale-bar" role="status" aria-label="Map scale">
+                <div class="scale-bar__line" aria-hidden="true"></div>
+                <span class="scale-bar__label">1 mi</span>
+            </div>
+            <div id="coords-display" class="coords-display" role="status" aria-live="polite" aria-label="Current coordinates">
+                <span id="coords-text">37.4215° N, 119.1892° W</span>
+                <span aria-hidden="true" style="opacity:0.5">•</span>
+                <span id="zoom-level" aria-label="Zoom level">12z</span>
+                <span aria-hidden="true" style="opacity:0.5">•</span>
+                <button id="coords-format" style="cursor:pointer;color:#f97316;background:none;border:none;font:inherit" title="Click to change coordinate format" aria-label="Coordinate format: Decimal Degrees. Click to change.">DD</button>
+                <span aria-hidden="true" style="opacity:0.5">•</span>
+                <span id="declination-display" style="cursor:pointer" title="Magnetic declination (click for details)" role="button" tabindex="0" aria-label="Magnetic declination">
+                    <span style="color:#22c55e" aria-hidden="true">⊕</span>
+                    <span id="declination-value">--</span>
+                </span>
+            </div>
+            <button id="offline-toggle" class="offline-toggle" aria-pressed="false" aria-label="Online mode. Click to toggle offline mode.">
+                <span class="offline-toggle__icon" id="offline-icon" aria-hidden="true"></span>
+                <span id="offline-text">Online</span>
+            </button>
+        </main>
+        <div id="modal-container" role="dialog" aria-modal="true" aria-hidden="true"></div>
+        <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-label="Notifications"></div>
+    </div>
+    
+    <!-- Loading screen -->
+    <div id="loading-screen" class="loading-screen" role="alert" aria-busy="true" aria-label="Loading application">
+        <div class="loading-screen__content">
+            <div class="loading-screen__logo" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/></svg></div>
+            <div class="loading-screen__text">GridDown</div>
+            <div class="loading-screen__status" id="loading-status" aria-live="polite">Initializing...</div>
+        </div>
+    </div>
+    
+    <!-- Utils must load first -->
+    <script src="js/utils/helpers.js"></script>
+    <script src="js/utils/storage.js"></script>
+    <script src="js/utils/icons.js"></script>
+    <script src="js/utils/coordinates.js"></script>
+    <script src="js/utils/events-manager.js"></script>
+    <!-- Core modules -->
+    <script src="js/core/constants.js"></script>
+    <script src="js/core/state.js"></script>
+    <script src="js/core/events.js"></script>
+    <script src="js/core/history.js"></script>
+    <!-- Feature modules - logistics, elevation, offline, and routebuilder before panels (panels depends on them) -->
+    <script src="js/modules/logistics.js"></script>
+    <script src="js/modules/gpx.js"></script>
+    <script src="js/modules/kml.js"></script>
+    <script src="js/modules/routebuilder.js"></script>
+    <script src="js/modules/elevation.js"></script>
+    <script src="js/modules/offline.js"></script>
+    <script src="js/modules/gps.js"></script>
+    <script src="js/modules/navigation.js"></script>
+    <script src="js/modules/weather.js"></script>
+    <script src="js/modules/contingency.js"></script>
+    <script src="js/modules/measure.js"></script>
+    <script src="js/modules/sunmoon.js"></script>
+    <script src="js/modules/commplan.js"></script>
+    <script src="js/modules/terrain.js"></script>
+    <script src="js/modules/nightmode.js"></script>
+    <script src="js/modules/sos.js"></script>
+    <script src="js/modules/radio.js"></script>
+    <script src="js/modules/plansharing.js"></script>
+    <script src="js/modules/declination.js"></script>
+    <script src="js/modules/print.js"></script>
+    <script src="js/modules/undo.js"></script>
+    <script src="js/modules/meshtastic.js"></script>
+    <script src="js/modules/aprs.js"></script>
+    <script src="js/modules/search.js"></script>
+    <script src="js/modules/onboarding.js"></script>
+    <!-- UI modules -->
+    <script src="js/modules/map.js"></script>
+    <script src="js/modules/sidebar.js"></script>
+    <script src="js/modules/panels.js"></script>
+    <script src="js/modules/modals.js"></script>
+    <!-- App entry point -->
+    <script src="js/app.js"></script>
+    <script>
+        // Service Worker Registration with proper update handling
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('SW registered:', registration.scope);
+                        
+                        // Check for updates periodically
+                        setInterval(() => {
+                            registration.update();
+                        }, 60000); // Check every minute
+                        
+                        // Handle updates
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            console.log('New SW installing...');
+                            
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed') {
+                                    if (navigator.serviceWorker.controller) {
+                                        // New update available
+                                        console.log('New version available');
+                                    } else {
+                                        // First install
+                                        console.log('App cached for offline use');
+                                    }
+                                }
+                            });
+                        });
+                    })
+                    .catch(err => console.log('SW registration failed:', err));
+                    
+                // Handle controller change (new SW activated)
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    console.log('New service worker activated');
+                });
+            });
+        }
+    </script>
+</body>
+</html>
