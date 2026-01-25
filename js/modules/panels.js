@@ -2779,7 +2779,7 @@ const PanelsModule = (function() {
             centerBtn.onclick = () => {
                 const pos = GPSModule.getPosition();
                 if (pos && typeof MapModule !== 'undefined') {
-                    MapModule.centerOn(pos.lat, pos.lon);
+                    MapModule.setCenter(pos.lat, pos.lon);
                 }
             };
         }
@@ -2799,177 +2799,199 @@ const PanelsModule = (function() {
      * Open manual position entry modal
      */
     function openManualPositionModal() {
-        if (typeof ModalsModule === 'undefined') return;
+        const modalContainer = document.getElementById('modal-container');
+        if (!modalContainer) return;
         
         const currentManual = typeof GPSModule !== 'undefined' ? GPSModule.getManualPosition() : null;
         
-        const content = `
-            <div style="padding:20px">
-                <h3 style="margin:0 0 16px 0;font-size:18px">📌 Set Manual Position</h3>
-                
-                <p style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:16px">
-                    Enter coordinates in any format: Decimal Degrees (37.4215, -119.1892), 
-                    DMS (37° 25' 17.4" N, 119° 11' 21.1" W), UTM, or MGRS.
-                </p>
-                
-                <!-- Coordinate Input -->
-                <div style="margin-bottom:16px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Coordinates</label>
-                    <input type="text" id="manual-position-input" 
-                        placeholder="e.g., 37.4215, -119.1892 or 37° 25' 17.4&quot; N, 119° 11' 21.1&quot; W"
-                        value="${currentManual ? `${currentManual.lat}, ${currentManual.lon}` : ''}"
-                        style="width:100%;padding:12px;font-size:14px;font-family:monospace;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
-                </div>
-                
-                <!-- Quick Examples -->
-                <div style="margin-bottom:16px">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">SUPPORTED FORMATS</div>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px">
-                        <button class="btn btn--secondary manual-pos-example" data-example="37.4215, -119.1892" style="font-size:10px;padding:4px 8px">DD</button>
-                        <button class="btn btn--secondary manual-pos-example" data-example="37° 25' 17.4&quot; N, 119° 11' 21.1&quot; W" style="font-size:10px;padding:4px 8px">DMS</button>
-                        <button class="btn btn--secondary manual-pos-example" data-example="11S 318234 4143234" style="font-size:10px;padding:4px 8px">UTM</button>
-                        <button class="btn btn--secondary manual-pos-example" data-example="11SLA1823443234" style="font-size:10px;padding:4px 8px">MGRS</button>
+        modalContainer.innerHTML = `
+            <div class="modal-backdrop" id="modal-backdrop">
+                <div class="modal" style="max-width:420px;width:90%">
+                    <div class="modal__header">
+                        <h3 class="modal__title">📌 Set Manual Position</h3>
+                        <button class="modal__close" id="modal-close">&times;</button>
                     </div>
-                </div>
-                
-                <!-- Optional Name -->
-                <div style="margin-bottom:16px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Location Name (optional)</label>
-                    <input type="text" id="manual-position-name" 
-                        placeholder="e.g., Base Camp, Observation Post"
-                        value="${currentManual?.name || ''}"
-                        style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
-                </div>
-                
-                <!-- Optional Altitude -->
-                <div style="margin-bottom:20px">
-                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Altitude in meters (optional)</label>
-                    <input type="number" id="manual-position-altitude" 
-                        placeholder="e.g., 1500"
-                        value="${currentManual?.altitude || ''}"
-                        style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
-                </div>
-                
-                <!-- Parse Preview -->
-                <div id="manual-position-preview" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:16px;min-height:40px">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>
-                </div>
-                
-                <!-- Action Buttons -->
-                <div style="display:flex;gap:10px">
-                    <button class="btn btn--secondary" onclick="ModalsModule.closeModal()" style="flex:1">Cancel</button>
-                    <button class="btn btn--primary" id="manual-position-save-btn" style="flex:1">📌 Set Position</button>
+                    <div class="modal__body">
+                        <p style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:16px">
+                            Enter coordinates in any format: Decimal Degrees (37.4215, -119.1892), 
+                            DMS (37° 25' 17.4" N, 119° 11' 21.1" W), UTM, or MGRS.
+                        </p>
+                        
+                        <!-- Coordinate Input -->
+                        <div style="margin-bottom:16px">
+                            <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Coordinates</label>
+                            <input type="text" id="manual-position-input" 
+                                placeholder="e.g., 37.4215, -119.1892"
+                                value="${currentManual ? `${currentManual.lat}, ${currentManual.lon}` : ''}"
+                                style="width:100%;padding:12px;font-size:14px;font-family:monospace;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white;box-sizing:border-box">
+                        </div>
+                        
+                        <!-- Quick Examples -->
+                        <div style="margin-bottom:16px">
+                            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">SUPPORTED FORMATS</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:6px">
+                                <button class="btn btn--secondary manual-pos-example" data-example="37.4215, -119.1892" style="font-size:10px;padding:4px 8px">DD</button>
+                                <button class="btn btn--secondary manual-pos-example" data-example="37° 25' 17.4&quot; N, 119° 11' 21.1&quot; W" style="font-size:10px;padding:4px 8px">DMS</button>
+                                <button class="btn btn--secondary manual-pos-example" data-example="11S 318234 4143234" style="font-size:10px;padding:4px 8px">UTM</button>
+                                <button class="btn btn--secondary manual-pos-example" data-example="11SLA1823443234" style="font-size:10px;padding:4px 8px">MGRS</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Optional Name -->
+                        <div style="margin-bottom:16px">
+                            <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Location Name (optional)</label>
+                            <input type="text" id="manual-position-name" 
+                                placeholder="e.g., Base Camp, Observation Post"
+                                value="${currentManual?.name || ''}"
+                                style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white;box-sizing:border-box">
+                        </div>
+                        
+                        <!-- Optional Altitude -->
+                        <div style="margin-bottom:20px">
+                            <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Altitude in meters (optional)</label>
+                            <input type="number" id="manual-position-altitude" 
+                                placeholder="e.g., 1500"
+                                value="${currentManual?.altitude || ''}"
+                                style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white;box-sizing:border-box">
+                        </div>
+                        
+                        <!-- Parse Preview -->
+                        <div id="manual-position-preview" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:16px;min-height:40px">
+                            <div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>
+                        </div>
+                    </div>
+                    <div class="modal__footer">
+                        <button class="btn btn--secondary" id="modal-cancel">Cancel</button>
+                        <button class="btn btn--primary" id="manual-position-save-btn">📌 Set Position</button>
+                    </div>
                 </div>
             </div>
         `;
         
-        ModalsModule.openModal(content, { width: '420px' });
+        const closeModal = () => { modalContainer.innerHTML = ''; };
         
-        // Setup event handlers after modal is open
-        setTimeout(() => {
-            const input = document.getElementById('manual-position-input');
-            const preview = document.getElementById('manual-position-preview');
-            const saveBtn = document.getElementById('manual-position-save-btn');
-            
-            // Live preview of coordinate parsing
-            if (input && preview) {
-                const updatePreview = () => {
-                    const value = input.value.trim();
-                    if (!value) {
-                        preview.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>';
-                        return;
+        // Close handlers
+        modalContainer.querySelector('#modal-close').onclick = closeModal;
+        modalContainer.querySelector('#modal-cancel').onclick = closeModal;
+        modalContainer.querySelector('#modal-backdrop').onclick = (e) => {
+            if (e.target.id === 'modal-backdrop') closeModal();
+        };
+        
+        // Setup event handlers
+        const input = document.getElementById('manual-position-input');
+        const preview = document.getElementById('manual-position-preview');
+        const saveBtn = document.getElementById('manual-position-save-btn');
+        
+        // Live preview of coordinate parsing
+        if (input && preview) {
+            const updatePreview = () => {
+                const value = input.value.trim();
+                if (!value) {
+                    preview.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>';
+                    return;
+                }
+                
+                if (typeof Coordinates !== 'undefined') {
+                    const parsed = Coordinates.parse(value);
+                    if (parsed) {
+                        preview.innerHTML = `
+                            <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates detected</div>
+                            <div style="font-size:13px;font-family:monospace;color:white">${parsed.lat.toFixed(6)}, ${parsed.lon.toFixed(6)}</div>
+                            <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">${Coordinates.toDD(parsed.lat, parsed.lon)}</div>
+                        `;
+                    } else {
+                        preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
                     }
-                    
-                    if (typeof Coordinates !== 'undefined') {
-                        const parsed = Coordinates.parse(value);
-                        if (parsed) {
+                } else {
+                    // Fallback: try simple decimal parsing
+                    const match = value.match(/^([-\d.]+)[,\s]+([-\d.]+)$/);
+                    if (match) {
+                        const lat = parseFloat(match[1]);
+                        const lon = parseFloat(match[2]);
+                        if (!isNaN(lat) && !isNaN(lon)) {
                             preview.innerHTML = `
-                                <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates detected</div>
-                                <div style="font-size:13px;font-family:monospace;color:white">${parsed.lat.toFixed(6)}, ${parsed.lon.toFixed(6)}</div>
-                                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">${Coordinates.toDD(parsed.lat, parsed.lon)}</div>
+                                <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates</div>
+                                <div style="font-size:13px;font-family:monospace;color:white">${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
                             `;
                         } else {
-                            preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
+                            preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Invalid coordinates</div>';
                         }
                     } else {
-                        // Fallback: try simple decimal parsing
-                        const match = value.match(/^([-\d.]+)[,\s]+([-\d.]+)$/);
-                        if (match) {
-                            const lat = parseFloat(match[1]);
-                            const lon = parseFloat(match[2]);
-                            if (!isNaN(lat) && !isNaN(lon)) {
-                                preview.innerHTML = `
-                                    <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates</div>
-                                    <div style="font-size:13px;font-family:monospace;color:white">${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
-                                `;
-                            } else {
-                                preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Invalid coordinates</div>';
-                            }
-                        } else {
-                            preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
-                        }
+                        preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
                     }
-                };
+                }
+            };
+            
+            input.addEventListener('input', updatePreview);
+            updatePreview();  // Initial preview if value exists
+        }
+        
+        // Example buttons
+        modalContainer.querySelectorAll('.manual-pos-example').forEach(btn => {
+            btn.onclick = () => {
+                if (input) {
+                    input.value = btn.dataset.example;
+                    input.dispatchEvent(new Event('input'));
+                }
+            };
+        });
+        
+        // Save button
+        if (saveBtn) {
+            saveBtn.onclick = () => {
+                const coordInput = document.getElementById('manual-position-input');
+                const nameInput = document.getElementById('manual-position-name');
+                const altInput = document.getElementById('manual-position-altitude');
                 
-                input.addEventListener('input', updatePreview);
-                updatePreview();  // Initial preview if value exists
-            }
-            
-            // Example buttons
-            document.querySelectorAll('.manual-pos-example').forEach(btn => {
-                btn.onclick = () => {
-                    if (input) {
-                        input.value = btn.dataset.example;
-                        input.dispatchEvent(new Event('input'));
-                    }
-                };
-            });
-            
-            // Save button
-            if (saveBtn) {
-                saveBtn.onclick = () => {
-                    const coordInput = document.getElementById('manual-position-input');
-                    const nameInput = document.getElementById('manual-position-name');
-                    const altInput = document.getElementById('manual-position-altitude');
-                    
-                    if (!coordInput || !coordInput.value.trim()) {
+                if (!coordInput || !coordInput.value.trim()) {
+                    if (typeof ModalsModule !== 'undefined') {
                         ModalsModule.showToast('Please enter coordinates', 'error');
-                        return;
                     }
-                    
-                    const options = {};
-                    if (nameInput && nameInput.value.trim()) {
-                        options.name = nameInput.value.trim();
-                    }
-                    if (altInput && altInput.value) {
-                        options.altitude = parseFloat(altInput.value);
-                    }
-                    
-                    let success = false;
-                    if (typeof GPSModule !== 'undefined') {
-                        success = GPSModule.setManualPositionFromString(coordInput.value, options);
-                    }
-                    
-                    if (success) {
-                        ModalsModule.closeModal();
+                    return;
+                }
+                
+                const options = {};
+                if (nameInput && nameInput.value.trim()) {
+                    options.name = nameInput.value.trim();
+                }
+                if (altInput && altInput.value) {
+                    options.altitude = parseFloat(altInput.value);
+                }
+                
+                let success = false;
+                if (typeof GPSModule !== 'undefined') {
+                    success = GPSModule.setManualPositionFromString(coordInput.value, options);
+                }
+                
+                if (success) {
+                    closeModal();
+                    if (typeof ModalsModule !== 'undefined') {
                         ModalsModule.showToast('Manual position set', 'success');
-                        renderTeam();
-                        
-                        // Center map on new position
-                        const pos = GPSModule.getPosition();
-                        if (pos && typeof MapModule !== 'undefined') {
-                            MapModule.centerOn(pos.lat, pos.lon);
-                            MapModule.render();
-                        }
+                    }
+                    
+                    // Re-render appropriate panel
+                    if (State.get('activePanel') === 'gps') {
+                        renderGPS();
                     } else {
+                        renderTeam();
+                    }
+                    
+                    // Center map on new position
+                    const pos = GPSModule.getPosition();
+                    if (pos && typeof MapModule !== 'undefined') {
+                        MapModule.setCenter(pos.lat, pos.lon);
+                        MapModule.render();
+                    }
+                } else {
+                    if (typeof ModalsModule !== 'undefined') {
                         ModalsModule.showToast('Could not parse coordinates. Check format.', 'error');
                     }
-                };
-            }
-            
-            // Focus input
-            if (input) input.focus();
-        }, 100);
+                }
+            };
+        }
+        
+        // Focus input
+        if (input) input.focus();
     }
 
     // ==================== RadiaCode Helper Functions ====================
