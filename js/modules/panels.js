@@ -6298,6 +6298,7 @@ const PanelsModule = (function() {
                 GPSModule.clearManualPosition();
                 ModalsModule.showToast('Manual position cleared', 'info');
                 renderGPS();
+                if (typeof MapModule !== 'undefined') MapModule.render();
             };
         }
         
@@ -6306,6 +6307,7 @@ const PanelsModule = (function() {
             preferManualCheckbox.onchange = () => {
                 GPSModule.setPreferManual(preferManualCheckbox.checked);
                 renderGPS();
+                if (typeof MapModule !== 'undefined') MapModule.render();
             };
         }
     }

@@ -1139,10 +1139,13 @@ const MapModule = (function() {
         // Check if GPS module is available
         if (typeof GPSModule === 'undefined') return;
         
-        const gpsState = GPSModule.getState();
-        if (!gpsState.currentPosition) return;
+        // Use getPosition() which includes manual position support
+        const pos = GPSModule.getPosition();
+        if (!pos || !pos.lat || !pos.lon) return;
         
-        const pos = gpsState.currentPosition;
+        const gpsState = GPSModule.getState();
+        const isManual = pos.isManual || false;
+        
         const pixel = latLonToPixel(pos.lat, pos.lon);
         
         // Skip if off screen
@@ -1153,99 +1156,149 @@ const MapModule = (function() {
             renderRecordedTrack();
         }
         
-        // Accuracy circle
-        if (gpsState.accuracy && gpsState.accuracy < 500) {
-            // Convert accuracy (meters) to pixels
-            // Approximate: at zoom 12, 1 pixel ≈ 38 meters at equator
-            const metersPerPixel = 156543.03392 * Math.cos(pos.lat * Math.PI / 180) / Math.pow(2, mapState.zoom);
-            const accuracyRadius = gpsState.accuracy / metersPerPixel;
+        if (isManual) {
+            // === MANUAL POSITION MARKER (Purple home/pin icon) ===
             
+            // Outer glow
+            ctx.shadowColor = '#a855f7';
+            ctx.shadowBlur = 12;
+            
+            // Pin body (teardrop shape)
             ctx.beginPath();
-            ctx.arc(pixel.x, pixel.y, Math.max(accuracyRadius, 10), 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.15)';
+            ctx.moveTo(pixel.x, pixel.y + 20);  // Bottom point
+            ctx.bezierCurveTo(
+                pixel.x - 14, pixel.y,      // Left control
+                pixel.x - 14, pixel.y - 18, // Left top control
+                pixel.x, pixel.y - 22       // Top
+            );
+            ctx.bezierCurveTo(
+                pixel.x + 14, pixel.y - 18, // Right top control
+                pixel.x + 14, pixel.y,      // Right control
+                pixel.x, pixel.y + 20       // Back to bottom
+            );
+            ctx.fillStyle = '#a855f7';
             ctx.fill();
-            ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
-        
-        // Heading indicator (if moving)
-        if (gpsState.heading !== null && gpsState.speed && gpsState.speed > 0.5) {
-            const headingRad = gpsState.heading * Math.PI / 180;
-            const arrowLength = 30;
+            ctx.shadowBlur = 0;
             
-            ctx.save();
-            ctx.translate(pixel.x, pixel.y);
-            ctx.rotate(headingRad);
-            
-            // Direction cone
+            // Inner circle (white)
             ctx.beginPath();
-            ctx.moveTo(0, -arrowLength);
-            ctx.lineTo(-10, 5);
-            ctx.lineTo(10, 5);
-            ctx.closePath();
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.6)';
+            ctx.arc(pixel.x, pixel.y - 6, 7, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
             ctx.fill();
             
-            ctx.restore();
-        }
-        
-        // Position marker (pulsing blue dot)
-        const pulseScale = 1 + 0.15 * Math.sin(Date.now() / 500);
-        
-        // Outer glow
-        ctx.shadowColor = '#3b82f6';
-        ctx.shadowBlur = 15;
-        
-        // Outer circle
-        ctx.beginPath();
-        ctx.arc(pixel.x, pixel.y, 12 * pulseScale, 0, Math.PI * 2);
-        ctx.fillStyle = '#3b82f6';
-        ctx.fill();
-        
-        ctx.shadowBlur = 0;
-        
-        // Inner white dot
-        ctx.beginPath();
-        ctx.arc(pixel.x, pixel.y, 6, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.fill();
-        
-        // Center blue dot
-        ctx.beginPath();
-        ctx.arc(pixel.x, pixel.y, 4, 0, Math.PI * 2);
-        ctx.fillStyle = '#3b82f6';
-        ctx.fill();
-        
-        // Status indicator (fix quality)
-        if (gpsState.fix === 'none' || gpsState.error) {
-            // Red ring for no fix
-            ctx.beginPath();
-            ctx.arc(pixel.x, pixel.y, 16, 0, Math.PI * 2);
-            ctx.strokeStyle = '#ef4444';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([4, 4]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        } else if (gpsState.fix === '2D') {
-            // Yellow ring for 2D fix
-            ctx.beginPath();
-            ctx.arc(pixel.x, pixel.y, 16, 0, Math.PI * 2);
-            ctx.strokeStyle = '#f59e0b';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-        }
-        
-        // Speed label (if moving fast enough)
-        if (gpsState.speed && gpsState.speed > 1) {
-            const speedMph = (gpsState.speed * 2.237).toFixed(0);
+            // Home icon inside
+            ctx.fillStyle = '#a855f7';
+            ctx.font = 'bold 10px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('⌂', pixel.x, pixel.y - 5);
+            
+            // Label
             ctx.font = 'bold 10px system-ui, sans-serif';
             ctx.fillStyle = '#fff';
             ctx.strokeStyle = 'rgba(0,0,0,0.7)';
             ctx.lineWidth = 3;
             ctx.textAlign = 'center';
-            ctx.strokeText(`${speedMph} mph`, pixel.x, pixel.y + 28);
-            ctx.fillText(`${speedMph} mph`, pixel.x, pixel.y + 28);
+            const label = pos.name || 'Manual';
+            ctx.strokeText(label, pixel.x, pixel.y + 34);
+            ctx.fillText(label, pixel.x, pixel.y + 34);
+            
+        } else {
+            // === GPS POSITION MARKER (Blue pulsing dot) ===
+            
+            // Accuracy circle
+            if (gpsState.accuracy && gpsState.accuracy < 500) {
+                // Convert accuracy (meters) to pixels
+                const metersPerPixel = 156543.03392 * Math.cos(pos.lat * Math.PI / 180) / Math.pow(2, mapState.zoom);
+                const accuracyRadius = gpsState.accuracy / metersPerPixel;
+                
+                ctx.beginPath();
+                ctx.arc(pixel.x, pixel.y, Math.max(accuracyRadius, 10), 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.15)';
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            }
+            
+            // Heading indicator (if moving)
+            if (gpsState.heading !== null && gpsState.speed && gpsState.speed > 0.5) {
+                const headingRad = gpsState.heading * Math.PI / 180;
+                const arrowLength = 30;
+                
+                ctx.save();
+                ctx.translate(pixel.x, pixel.y);
+                ctx.rotate(headingRad);
+                
+                // Direction cone
+                ctx.beginPath();
+                ctx.moveTo(0, -arrowLength);
+                ctx.lineTo(-10, 5);
+                ctx.lineTo(10, 5);
+                ctx.closePath();
+                ctx.fillStyle = 'rgba(59, 130, 246, 0.6)';
+                ctx.fill();
+                
+                ctx.restore();
+            }
+            
+            // Position marker (pulsing blue dot)
+            const pulseScale = 1 + 0.15 * Math.sin(Date.now() / 500);
+            
+            // Outer glow
+            ctx.shadowColor = '#3b82f6';
+            ctx.shadowBlur = 15;
+            
+            // Outer circle
+            ctx.beginPath();
+            ctx.arc(pixel.x, pixel.y, 12 * pulseScale, 0, Math.PI * 2);
+            ctx.fillStyle = '#3b82f6';
+            ctx.fill();
+            
+            ctx.shadowBlur = 0;
+            
+            // Inner white dot
+            ctx.beginPath();
+            ctx.arc(pixel.x, pixel.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            
+            // Center blue dot
+            ctx.beginPath();
+            ctx.arc(pixel.x, pixel.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#3b82f6';
+            ctx.fill();
+            
+            // Status indicator (fix quality)
+            if (gpsState.fix === 'none' || gpsState.error) {
+                // Red ring for no fix
+                ctx.beginPath();
+                ctx.arc(pixel.x, pixel.y, 16, 0, Math.PI * 2);
+                ctx.strokeStyle = '#ef4444';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 4]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            } else if (gpsState.fix === '2D') {
+                // Yellow ring for 2D fix
+                ctx.beginPath();
+                ctx.arc(pixel.x, pixel.y, 16, 0, Math.PI * 2);
+                ctx.strokeStyle = '#f59e0b';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+            
+            // Speed label (if moving fast enough)
+            if (gpsState.speed && gpsState.speed > 1) {
+                const speedMph = (gpsState.speed * 2.237).toFixed(0);
+                ctx.font = 'bold 10px system-ui, sans-serif';
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                ctx.lineWidth = 3;
+                ctx.textAlign = 'center';
+                ctx.strokeText(`${speedMph} mph`, pixel.x, pixel.y + 28);
+                ctx.fillText(`${speedMph} mph`, pixel.x, pixel.y + 28);
+            }
         }
     }
     
