@@ -2,6 +2,57 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.5.0] - 2025-01-25
+
+### Added
+- **Team Management System** - Comprehensive team coordination features:
+  - Team health dashboard showing active/stale/offline member counts
+  - Distance and bearing display from your position to each team member
+  - Distance and bearing to rally points with real-time GPS updates
+  - Enhanced member detail modal with larger format and navigation info
+  - Comm plan management with scheduled check-ins
+  - Check-in time scheduler (daily, hourly, one-time)
+  - Next check-in countdown display
+  - Emergency code word configuration
+  - Signal plan notes field
+
+### Enhanced
+- **Team Member Cards** - Redesigned with:
+  - Larger role icons with status indicators
+  - Distance (mi/ft) and compass bearing when GPS enabled
+  - Last seen timestamps
+  - Quick navigation to member location
+  - "YOU" badge for self-identification
+
+- **Rally Point Cards** - Improved with:
+  - Distance and bearing from current position
+  - Color-coded borders by rally type
+  - Larger, more visible design
+
+- **Comm Plan Section** - Expanded with:
+  - Edit button for leaders/co-leaders
+  - Frequency badges (primary, backup)
+  - Emergency word highlight
+  - Next check-in countdown
+  - Full comm plan editing modal
+
+### Technical
+- Added distance/bearing calculation functions to TeamModule
+- Added getDistanceToMember(), getDistanceToRally(), getMembersWithDistance()
+- Added comm plan management: updateCommPlan(), addCheckInTime(), removeCheckInTime(), getNextCheckIn()
+- Added member status tracking: getMemberStatus(), updateAllMemberStatuses(), getTeamHealth()
+- Service worker cache version updated to v6.5.0
+- Team.js now included in STATIC_ASSETS for proper caching
+
+## [6.4.1] - 2025-01-25
+
+### Fixed
+- **Quick Reference button now working** - Added missing `getQuickReferences()` function to Medical module
+- Quick Reference tables include: Vital Signs, CPR Guidelines, Rule of 9s (Burns), Glasgow Coma Scale, Hemorrhage Classification, Pain Medication Dosing, Allergy Medication Dosing, Hypothermia Stages, Altitude Illness
+
+### Technical
+- Service worker cache version updated to v6.4.1
+
 ## [6.4.0] - 2025-01-25
 
 ### Fixed
