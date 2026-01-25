@@ -2,6 +2,34 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.8.0] - 2025-01-25
+
+### Added
+- **SOS Emergency Broadcast** - Real radio transmission when SOS activated:
+  - **Meshtastic Integration** - Broadcasts SOS via mesh network using `sendSOS()`
+  - **APRS Integration** - Transmits emergency beacon with position and distress symbol
+  - **Initial Burst** - Sends 3 rapid broadcasts (5 second intervals) on activation
+  - **Repeat Broadcasts** - Continues broadcasting every 60 seconds until cancelled
+  - **All-Clear Signal** - Sends cancellation message when SOS deactivated
+  - **Broadcast Counter** - Shows number of transmissions and last broadcast time
+
+### Enhanced
+- **SOS Panel UI** - Now shows radio connection status:
+  - Real-time Meshtastic/APRS connection indicators
+  - Warning when no radios connected
+  - Broadcast count and timing during active SOS
+  - Clear indication of which radios will transmit
+
+### Technical
+- `sendEmergencySignal()` now integrates with MeshtasticModule and APRSModule
+- `sendViaMeshtastic()` uses MeshtasticModule.sendSOS() for proper mesh broadcast
+- `sendViaAPRS()` sets emergency symbol (/!) and status before beacon
+- `sendAllClear()` broadcasts cancellation via all connected radios
+- New state tracking: broadcastCount, lastBroadcast, broadcastInterval
+- Automatic cleanup of broadcast interval on SOS cancellation
+
+---
+
 ## [6.7.0] - 2025-01-25
 
 ### Added
