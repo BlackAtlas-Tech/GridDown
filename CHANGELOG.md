@@ -2,6 +2,64 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.7.0] - 2025-01-25
+
+### Added
+- **Manual Position Entry** - Set your position without GPS:
+  - Enter coordinates in any format: DD, DMS, DDM, UTM, MGRS
+  - Auto-detection of coordinate format with live preview
+  - Optional location name and altitude
+  - Persists across sessions
+  - "Prefer Manual" option to use manual even when GPS available
+
+### Enhanced
+- **My Position Section** - New Team panel section with:
+  - Current position display with source indicator
+  - One-click GPS start/stop
+  - Manual position entry modal
+  - Quick format toggle showing DD, DMS, UTM, MGRS
+  - Center map on position button
+  - Visual distinction: purple for manual, green for GPS
+
+- **GPSModule** - Extended position management:
+  - `setManualPosition(lat, lon, options)` - Set position directly
+  - `setManualPositionFromString(coordString)` - Parse any format
+  - `getManualPosition()` - Retrieve manual position
+  - `clearManualPosition()` - Clear manual position
+  - `isUsingManualPosition()` - Check if using manual
+  - `setPreferManual(prefer)` - Toggle manual preference
+  - `getPositionSource()` - Get human-readable source description
+  - `getCurrentPosition()` - Now checks existing position (including manual) first
+
+- **Manual Position Support Throughout App**:
+  - **Map** - Locate button centers on manual position when GPS unavailable
+  - **APRS** - Station distance/bearing calculations use manual position
+  - **Meshtastic** - Position broadcasts use manual position as fallback
+  - **SOS/Emergency** - Position tracking and Get Position button support manual
+  - **RadiaCode** - Radiation tracks use manual position for geotagging
+  - **Team Rally Points** - Use GPS button supports manual position
+
+### Fixed
+- RadiaCode module now correctly uses `getPosition()` for synchronous position access
+- APRS station distance display works with manual position
+- Map locate button shows appropriate message for manual vs GPS position
+
+### Technical
+- Position priority: GPS (if active) → Manual (if set) → None
+- Manual position saved to IndexedDB via gpsPreferences
+- Leverages existing Coordinates.parse() for multi-format support
+- All modules updated to check `GPSModule.getPosition()` before falling back to browser geolocation
+- Service worker cache version updated to v6.7.0
+
+### Files Updated
+- `js/modules/gps.js` - Core manual position support
+- `js/modules/panels.js` - Position UI section and handlers
+- `js/modules/map.js` - Locate button manual support
+- `js/modules/aprs.js` - Distance calculations with manual
+- `js/modules/meshtastic.js` - Position broadcast with manual
+- `js/modules/sos.js` - Emergency position tracking with manual
+- `js/modules/radiacode.js` - Fixed to use getPosition()
+
 ## [6.6.0] - 2025-01-25
 
 ### Added
