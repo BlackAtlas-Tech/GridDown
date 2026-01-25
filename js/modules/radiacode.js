@@ -957,7 +957,7 @@ const RadiaCodeModule = (function() {
     function triggerAlert(level, reading) {
         let lat = null, lon = null;
         if (typeof GPSModule !== 'undefined') {
-            const pos = GPSModule.getCurrentPosition();
+            const pos = GPSModule.getPosition();
             if (pos) {
                 lat = pos.lat;
                 lon = pos.lon;
@@ -1079,7 +1079,7 @@ const RadiaCodeModule = (function() {
         
         let lat = null, lon = null, altitude = null;
         if (typeof GPSModule !== 'undefined') {
-            const pos = GPSModule.getCurrentPosition();
+            const pos = GPSModule.getPosition();
             if (pos && pos.lat && pos.lon) {
                 lat = pos.lat;
                 lon = pos.lon;
@@ -1405,7 +1405,7 @@ const RadiaCodeModule = (function() {
     function renderCurrentPosition(ctx, width, height, latLonToPixel) {
         let pos = null;
         if (typeof GPSModule !== 'undefined') {
-            pos = GPSModule.getCurrentPosition();
+            pos = GPSModule.getPosition();
         }
         
         if (!pos || !pos.lat || !pos.lon) return;

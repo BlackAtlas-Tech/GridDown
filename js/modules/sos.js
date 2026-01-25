@@ -223,23 +223,63 @@ const SOSModule = (function() {
      * Setup position tracking
      */
     function setupPositionTracking() {
-        // Get position from GPS module if available
+        // Check for existing position (including manual) from GPSModule
+        if (typeof GPSModule !== 'undefined') {
+            const existingPos = GPSModule.getPosition();
+            if (existingPos && existingPos.lat && existingPos.lon) {
+                state.currentPosition = {
+                    lat: existingPos.lat,
+                    lon: existingPos.lon,
+                    accuracy: existingPos.accuracy || null,
+                    timestamp: new Date(),
+                    isManual: existingPos.isManual || false
+                };
+            }
+            
+            // Subscribe to position updates from GPSModule
+            GPSModule.subscribe((gpsState) => {
+                const pos = GPSModule.getPosition();
+                if (pos && pos.lat && pos.lon) {
+                    state.currentPosition = {
+                        lat: pos.lat,
+                        lon: pos.lon,
+                        accuracy: gpsState.accuracy || null,
+                        timestamp: new Date(),
+                        isManual: pos.isManual || false
+                    };
+                }
+            });
+        }
+        
+        // Get position from GPS events if available
         if (typeof Events !== 'undefined') {
             Events.on('gps:position', (pos) => {
                 state.currentPosition = pos;
             });
+            
+            // Also listen for manual position changes
+            Events.on('gps:manualPositionSet', (pos) => {
+                state.currentPosition = {
+                    lat: pos.lat,
+                    lon: pos.lon,
+                    accuracy: null,
+                    timestamp: new Date(),
+                    isManual: true
+                };
+            });
         }
         
-        // Also try native geolocation
-        if ('geolocation' in navigator) {
+        // Fallback to native geolocation (only if no position from GPSModule)
+        if (!state.currentPosition && 'geolocation' in navigator) {
             navigator.geolocation.watchPosition(
                 (pos) => {
-                    if (!state.currentPosition) {
+                    if (!state.currentPosition || !state.currentPosition.isManual) {
                         state.currentPosition = {
                             lat: pos.coords.latitude,
                             lon: pos.coords.longitude,
                             accuracy: pos.coords.accuracy,
-                            timestamp: new Date()
+                            timestamp: new Date(),
+                            isManual: false
                         };
                     }
                 },
@@ -1024,6 +1064,24 @@ const SOSModule = (function() {
         const getPos = container.querySelector('#get-position-btn');
         if (getPos) {
             getPos.onclick = () => {
+                // First check GPSModule for existing position (including manual)
+                if (typeof GPSModule !== 'undefined') {
+                    const gpsPos = GPSModule.getPosition();
+                    if (gpsPos && gpsPos.lat && gpsPos.lon) {
+                        state.currentPosition = {
+                            lat: gpsPos.lat,
+                            lon: gpsPos.lon,
+                            accuracy: gpsPos.accuracy || null,
+                            timestamp: new Date(),
+                            isManual: gpsPos.isManual || false
+                        };
+                        PanelsModule.render();
+                        ModalsModule.showToast(gpsPos.isManual ? 'Using manual position' : 'Position acquired', 'success');
+                        return;
+                    }
+                }
+                
+                // Fallback to browser geolocation
                 if ('geolocation' in navigator) {
                     navigator.geolocation.getCurrentPosition(
                         (pos) => {
@@ -1031,15 +1089,18 @@ const SOSModule = (function() {
                                 lat: pos.coords.latitude,
                                 lon: pos.coords.longitude,
                                 accuracy: pos.coords.accuracy,
-                                timestamp: new Date()
+                                timestamp: new Date(),
+                                isManual: false
                             };
                             PanelsModule.render();
                             ModalsModule.showToast('Position acquired', 'success');
                         },
                         (err) => {
-                            ModalsModule.showToast('Could not get position', 'error');
+                            ModalsModule.showToast('Could not get position. Try setting manual position in Team panel.', 'error');
                         }
                     );
+                } else {
+                    ModalsModule.showToast('Geolocation not supported. Set manual position in Team panel.', 'error');
                 }
             };
         }

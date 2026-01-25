@@ -1,13 +1,14 @@
 /**
  * GridDown GPS Module
  * Supports internal (browser Geolocation) and external (USB/Serial NMEA) GPS devices
+ * Also supports manual position entry for use without GPS
  */
 const GPSModule = (function() {
     'use strict';
 
     // GPS State
     let state = {
-        source: null,           // 'internal', 'serial', or null
+        source: null,           // 'internal', 'serial', 'manual', or null
         isTracking: false,
         isRecording: false,
         currentPosition: null,
@@ -19,7 +20,12 @@ const GPSModule = (function() {
         satellites: null,
         hdop: null,
         fix: null,              // 'none', '2D', '3D'
-        error: null
+        error: null,
+        
+        // Manual position
+        manualPosition: null,   // { lat, lon, altitude?, name? }
+        preferManual: false,    // If true, use manual even when GPS available
+        manualSetAt: null       // When manual position was set
     };
 
     // Internal GPS (Geolocation API)
@@ -78,6 +84,13 @@ const GPSModule = (function() {
             if (prefs) {
                 minTrackInterval = prefs.trackInterval || 5000;
                 geolocationOptions.enableHighAccuracy = prefs.highAccuracy !== false;
+                
+                // Load manual position if saved
+                if (prefs.manualPosition) {
+                    state.manualPosition = prefs.manualPosition;
+                    state.manualSetAt = prefs.manualSetAt || null;
+                }
+                state.preferManual = prefs.preferManual || false;
             }
         } catch (e) {
             console.warn('Failed to load GPS preferences:', e);
@@ -89,7 +102,12 @@ const GPSModule = (function() {
      */
     async function savePreferences(prefs) {
         try {
-            await Storage.Settings.set('gpsPreferences', prefs);
+            // Merge with existing preferences
+            const existing = await Storage.Settings.get('gpsPreferences') || {};
+            const merged = { ...existing, ...prefs };
+            
+            await Storage.Settings.set('gpsPreferences', merged);
+            
             if (prefs.trackInterval) minTrackInterval = prefs.trackInterval;
             if (prefs.highAccuracy !== undefined) {
                 geolocationOptions.enableHighAccuracy = prefs.highAccuracy;
@@ -240,30 +258,55 @@ const GPSModule = (function() {
     }
 
     /**
-     * Get single position from internal GPS
+     * Get single position - first checks existing position (including manual), 
+     * then falls back to browser geolocation for fresh fix
      */
     function getCurrentPosition() {
         return new Promise((resolve, reject) => {
+            // First, check if we have any existing position (GPS tracking or manual)
+            const existingPos = getPosition();
+            if (existingPos && existingPos.lat && existingPos.lon) {
+                resolve({
+                    latitude: existingPos.lat,
+                    longitude: existingPos.lon,
+                    lat: existingPos.lat,
+                    lon: existingPos.lon,
+                    accuracy: state.accuracy || null,
+                    altitude: existingPos.altitude || state.altitude,
+                    speed: state.speed,
+                    heading: state.heading,
+                    timestamp: state.lastUpdate || new Date(),
+                    isManual: existingPos.isManual || false,
+                    source: existingPos.source || 'unknown'
+                });
+                return;
+            }
+            
+            // No existing position - try to get fresh GPS fix
             if (!state.hasGeolocation) {
-                reject(new Error('Geolocation not supported'));
+                reject(new Error('Geolocation not supported. Try setting manual position.'));
                 return;
             }
 
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const result = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
                         lat: position.coords.latitude,
                         lon: position.coords.longitude,
                         accuracy: position.coords.accuracy,
                         altitude: position.coords.altitude,
                         speed: position.coords.speed,
                         heading: position.coords.heading,
-                        timestamp: new Date(position.timestamp)
+                        timestamp: new Date(position.timestamp),
+                        isManual: false,
+                        source: 'internal'
                     };
                     resolve(result);
                 },
                 (error) => {
-                    reject(new Error(error.message || 'Failed to get position'));
+                    reject(new Error(error.message || 'Failed to get position. Try setting manual position.'));
                 },
                 geolocationOptions
             );
@@ -935,7 +978,35 @@ const GPSModule = (function() {
      * Get current position (if available)
      */
     function getPosition() {
-        return state.currentPosition ? { ...state.currentPosition } : null;
+        // Priority 1: If user prefers manual and manual is set, use it
+        if (state.preferManual && state.manualPosition) {
+            return { 
+                ...state.manualPosition,
+                source: 'manual',
+                isManual: true
+            };
+        }
+        
+        // Priority 2: If GPS is active, use GPS position
+        if (state.currentPosition) {
+            return { 
+                ...state.currentPosition,
+                source: state.source || 'gps',
+                isManual: false
+            };
+        }
+        
+        // Priority 3: Fallback to manual position if set
+        if (state.manualPosition) {
+            return { 
+                ...state.manualPosition,
+                source: 'manual',
+                isManual: true
+            };
+        }
+        
+        // No position available
+        return null;
     }
 
     /**
@@ -947,6 +1018,186 @@ const GPSModule = (function() {
         stopSimulation();  // Also stop any running simulation
         if (state.isRecording) {
             stopRecording();
+        }
+    }
+
+    // ==========================================
+    // Manual Position Entry
+    // ==========================================
+
+    /**
+     * Set manual position
+     * @param {number} lat - Latitude in decimal degrees
+     * @param {number} lon - Longitude in decimal degrees  
+     * @param {Object} options - Optional: altitude, name
+     * @returns {boolean} Success
+     */
+    function setManualPosition(lat, lon, options = {}) {
+        // Validate coordinates
+        if (typeof lat !== 'number' || typeof lon !== 'number') {
+            console.warn('Invalid coordinates for manual position');
+            return false;
+        }
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            console.warn('Coordinates out of range');
+            return false;
+        }
+        
+        state.manualPosition = {
+            lat: lat,
+            lon: lon,
+            altitude: options.altitude || null,
+            name: options.name || null
+        };
+        state.manualSetAt = Date.now();
+        
+        // Save to preferences
+        saveManualPosition();
+        
+        // Notify subscribers
+        notifySubscribers();
+        
+        // Emit event
+        if (typeof Events !== 'undefined') {
+            Events.emit('gps:manualPositionSet', state.manualPosition);
+        }
+        
+        console.log('Manual position set:', state.manualPosition);
+        return true;
+    }
+
+    /**
+     * Set manual position from coordinate string
+     * Supports DD, DMS, DDM, UTM, MGRS formats
+     * @param {string} coordString - Coordinate string in any supported format
+     * @param {Object} options - Optional: altitude, name
+     * @returns {boolean} Success
+     */
+    function setManualPositionFromString(coordString, options = {}) {
+        if (typeof Coordinates === 'undefined') {
+            console.warn('Coordinates module not available');
+            return false;
+        }
+        
+        const parsed = Coordinates.parse(coordString);
+        if (!parsed) {
+            console.warn('Could not parse coordinate string:', coordString);
+            return false;
+        }
+        
+        return setManualPosition(parsed.lat, parsed.lon, options);
+    }
+
+    /**
+     * Get manual position
+     * @returns {Object|null} Manual position or null
+     */
+    function getManualPosition() {
+        return state.manualPosition ? { ...state.manualPosition } : null;
+    }
+
+    /**
+     * Clear manual position
+     */
+    function clearManualPosition() {
+        state.manualPosition = null;
+        state.manualSetAt = null;
+        
+        // Save to preferences
+        saveManualPosition();
+        
+        // Notify subscribers
+        notifySubscribers();
+        
+        // Emit event
+        if (typeof Events !== 'undefined') {
+            Events.emit('gps:manualPositionCleared');
+        }
+        
+        console.log('Manual position cleared');
+    }
+
+    /**
+     * Check if manual position is set
+     * @returns {boolean}
+     */
+    function hasManualPosition() {
+        return state.manualPosition !== null;
+    }
+
+    /**
+     * Check if currently using manual position
+     * @returns {boolean}
+     */
+    function isUsingManualPosition() {
+        // Using manual if: preferManual is set, OR no GPS is active but manual is set
+        if (state.preferManual && state.manualPosition) {
+            return true;
+        }
+        if (!state.currentPosition && state.manualPosition) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Set whether to prefer manual position over GPS
+     * @param {boolean} prefer
+     */
+    function setPreferManual(prefer) {
+        state.preferManual = !!prefer;
+        
+        // Save preference
+        savePreferences({ preferManual: state.preferManual });
+        
+        // Notify subscribers
+        notifySubscribers();
+        
+        // Emit event
+        if (typeof Events !== 'undefined') {
+            Events.emit('gps:preferManualChanged', state.preferManual);
+        }
+    }
+
+    /**
+     * Get whether preferring manual position
+     * @returns {boolean}
+     */
+    function isPreferManual() {
+        return state.preferManual;
+    }
+
+    /**
+     * Save manual position to storage
+     */
+    async function saveManualPosition() {
+        try {
+            const prefs = await Storage.Settings.get('gpsPreferences') || {};
+            prefs.manualPosition = state.manualPosition;
+            prefs.manualSetAt = state.manualSetAt;
+            await Storage.Settings.set('gpsPreferences', prefs);
+        } catch (e) {
+            console.warn('Failed to save manual position:', e);
+        }
+    }
+
+    /**
+     * Get position source description
+     * @returns {string} Description of current position source
+     */
+    function getPositionSource() {
+        const pos = getPosition();
+        if (!pos) return 'none';
+        
+        if (pos.isManual) {
+            return state.preferManual ? 'manual (preferred)' : 'manual (fallback)';
+        }
+        
+        switch (state.source) {
+            case 'internal': return 'GPS (internal)';
+            case 'serial': return 'GPS (external)';
+            case 'simulation': return 'simulation';
+            default: return 'GPS';
         }
     }
 
@@ -1045,6 +1296,17 @@ const GPSModule = (function() {
         isSerialAvailable,
         connectSerialGPS,
         disconnectSerialGPS,
+        
+        // Manual Position
+        setManualPosition,
+        setManualPositionFromString,
+        getManualPosition,
+        clearManualPosition,
+        hasManualPosition,
+        isUsingManualPosition,
+        setPreferManual,
+        isPreferManual,
+        getPositionSource,
         
         // Track recording
         startRecording,

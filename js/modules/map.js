@@ -1517,7 +1517,7 @@ const MapModule = (function() {
         if (isConnected && currentReading.doseRate > 0) {
             let pos = null;
             if (typeof GPSModule !== 'undefined') {
-                pos = GPSModule.getCurrentPosition();
+                pos = GPSModule.getPosition();
             }
             
             if (pos && pos.lat && pos.lon) {
@@ -2761,8 +2761,28 @@ const MapModule = (function() {
         };
         
         container.querySelector('#locate-btn').onclick = () => {
-            // Use GPSModule if available for proper tracking
+            // Use GPSModule if available
             if (typeof GPSModule !== 'undefined') {
+                // First check for any available position (GPS or manual)
+                const existingPos = GPSModule.getPosition();
+                if (existingPos && existingPos.lat && existingPos.lon) {
+                    // Center on existing position immediately
+                    mapState.lat = existingPos.lat;
+                    mapState.lon = existingPos.lon;
+                    mapState.zoom = Math.max(mapState.zoom, 15);
+                    document.getElementById('zoom-level').textContent = mapState.zoom + 'z';
+                    updateScaleBar();
+                    render();
+                    saveMapPosition();
+                    
+                    if (existingPos.isManual) {
+                        ModalsModule.showToast('Centered on manual position', 'success');
+                    } else {
+                        ModalsModule.showToast('Centered on GPS position', 'success');
+                    }
+                    return;
+                }
+                
                 const gpsState = GPSModule.getState();
                 
                 // Start GPS tracking if not already active
@@ -2771,7 +2791,7 @@ const MapModule = (function() {
                     GPSModule.startInternalGPS();
                 }
                 
-                // Get current position and center map
+                // Get fresh position asynchronously
                 GPSModule.getCurrentPosition().then(pos => {
                     if (pos && pos.latitude && pos.longitude) {
                         mapState.lat = pos.latitude;
@@ -2787,7 +2807,7 @@ const MapModule = (function() {
                     }
                 }).catch(err => {
                     console.error('GPS position error:', err);
-                    ModalsModule.showToast('Could not get GPS position', 'error');
+                    ModalsModule.showToast('Could not get GPS position. Try setting manual position.', 'error');
                 });
             } else if ('geolocation' in navigator) {
                 // Fallback to direct geolocation API

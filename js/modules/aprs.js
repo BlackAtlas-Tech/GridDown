@@ -1537,28 +1537,30 @@ const APRSModule = (function() {
     // ==================== Utilities ====================
 
     /**
-     * Get current position from GPS
+     * Get current position from GPS or manual entry
      */
     function getCurrentPosition() {
         return new Promise((resolve, reject) => {
-            if (!navigator.geolocation) {
-                reject(new Error('Geolocation not available'));
-                return;
-            }
-            
-            // Try to get from GPSModule first
+            // Try to get from GPSModule first (includes manual position support)
             if (typeof GPSModule !== 'undefined') {
-                const gpsPos = GPSModule.getCurrentPosition();
+                const gpsPos = GPSModule.getPosition();
                 if (gpsPos && gpsPos.lat && gpsPos.lon) {
                     resolve({
                         lat: gpsPos.lat,
                         lon: gpsPos.lon,
                         altitude: gpsPos.altitude,
-                        speed: gpsPos.speed,
-                        course: gpsPos.heading
+                        speed: gpsPos.speed || 0,
+                        course: gpsPos.heading || 0,
+                        isManual: gpsPos.isManual || false
                     });
                     return;
                 }
+            }
+            
+            // Fallback to browser geolocation if no position available
+            if (!navigator.geolocation) {
+                reject(new Error('Geolocation not available'));
+                return;
             }
             
             navigator.geolocation.getCurrentPosition(

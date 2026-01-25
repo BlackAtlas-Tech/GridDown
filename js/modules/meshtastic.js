@@ -554,18 +554,40 @@ const MeshtasticModule = (function() {
     }
     
     /**
-     * Get current GPS position
+     * Get current GPS position (checks GPSModule first, including manual position)
      */
     function getCurrentPosition() {
         return new Promise((resolve, reject) => {
+            // First check GPSModule for existing position (including manual)
+            if (typeof GPSModule !== 'undefined') {
+                const gpsPos = GPSModule.getPosition();
+                if (gpsPos && gpsPos.lat && gpsPos.lon) {
+                    resolve({
+                        latitude: gpsPos.lat,
+                        longitude: gpsPos.lon,
+                        altitude: gpsPos.altitude || null,
+                        accuracy: null,
+                        isManual: gpsPos.isManual || false
+                    });
+                    return;
+                }
+            }
+            
+            // Fallback to browser geolocation
             if (!navigator.geolocation) {
-                reject(new Error('Geolocation not supported'));
+                reject(new Error('No position available. Try setting manual position.'));
                 return;
             }
             
             navigator.geolocation.getCurrentPosition(
-                (pos) => resolve(pos.coords),
-                (err) => reject(err),
+                (pos) => resolve({
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    altitude: pos.coords.altitude,
+                    accuracy: pos.coords.accuracy,
+                    isManual: false
+                }),
+                (err) => reject(new Error(err.message + '. Try setting manual position.')),
                 { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
             );
         });

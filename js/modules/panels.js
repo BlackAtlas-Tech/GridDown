@@ -2495,10 +2495,10 @@ const PanelsModule = (function() {
                 </div>
                 <div style="max-height:200px;overflow-y:auto;margin-bottom:12px">
                     ${(() => {
-                        // Get current GPS position for distance calculations
+                        // Get current GPS or manual position for distance calculations
                         let myPos = null;
                         if (typeof GPSModule !== 'undefined') {
-                            const gpsPos = GPSModule.getCurrentPosition();
+                            const gpsPos = GPSModule.getPosition();
                             if (gpsPos && gpsPos.lat && gpsPos.lon) {
                                 myPos = { lat: gpsPos.lat, lon: gpsPos.lon };
                             }
@@ -2565,7 +2565,7 @@ const PanelsModule = (function() {
                     // GPS status message for distance display
                     let myPos = null;
                     if (typeof GPSModule !== 'undefined') {
-                        const gpsPos = GPSModule.getCurrentPosition();
+                        const gpsPos = GPSModule.getPosition();
                         if (gpsPos && gpsPos.lat && gpsPos.lon) {
                             myPos = gpsPos;
                         }
@@ -2573,7 +2573,7 @@ const PanelsModule = (function() {
                     if (!myPos) {
                         return `
                             <div style="padding:8px;background:rgba(59,130,246,0.1);border-radius:8px;font-size:11px;color:rgba(255,255,255,0.5);text-align:center;margin-bottom:12px">
-                                📍 Enable GPS to see distance/bearing to stations
+                                📍 Enable GPS or set manual position to see distance/bearing to stations
                             </div>
                         `;
                     }
@@ -2679,6 +2679,389 @@ const PanelsModule = (function() {
                 }
             };
         });
+    }
+
+    // ==================== Position Helper Functions ====================
+
+    /**
+     * Render Position section for Team panel
+     * Supports GPS (internal/external) and manual position entry
+     */
+    function renderPositionSection() {
+        if (typeof GPSModule === 'undefined') {
+            return `
+                <div class="section-label">📍 My Position</div>
+                <div style="padding:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:12px;margin-bottom:16px">
+                    <div style="font-size:12px;color:rgba(255,255,255,0.5);text-align:center">
+                        GPS module not loaded
+                    </div>
+                </div>
+            `;
+        }
+        
+        const gpsState = GPSModule.getState();
+        const currentPos = GPSModule.getPosition();
+        const manualPos = GPSModule.getManualPosition();
+        const isGPSActive = GPSModule.isActive();
+        const isUsingManual = GPSModule.isUsingManualPosition();
+        const preferManual = GPSModule.isPreferManual();
+        const positionSource = GPSModule.getPositionSource();
+        
+        // Format current position for display
+        let positionDisplay = 'No position available';
+        let positionColor = 'rgba(255,255,255,0.4)';
+        
+        if (currentPos) {
+            if (typeof Coordinates !== 'undefined') {
+                positionDisplay = Coordinates.format(currentPos.lat, currentPos.lon);
+            } else {
+                positionDisplay = `${currentPos.lat.toFixed(6)}, ${currentPos.lon.toFixed(6)}`;
+            }
+            positionColor = isUsingManual ? '#a855f7' : '#22c55e';  // Purple for manual, green for GPS
+        }
+        
+        // Source indicator
+        const sourceIcon = isUsingManual ? '📌' : (isGPSActive ? '🛰️' : '📍');
+        const sourceText = positionSource !== 'none' ? positionSource : 'not set';
+        
+        return `
+            <div style="margin-bottom:20px">
+                <div class="section-label" style="display:flex;align-items:center;gap:8px">
+                    📍 My Position
+                    <span style="font-size:10px;color:rgba(255,255,255,0.3);font-weight:400">GPS or Manual Entry</span>
+                </div>
+                
+                <!-- Current Position Card -->
+                <div style="padding:14px;background:${currentPos ? 'rgba(34,197,94,0.05)' : 'rgba(255,255,255,0.03)'};border:1px solid ${currentPos ? (isUsingManual ? 'rgba(168,85,247,0.3)' : 'rgba(34,197,94,0.3)') : 'rgba(255,255,255,0.1)'};border-radius:12px;margin-bottom:12px">
+                    
+                    <!-- Position Display -->
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                        <div style="width:40px;height:40px;border-radius:10px;background:${currentPos ? (isUsingManual ? 'rgba(168,85,247,0.2)' : 'rgba(34,197,94,0.2)') : 'rgba(255,255,255,0.05)'};display:flex;align-items:center;justify-content:center">
+                            <span style="font-size:20px">${sourceIcon}</span>
+                        </div>
+                        <div style="flex:1">
+                            <div style="font-size:13px;font-weight:600;color:${positionColor};font-family:monospace;letter-spacing:0.5px">
+                                ${positionDisplay}
+                            </div>
+                            <div style="font-size:11px;color:rgba(255,255,255,0.5)">
+                                Source: ${sourceText}
+                                ${gpsState.accuracy ? ` • ±${Math.round(gpsState.accuracy)}m` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- GPS Controls -->
+                    <div style="display:flex;gap:8px;margin-bottom:${manualPos || !isGPSActive ? '12px' : '0'}">
+                        ${isGPSActive ? `
+                            <button class="btn btn--secondary position-gps-stop-btn" style="flex:1;font-size:12px;padding:8px">
+                                ⏹️ Stop GPS
+                            </button>
+                        ` : `
+                            <button class="btn btn--primary position-gps-start-btn" style="flex:1;font-size:12px;padding:8px">
+                                🛰️ Start GPS
+                            </button>
+                        `}
+                        <button class="btn btn--secondary position-manual-btn" style="font-size:12px;padding:8px" title="Enter position manually">
+                            ✏️ Manual
+                        </button>
+                        ${currentPos ? `
+                            <button class="btn btn--secondary position-center-btn" style="font-size:12px;padding:8px" title="Center map on position">
+                                🎯
+                            </button>
+                        ` : ''}
+                    </div>
+                    
+                    ${manualPos ? `
+                        <!-- Manual Position Info -->
+                        <div style="padding:10px;background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.2);border-radius:8px;margin-bottom:8px">
+                            <div style="display:flex;justify-content:space-between;align-items:center">
+                                <div>
+                                    <div style="font-size:10px;color:rgba(168,85,247,0.8);margin-bottom:2px">MANUAL POSITION SET</div>
+                                    <div style="font-size:12px;font-family:monospace;color:#a855f7">
+                                        ${manualPos.lat.toFixed(6)}, ${manualPos.lon.toFixed(6)}
+                                        ${manualPos.name ? ` (${manualPos.name})` : ''}
+                                    </div>
+                                </div>
+                                <button class="btn btn--secondary position-clear-manual-btn" style="font-size:10px;padding:4px 8px;color:#ef4444">
+                                    ✕ Clear
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Prefer Manual Toggle -->
+                        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,0.7);cursor:pointer">
+                            <input type="checkbox" class="position-prefer-manual-checkbox" ${preferManual ? 'checked' : ''} style="width:16px;height:16px">
+                            <span>Prefer manual position (even when GPS available)</span>
+                        </label>
+                    ` : ''}
+                </div>
+                
+                <!-- Quick Position Formats (collapsed by default) -->
+                <details style="margin-bottom:8px">
+                    <summary style="font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;padding:4px 0">
+                        Position in other formats...
+                    </summary>
+                    ${currentPos ? `
+                        <div style="padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:8px;font-size:11px;font-family:monospace">
+                            ${typeof Coordinates !== 'undefined' ? `
+                                <div style="margin-bottom:4px"><span style="color:rgba(255,255,255,0.4)">DD:</span> ${Coordinates.toDD(currentPos.lat, currentPos.lon)}</div>
+                                <div style="margin-bottom:4px"><span style="color:rgba(255,255,255,0.4)">DMS:</span> ${Coordinates.toDMS(currentPos.lat, currentPos.lon)}</div>
+                                <div style="margin-bottom:4px"><span style="color:rgba(255,255,255,0.4)">UTM:</span> ${Coordinates.toUTM(currentPos.lat, currentPos.lon)}</div>
+                                <div><span style="color:rgba(255,255,255,0.4)">MGRS:</span> ${Coordinates.toMGRS(currentPos.lat, currentPos.lon)}</div>
+                            ` : `
+                                <div>${currentPos.lat.toFixed(6)}, ${currentPos.lon.toFixed(6)}</div>
+                            `}
+                        </div>
+                    ` : `
+                        <div style="padding:10px;background:rgba(255,255,255,0.03);border-radius:8px;margin-top:8px;font-size:11px;color:rgba(255,255,255,0.4)">
+                            No position set
+                        </div>
+                    `}
+                </details>
+            </div>
+        `;
+    }
+
+    /**
+     * Attach Position section event handlers
+     */
+    function attachPositionHandlers() {
+        if (typeof GPSModule === 'undefined') return;
+        
+        // Start GPS button
+        const startBtn = container.querySelector('.position-gps-start-btn');
+        if (startBtn) {
+            startBtn.onclick = () => {
+                GPSModule.startInternalGPS();
+                renderTeam();
+            };
+        }
+        
+        // Stop GPS button
+        const stopBtn = container.querySelector('.position-gps-stop-btn');
+        if (stopBtn) {
+            stopBtn.onclick = () => {
+                GPSModule.stopInternalGPS();
+                renderTeam();
+            };
+        }
+        
+        // Manual entry button
+        const manualBtn = container.querySelector('.position-manual-btn');
+        if (manualBtn) {
+            manualBtn.onclick = () => {
+                openManualPositionModal();
+            };
+        }
+        
+        // Center map button
+        const centerBtn = container.querySelector('.position-center-btn');
+        if (centerBtn) {
+            centerBtn.onclick = () => {
+                const pos = GPSModule.getPosition();
+                if (pos && typeof MapModule !== 'undefined') {
+                    MapModule.centerOn(pos.lat, pos.lon);
+                }
+            };
+        }
+        
+        // Clear manual position button
+        const clearBtn = container.querySelector('.position-clear-manual-btn');
+        if (clearBtn) {
+            clearBtn.onclick = () => {
+                GPSModule.clearManualPosition();
+                renderTeam();
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Manual position cleared', 'info');
+                }
+            };
+        }
+        
+        // Prefer manual checkbox
+        const preferCheckbox = container.querySelector('.position-prefer-manual-checkbox');
+        if (preferCheckbox) {
+            preferCheckbox.onchange = () => {
+                GPSModule.setPreferManual(preferCheckbox.checked);
+                renderTeam();
+            };
+        }
+    }
+
+    /**
+     * Open manual position entry modal
+     */
+    function openManualPositionModal() {
+        if (typeof ModalsModule === 'undefined') return;
+        
+        const currentManual = typeof GPSModule !== 'undefined' ? GPSModule.getManualPosition() : null;
+        
+        const content = `
+            <div style="padding:20px">
+                <h3 style="margin:0 0 16px 0;font-size:18px">📌 Set Manual Position</h3>
+                
+                <p style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:16px">
+                    Enter coordinates in any format: Decimal Degrees (37.4215, -119.1892), 
+                    DMS (37° 25' 17.4" N, 119° 11' 21.1" W), UTM, or MGRS.
+                </p>
+                
+                <!-- Coordinate Input -->
+                <div style="margin-bottom:16px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Coordinates</label>
+                    <input type="text" id="manual-position-input" 
+                        placeholder="e.g., 37.4215, -119.1892 or 37° 25' 17.4&quot; N, 119° 11' 21.1&quot; W"
+                        value="${currentManual ? `${currentManual.lat}, ${currentManual.lon}` : ''}"
+                        style="width:100%;padding:12px;font-size:14px;font-family:monospace;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
+                </div>
+                
+                <!-- Quick Examples -->
+                <div style="margin-bottom:16px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">SUPPORTED FORMATS</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px">
+                        <button class="btn btn--secondary manual-pos-example" data-example="37.4215, -119.1892" style="font-size:10px;padding:4px 8px">DD</button>
+                        <button class="btn btn--secondary manual-pos-example" data-example="37° 25' 17.4&quot; N, 119° 11' 21.1&quot; W" style="font-size:10px;padding:4px 8px">DMS</button>
+                        <button class="btn btn--secondary manual-pos-example" data-example="11S 318234 4143234" style="font-size:10px;padding:4px 8px">UTM</button>
+                        <button class="btn btn--secondary manual-pos-example" data-example="11SLA1823443234" style="font-size:10px;padding:4px 8px">MGRS</button>
+                    </div>
+                </div>
+                
+                <!-- Optional Name -->
+                <div style="margin-bottom:16px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Location Name (optional)</label>
+                    <input type="text" id="manual-position-name" 
+                        placeholder="e.g., Base Camp, Observation Post"
+                        value="${currentManual?.name || ''}"
+                        style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
+                </div>
+                
+                <!-- Optional Altitude -->
+                <div style="margin-bottom:20px">
+                    <label style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:4px;display:block">Altitude in meters (optional)</label>
+                    <input type="number" id="manual-position-altitude" 
+                        placeholder="e.g., 1500"
+                        value="${currentManual?.altitude || ''}"
+                        style="width:100%;padding:10px;font-size:13px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:white">
+                </div>
+                
+                <!-- Parse Preview -->
+                <div id="manual-position-preview" style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:16px;min-height:40px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>
+                </div>
+                
+                <!-- Action Buttons -->
+                <div style="display:flex;gap:10px">
+                    <button class="btn btn--secondary" onclick="ModalsModule.closeModal()" style="flex:1">Cancel</button>
+                    <button class="btn btn--primary" id="manual-position-save-btn" style="flex:1">📌 Set Position</button>
+                </div>
+            </div>
+        `;
+        
+        ModalsModule.openModal(content, { width: '420px' });
+        
+        // Setup event handlers after modal is open
+        setTimeout(() => {
+            const input = document.getElementById('manual-position-input');
+            const preview = document.getElementById('manual-position-preview');
+            const saveBtn = document.getElementById('manual-position-save-btn');
+            
+            // Live preview of coordinate parsing
+            if (input && preview) {
+                const updatePreview = () => {
+                    const value = input.value.trim();
+                    if (!value) {
+                        preview.innerHTML = '<div style="font-size:11px;color:rgba(255,255,255,0.4)">Enter coordinates to preview...</div>';
+                        return;
+                    }
+                    
+                    if (typeof Coordinates !== 'undefined') {
+                        const parsed = Coordinates.parse(value);
+                        if (parsed) {
+                            preview.innerHTML = `
+                                <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates detected</div>
+                                <div style="font-size:13px;font-family:monospace;color:white">${parsed.lat.toFixed(6)}, ${parsed.lon.toFixed(6)}</div>
+                                <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">${Coordinates.toDD(parsed.lat, parsed.lon)}</div>
+                            `;
+                        } else {
+                            preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
+                        }
+                    } else {
+                        // Fallback: try simple decimal parsing
+                        const match = value.match(/^([-\d.]+)[,\s]+([-\d.]+)$/);
+                        if (match) {
+                            const lat = parseFloat(match[1]);
+                            const lon = parseFloat(match[2]);
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                                preview.innerHTML = `
+                                    <div style="font-size:11px;color:#22c55e;margin-bottom:4px">✓ Valid coordinates</div>
+                                    <div style="font-size:13px;font-family:monospace;color:white">${lat.toFixed(6)}, ${lon.toFixed(6)}</div>
+                                `;
+                            } else {
+                                preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Invalid coordinates</div>';
+                            }
+                        } else {
+                            preview.innerHTML = '<div style="font-size:11px;color:#ef4444">✗ Could not parse coordinates</div>';
+                        }
+                    }
+                };
+                
+                input.addEventListener('input', updatePreview);
+                updatePreview();  // Initial preview if value exists
+            }
+            
+            // Example buttons
+            document.querySelectorAll('.manual-pos-example').forEach(btn => {
+                btn.onclick = () => {
+                    if (input) {
+                        input.value = btn.dataset.example;
+                        input.dispatchEvent(new Event('input'));
+                    }
+                };
+            });
+            
+            // Save button
+            if (saveBtn) {
+                saveBtn.onclick = () => {
+                    const coordInput = document.getElementById('manual-position-input');
+                    const nameInput = document.getElementById('manual-position-name');
+                    const altInput = document.getElementById('manual-position-altitude');
+                    
+                    if (!coordInput || !coordInput.value.trim()) {
+                        ModalsModule.showToast('Please enter coordinates', 'error');
+                        return;
+                    }
+                    
+                    const options = {};
+                    if (nameInput && nameInput.value.trim()) {
+                        options.name = nameInput.value.trim();
+                    }
+                    if (altInput && altInput.value) {
+                        options.altitude = parseFloat(altInput.value);
+                    }
+                    
+                    let success = false;
+                    if (typeof GPSModule !== 'undefined') {
+                        success = GPSModule.setManualPositionFromString(coordInput.value, options);
+                    }
+                    
+                    if (success) {
+                        ModalsModule.closeModal();
+                        ModalsModule.showToast('Manual position set', 'success');
+                        renderTeam();
+                        
+                        // Center map on new position
+                        const pos = GPSModule.getPosition();
+                        if (pos && typeof MapModule !== 'undefined') {
+                            MapModule.centerOn(pos.lat, pos.lon);
+                            MapModule.render();
+                        }
+                    } else {
+                        ModalsModule.showToast('Could not parse coordinates. Check format.', 'error');
+                    }
+                };
+            }
+            
+            // Focus input
+            if (input) input.focus();
+        }, 100);
     }
 
     // ==================== RadiaCode Helper Functions ====================
@@ -3519,6 +3902,11 @@ const PanelsModule = (function() {
             
             <div class="divider"></div>
             
+            <!-- My Position Section -->
+            ${renderPositionSection()}
+            
+            <div class="divider"></div>
+            
             <!-- APRS Section -->
             ${renderAPRSSection()}
             
@@ -3871,6 +4259,9 @@ const PanelsModule = (function() {
                 }
             };
         });
+        
+        // === POSITION EVENT HANDLERS ===
+        attachPositionHandlers();
         
         // === APRS EVENT HANDLERS ===
         attachAPRSHandlers();
@@ -4460,6 +4851,18 @@ const PanelsModule = (function() {
         
         // Use GPS button
         modalContainer.querySelector('#use-gps-btn').onclick = () => {
+            // First check GPSModule for existing position (including manual)
+            if (typeof GPSModule !== 'undefined') {
+                const gpsPos = GPSModule.getPosition();
+                if (gpsPos && gpsPos.lat && gpsPos.lon) {
+                    modalContainer.querySelector('#rally-lat').value = gpsPos.lat.toFixed(4);
+                    modalContainer.querySelector('#rally-lon').value = gpsPos.lon.toFixed(4);
+                    ModalsModule.showToast(gpsPos.isManual ? 'Manual position set' : 'GPS location set', 'success');
+                    return;
+                }
+            }
+            
+            // Fallback to browser geolocation
             if ('geolocation' in navigator) {
                 navigator.geolocation.getCurrentPosition(
                     (pos) => {
@@ -4468,12 +4871,12 @@ const PanelsModule = (function() {
                         ModalsModule.showToast('GPS location set', 'success');
                     },
                     (err) => {
-                        ModalsModule.showToast('Could not get GPS: ' + err.message, 'error');
+                        ModalsModule.showToast('Could not get GPS. Try setting manual position in Team panel.', 'error');
                     },
                     { enableHighAccuracy: true }
                 );
             } else {
-                ModalsModule.showToast('Geolocation not supported', 'error');
+                ModalsModule.showToast('Geolocation not supported. Set manual position in Team panel.', 'error');
             }
         };
         
