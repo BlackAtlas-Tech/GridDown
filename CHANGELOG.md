@@ -1,0 +1,234 @@
+# Changelog
+
+All notable changes to GridDown will be documented in this file.
+
+## [6.4.0] - 2025-01-25
+
+### Fixed
+- **Medical Reference module now fully integrated** - Added compatibility adapter methods to connect the comprehensive medical database (50+ protocols) with the UI layer
+- Medical module initialization properly called in app.js
+
+### Enhanced
+- **Medical Protocol categories now render correctly** - getCategories(), getMedCategories(), getProtocol() methods added
+- **Medication reference accessible** - getAllMedications(), getMedicationsByCategory() methods for drug lookup
+- **Protocol transformation** - Converts internal protocol format to UI-friendly steps with titles and warnings
+
+### Technical
+- Added MedicalModule.init() call to application bootstrap sequence
+- Service worker cache version updated to v6.4.0
+- Medical module now properly exposes public API for panels.js consumption
+
+## [6.2.2] - 2025-01-23
+
+### Fixed
+- **Toast notifications no longer stack on rapid clicks** - New toasts now replace existing ones instead of piling up
+- Toast duration reduced from 1500ms to 1200ms with smooth fade-out animation
+
+### Changed
+- Version number now consistent across manifest.json, service worker, and UI
+
+## [6.2.1] - 2025-01-23
+
+### Fixed
+- Toast notification timing improved with fade-out animation
+
+## [6.2.0] - 2025-01-22
+
+### Added
+- Comprehensive ARIA accessibility attributes across all modules
+- Skip-to-content link for keyboard navigation
+- Focus indicators for all interactive elements
+- Reduced motion support for users who prefer it
+
+### Fixed
+- Screen reader compatibility improvements
+
+## [6.1.0] - 2025-01-22
+
+### Added
+- **Onboarding tour** for first-time users with 9-step walkthrough
+- Welcome modal with feature highlights
+- Progress indicators and keyboard navigation (Esc/Enter/Arrow keys)
+
+## [6.0.0] - 2025-01-21
+
+### Added
+- **Search panel** with location geocoding via Nominatim
+- **Coordinate tools** - Parse any format, convert between DD/DMS/DDM/UTM/MGRS
+- **Distance calculator** between two coordinates
+- Night mode toggle in sidebar (red light and blackout modes)
+- Measurement tool for distance and area on map
+
+### Changed
+- Major UI refinements across all panels
+- Improved mobile responsiveness
+
+## [5.2.0] - 2025-01-21
+
+### Added
+- **Print/PDF export module** with multiple document types:
+  - Full operational plan
+  - Route cards with turn-by-turn directions
+  - Waypoint lists grouped by type
+  - Communication plan reference
+  - Quick reference card
+
+## [5.1.0] - 2025-01-21
+
+### Added
+- **Encrypted plan sharing** (.gdplan format) with AES-256-GCM encryption
+- Import/export plans with optional passphrase protection
+- Plan package includes waypoints, routes, and logistics config
+
+## [5.0.0] - 2025-01-20
+
+### Added
+- **Turn-by-turn navigation** with active guidance
+- Voice announcements for upcoming turns
+- Off-route detection and alerts
+- Breadcrumb trail recording
+- Compass bearing display
+
+## [4.0.0] - 2025-01-20
+
+### Added
+- **Communication plan module** with frequency management
+- **Radio frequency database** - FRS, GMRS, MURS, Marine, Amateur bands
+- Channel assignment for team coordination
+- NATO phonetic alphabet reference
+- **APRS integration** for position reporting
+- **Meshtastic support** for mesh networking
+
+## [3.6.0] - 2025-01-19
+
+### Added
+- **Terrain analysis panel** with comprehensive site evaluation:
+  - Slope analysis with trafficability assessment
+  - Viewshed calculation
+  - Solar exposure scoring
+  - Flood risk assessment
+  - Cover and concealment analysis
+
+## [3.5.0] - 2025-01-19
+
+### Added
+- **Weather integration** with Open-Meteo API
+- Current conditions and 7-day forecast
+- Weather alerts and warnings
+- Automatic logistics adjustment for temperature
+
+## [3.4.0] - 2025-01-18
+
+### Added
+- **Sun/Moon calculator** with rise/set times
+- Moon phase display
+- Golden hour and blue hour times
+- Twilight phases (civil, nautical, astronomical)
+
+## [3.3.0] - 2025-01-18
+
+### Added
+- **Magnetic declination module** with worldwide coverage
+- Auto-calculation based on location
+- True vs magnetic bearing conversion
+- Annual change rate display
+
+## [3.2.0] - 2025-01-17
+
+### Added
+- **Elevation profiles** for routes
+- Grade percentage calculations
+- Steep section identification
+- Elevation data from Open-Meteo API
+
+## [3.1.0] - 2025-01-17
+
+### Added
+- **KML/KMZ import and export** for Google Earth compatibility
+- Automatic format detection on import
+
+## [3.0.0] - 2025-01-16
+
+### Added
+- **Contingency planning module**
+- Bail-out point analysis with distance calculations
+- Checkpoint generation at configurable intervals
+- Risk assessment framework
+
+## [2.5.0] - 2025-01-15
+
+### Added
+- **SOS/Emergency module**
+- Emergency contact management
+- Signal mirror angle calculator
+- Distress signal reference
+
+## [2.4.0] - 2025-01-15
+
+### Added
+- **Undo/Redo system** for all operations
+- Keyboard shortcuts (Ctrl+Z, Ctrl+Shift+Z)
+- History tracking for waypoints, routes, and settings
+
+## [2.3.0] - 2025-01-14
+
+### Added
+- **Offline map download** by drawing polygons
+- Multiple zoom level selection
+- Download progress tracking
+- Storage usage dashboard
+
+## [2.2.0] - 2025-01-13
+
+### Added
+- **Multiple map sources** - 15+ tile providers
+- Layer switching button on map
+- USGS Topo, USFS, BLM, Satellite imagery support
+
+## [2.1.0] - 2025-01-12
+
+### Added
+- **GPS tracking** with real-time position updates
+- Track recording
+- Speed and heading display
+
+## [2.0.0] - 2025-01-11
+
+### Added
+- **Logistics calculator** with comprehensive analysis
+- Vehicle profiles (4x4, Jeep, ATV, Motorcycle)
+- Personnel profiles with water/calorie calculations
+- What-if scenario analysis
+
+### Changed
+- Complete UI redesign with improved dark theme
+
+## [1.3.0] - 2025-01-10
+
+### Added
+- **Route builder** with click-to-create interface
+- Terrain type selection per segment
+- Auto-calculation of distance and time
+
+## [1.2.0] - 2025-01-09
+
+### Added
+- **GPX import/export** with full GPX 1.1 support
+- Waypoint, route, and track parsing
+
+## [1.1.0] - 2025-01-08
+
+### Added
+- Real OpenStreetMap tile integration
+- Tile caching via service worker
+- Offline tile access
+
+## [1.0.0] - 2025-01-07
+
+### Added
+- Initial release
+- Basic map with procedural terrain
+- Waypoint management (7 types)
+- Route display
+- IndexedDB persistence
+- PWA with offline support
