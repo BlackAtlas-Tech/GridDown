@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.15.0';
+const CACHE_NAME = 'griddown-v6.16.0';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -29,6 +29,7 @@ const STATIC_ASSETS = [
     'js/modules/barometer.js',
     'js/modules/compatibility.js',
     'js/modules/networkstatus.js',
+    'js/modules/update.js',
     'js/modules/team.js',
     'js/app.js'
 ];
@@ -160,10 +161,13 @@ self.addEventListener('fetch', e => {
 });
 
 self.addEventListener('message', e => {
-    if (e.data === 'skipWaiting') {
+    const data = e.data;
+    
+    // Handle both string and object formats
+    if (data === 'skipWaiting' || (data && data.type === 'SKIP_WAITING')) {
         self.skipWaiting();
     }
-    if (e.data === 'getVersion') {
+    if (data === 'getVersion' || (data && data.type === 'GET_VERSION')) {
         e.source.postMessage({ type: 'SW_VERSION', version: CACHE_NAME });
     }
 });

@@ -2,6 +2,54 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.16.0] - 2025-01-27
+
+### Added
+- **Update Available Toast** - PWA update notifications:
+  
+  **Update Detection**:
+  - Listens for service worker update events
+  - Periodic update checks (every 5 minutes when tab active)
+  - Checks on visibility change (returning to tab)
+  - Detects waiting service workers
+
+  **User Interface**:
+  - Blue toast notification at bottom of screen
+  - Shows new version number
+  - "Refresh Now" button to apply update immediately
+  - "Later" button to dismiss temporarily
+  - Smooth slide-in/slide-out animations
+
+  **API**:
+  - `UpdateModule.isUpdateAvailable()` - Check if update pending
+  - `UpdateModule.getCurrentVersion()` - Get installed version
+  - `UpdateModule.applyUpdate()` - Force refresh to apply
+
+- **Feature-Specific Warnings** - Contextual compatibility alerts:
+  
+  **Integration Points**:
+  - Meshtastic: Web Bluetooth check before connection
+  - Meshtastic: Web Serial check before USB connection  
+  - APRS: Web Bluetooth check before TNC connection
+  - Radiacode: Web Bluetooth check before connection
+  - Barometer: Sensor API check before start
+
+  **Warning Modal**:
+  - Shows when user attempts unsupported feature
+  - Identifies the specific missing API
+  - Shows current browser and OS
+  - Recommends Chrome on Android for full support
+  - Non-blocking - user informed but not prevented
+
+### Changed
+- Service worker message handler now supports both string and object formats
+- Hardware connection functions now show visual warnings before throwing errors
+
+### Technical
+- New module: `js/modules/update.js` (~280 lines)
+- Modified: `meshtastic.js`, `aprs.js`, `radiacode.js`, `barometer.js`
+- SW message handler updated for SKIP_WAITING and GET_VERSION
+
 ## [6.15.0] - 2025-01-27
 
 ### Added
