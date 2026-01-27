@@ -3335,6 +3335,9 @@ const MapModule = (function() {
         render, 
         resize, 
         setCenter, 
+        getCenter: () => ({ lat: mapState.lat, lon: mapState.lon }),
+        setZoom: (z) => { mapState.zoom = Math.max(1, Math.min(18, z)); render(); },
+        getZoom: () => mapState.zoom,
         getMapState, 
         latLonToPixel, 
         pixelToLatLon,
@@ -3348,6 +3351,9 @@ const MapModule = (function() {
         resetBearing,
         updateCompassRose,
         destroy,
+        
+        // Request a render (for external modules)
+        requestRender: render,
         
         // Custom tile layers (for satellite weather, etc.)
         addCustomTileLayer,
