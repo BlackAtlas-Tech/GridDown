@@ -45,6 +45,18 @@ const App = (function() {
                 console.log('Update module initialized');
             }
             
+            // Initialize storage monitor
+            if (typeof StorageMonitorModule !== 'undefined') {
+                StorageMonitorModule.init();
+                console.log('Storage monitor initialized');
+            }
+            
+            // Initialize network quality monitor
+            if (typeof NetworkQualityModule !== 'undefined') {
+                NetworkQualityModule.init();
+                console.log('Network quality module initialized');
+            }
+            
             updateLoadingStatus('Rendering UI...');
 
             // Initialize modules
