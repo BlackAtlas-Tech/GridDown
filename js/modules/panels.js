@@ -429,6 +429,7 @@ const PanelsModule = (function() {
             case 'terrain': renderTerrain(); break;
             case 'radio': renderRadio(); break;
             case 'medical': renderMedical(); break;
+            case 'fieldguides': renderFieldGuides(); break;
             default: renderMapLayers();
         }
         const panelEl = document.getElementById('panel');
@@ -12670,7 +12671,556 @@ ${text}
         }
     }
 
+    // =====================================================
+    // FIELD GUIDES PANEL
+    // =====================================================
+    
+    let fieldGuidesState = {
+        activeCategory: null,
+        activeSubcategory: null,
+        selectedItem: null,
+        searchQuery: '',
+        view: 'categories' // 'categories', 'subcategories', 'items', 'detail', 'search', 'bookmarks'
+    };
+
+    function renderFieldGuides() {
+        if (typeof FieldGuidesModule === 'undefined') {
+            container.innerHTML = `
+                <div class="panel__header">
+                    <h2 class="panel__title">📚 Field Guides</h2>
+                </div>
+                <div class="empty-state">
+                    <div class="empty-state__icon">${Icons.get('book')}</div>
+                    <div class="empty-state__title">Field Guides Not Loaded</div>
+                    <div class="empty-state__desc">Survival reference features are not available</div>
+                </div>
+            `;
+            return;
+        }
+
+        const showBack = fieldGuidesState.view !== 'categories' || fieldGuidesState.searchQuery;
+
+        container.innerHTML = `
+            <div class="panel__header">
+                ${showBack ? `<button class="btn btn--icon" id="fg-back" title="Back">${Icons.get('arrowLeft')}</button>` : ''}
+                <h2 class="panel__title">📚 Field Guides</h2>
+                <button class="btn btn--icon" id="fg-bookmarks" title="Bookmarks" style="${fieldGuidesState.view === 'bookmarks' ? 'color:#f59e0b' : ''}">
+                    ${Icons.get('bookmarkFilled')}
+                </button>
+            </div>
+
+            <!-- Search -->
+            <div class="form-group" style="margin-bottom:12px">
+                <div style="position:relative">
+                    <input type="text" id="fg-search" placeholder="Search guides..." 
+                        value="${fieldGuidesState.searchQuery}" style="padding-left:36px">
+                    <span style="position:absolute;left:12px;top:50%;transform:translateY(-50%);opacity:0.4">
+                        ${Icons.get('zoomIn')}
+                    </span>
+                </div>
+            </div>
+
+            <div id="fg-content">
+                ${renderFieldGuidesContent()}
+            </div>
+        `;
+
+        attachFieldGuidesHandlers();
+    }
+
+    function renderFieldGuidesContent() {
+        if (fieldGuidesState.searchQuery && fieldGuidesState.searchQuery.length >= 2) {
+            return renderFieldGuidesSearch();
+        }
+
+        switch (fieldGuidesState.view) {
+            case 'bookmarks': return renderFieldGuidesBookmarks();
+            case 'subcategories': return renderFieldGuidesSubcategories();
+            case 'items': return renderFieldGuidesItems();
+            case 'detail': return renderFieldGuidesDetail();
+            default: return renderFieldGuidesCategories();
+        }
+    }
+
+    function renderFieldGuidesCategories() {
+        const categories = FieldGuidesModule.getCategories();
+        
+        return `
+            <div style="margin-bottom:12px;padding:12px;background:rgba(34,197,94,0.1);border-radius:10px;font-size:12px">
+                <strong>📚 Offline Survival Reference</strong><br>
+                Fire, water, shelter, navigation, knots, edible plants & more.
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+                ${categories.map(cat => `
+                    <button class="card" data-fg-category="${cat.id}" style="text-align:left;border-left:4px solid ${cat.color}">
+                        <div class="card__header" style="align-items:center">
+                            <div>
+                                <span style="font-size:24px;margin-right:8px">${cat.icon}</span>
+                                <span class="card__title">${cat.name}</span>
+                            </div>
+                            <span style="font-size:11px;opacity:0.6">${cat.subcategoryCount} topics</span>
+                        </div>
+                    </button>
+                `).join('')}
+            </div>
+
+            <div style="margin-top:16px;padding:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;font-size:11px;color:#fca5a5">
+                <strong>⚠️ Disclaimer:</strong> This information is for educational reference only. 
+                Proper plant identification requires hands-on training. When in doubt, don't eat it.
+            </div>
+        `;
+    }
+
+    function renderFieldGuidesSubcategories() {
+        const cat = FieldGuidesModule.getCategory(fieldGuidesState.activeCategory);
+        if (!cat) return renderFieldGuidesCategories();
+
+        const subcats = FieldGuidesModule.getSubcategories(fieldGuidesState.activeCategory);
+
+        return `
+            <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <span style="font-size:28px">${cat.icon}</span>
+                <div>
+                    <div style="font-weight:600;font-size:16px">${cat.name}</div>
+                    <div style="font-size:11px;opacity:0.6">${subcats.length} topics</div>
+                </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:8px">
+                ${subcats.map(sub => `
+                    <button class="card" data-fg-subcategory="${sub.id}" style="text-align:left">
+                        <div class="card__header" style="align-items:center">
+                            <div>
+                                <span style="font-size:18px;margin-right:8px">${sub.icon}</span>
+                                <span class="card__title">${sub.name}</span>
+                            </div>
+                            <span style="font-size:11px;opacity:0.6">${sub.itemCount} guides</span>
+                        </div>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function renderFieldGuidesItems() {
+        const cat = FieldGuidesModule.getCategory(fieldGuidesState.activeCategory);
+        const subcats = FieldGuidesModule.getSubcategories(fieldGuidesState.activeCategory);
+        const subcat = subcats.find(s => s.id === fieldGuidesState.activeSubcategory);
+        const items = FieldGuidesModule.getItems(fieldGuidesState.activeCategory, fieldGuidesState.activeSubcategory);
+
+        if (!items.length) {
+            return `<div class="empty-state"><div class="empty-state__title">No guides available</div></div>`;
+        }
+
+        return `
+            <div style="margin-bottom:12px;display:flex;align-items:center;gap:8px">
+                <span style="font-size:24px">${subcat?.icon || cat?.icon || '📖'}</span>
+                <div>
+                    <div style="font-weight:600">${subcat?.name || 'Guides'}</div>
+                    <div style="font-size:11px;opacity:0.6">${items.length} entries</div>
+                </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px">
+                ${items.map(item => {
+                    const isBookmarked = FieldGuidesModule.isBookmarked(item.id);
+                    return `
+                        <button class="card" data-fg-item="${item.id}" style="text-align:left">
+                            <div class="card__header">
+                                <span class="card__title">${item.title}</span>
+                                ${isBookmarked ? `<span style="color:#f59e0b">${Icons.get('bookmarkFilled')}</span>` : ''}
+                            </div>
+                            <div class="card__subtitle" style="font-size:11px;opacity:0.7">${item.summary || ''}</div>
+                            ${item.confidence ? `<div style="margin-top:4px;font-size:10px"><span class="chip chip--small">${item.confidence}</span></div>` : ''}
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function renderFieldGuidesDetail() {
+        const item = FieldGuidesModule.getItem(fieldGuidesState.selectedItem);
+        if (!item) return renderFieldGuidesCategories();
+
+        const isBookmarked = FieldGuidesModule.isBookmarked(item.id);
+
+        // Parse content - handle markdown-like formatting
+        const formatContent = (content) => {
+            if (!content) return '';
+            if (Array.isArray(content)) {
+                return content.map(line => {
+                    if (line.startsWith('## ')) {
+                        return `<h4 style="margin:16px 0 8px;color:#60a5fa;font-size:13px">${line.substring(3)}</h4>`;
+                    } else if (line.startsWith('**') && line.endsWith('**')) {
+                        return `<p style="font-weight:600;margin:8px 0 4px">${line.slice(2, -2)}</p>`;
+                    } else if (line.startsWith('• ')) {
+                        return `<div style="padding-left:12px;margin:2px 0">• ${formatInline(line.substring(2))}</div>`;
+                    } else if (line.match(/^\d+\.\s/)) {
+                        return `<div style="padding-left:12px;margin:2px 0">${formatInline(line)}</div>`;
+                    } else if (line === '') {
+                        return '<div style="height:8px"></div>';
+                    } else {
+                        return `<p style="margin:4px 0">${formatInline(line)}</p>`;
+                    }
+                }).join('');
+            }
+            return content;
+        };
+
+        const formatInline = (text) => {
+            return text
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/⚠️/g, '<span style="color:#f59e0b">⚠️</span>')
+                .replace(/✓/g, '<span style="color:#22c55e">✓</span>')
+                .replace(/✗/g, '<span style="color:#ef4444">✗</span>');
+        };
+
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px">
+                <h3 style="font-size:18px;margin:0">${item.title}</h3>
+                <button class="btn btn--icon" id="fg-toggle-bookmark" data-id="${item.id}" 
+                        style="color:${isBookmarked ? '#f59e0b' : 'inherit'}">
+                    ${Icons.get(isBookmarked ? 'bookmarkFilled' : 'bookmark')}
+                </button>
+            </div>
+
+            ${item.summary ? `<p style="font-size:13px;opacity:0.8;margin-bottom:16px;padding:10px;background:rgba(255,255,255,0.05);border-radius:8px">${item.summary}</p>` : ''}
+
+            ${item.habitat ? `
+                <div style="display:flex;gap:12px;margin-bottom:12px;font-size:11px">
+                    <div><strong>Habitat:</strong> ${item.habitat}</div>
+                    ${item.season ? `<div><strong>Season:</strong> ${item.season}</div>` : ''}
+                </div>
+            ` : ''}
+
+            <div class="fg-content" style="font-size:12px;line-height:1.6">
+                ${formatContent(item.content)}
+            </div>
+
+            ${item.tips && item.tips.length > 0 ? `
+                <div style="margin-top:16px;padding:12px;background:rgba(59,130,246,0.1);border-radius:8px">
+                    <div style="font-weight:600;margin-bottom:8px;color:#60a5fa">💡 Tips</div>
+                    ${item.tips.map(tip => `<div style="font-size:11px;margin:4px 0;padding-left:8px;border-left:2px solid rgba(59,130,246,0.3)">• ${tip}</div>`).join('')}
+                </div>
+            ` : ''}
+
+            ${item.diagram ? `
+                <div style="margin-top:16px;padding:12px;background:rgba(255,255,255,0.05);border-radius:8px;text-align:center">
+                    <div style="font-size:11px;opacity:0.6;margin-bottom:8px">📐 Diagram: ${item.diagram}</div>
+                    ${renderKnotDiagram(item.diagram)}
+                </div>
+            ` : ''}
+        `;
+    }
+
+    function renderKnotDiagram(diagramId) {
+        // ASCII/SVG diagrams for common knots
+        const diagrams = {
+            'bowline': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+     ↑ Standing
+     │    ╭───╮
+     │   ╱     ╲
+     ├──●       │
+     │   ╲     ╱
+     │    ╰───╯
+     │      │
+     └──────┘
+    Working end
+</pre>`,
+            'clove-hitch': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+    ║ Post ║
+    ╠══════╣
+   ╱│      │╲
+  ╱ │      │ ╲
+ ╱  │      │  ╲
+╱   ╠══════╣   ╲
+    ║      ║
+</pre>`,
+            'taut-line': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+  Anchor ●
+         │╲
+         │ ╲
+         │╱ ╲  ← 2 wraps inside
+         │╲  ╲
+         │ ╲  ╲
+         │  ╲ ╱ ← 1 wrap outside
+         │   X
+         │  ╱
+         ↓ Stake
+</pre>`,
+            'sheet-bend': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+Larger rope (bight)
+    ╭─────╮
+   ╱       ╲
+  │    ↑    │ ← Smaller rope
+  │   ╱│╲   │    goes UP through
+   ╲ ╱ │ ╲ ╱     then AROUND
+    ╳  │  ╳      then UNDER itself
+   ╱   │   ╲
+  ←────┴────→
+</pre>`,
+            'truckers-hitch': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+Anchor 1
+    │
+    ├──────╮ Slip loop
+    │      │ (midline)
+    │      ↓
+    │    ╭─●─╮
+    │    │   │
+    └────┼───┘
+         │    ↓ Pull for
+         │      mechanical
+    ═════●═════  advantage
+    Anchor 2
+</pre>`,
+            'prusik': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+  Main rope
+     ║
+   ╔═╬═╗
+   ║ ║ ║  ← 3 wraps
+   ║ ║ ║    of loop
+   ║ ║ ║
+   ╚═╬═╝
+     ║
+   ╭─╨─╮
+   │   │ ← Loop ends
+   ╰─●─╯
+</pre>`,
+            'square-lash': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+      │ Vertical
+──────┼────── Horizontal
+      │
+  ╔═══╪═══╗
+  ║   │   ║ Wrapping
+  ╠═══╪═══╣ turns
+  ║   │   ║
+  ╚═══╪═══╝
+      │
+  ~~~│~~~ Frapping
+  ~~~│~~~ turns
+</pre>`,
+            'debris-hut': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+Side view:
+         ╱│
+        ╱ │ Ridgepole
+       ╱  │
+      ╱   │
+     ╱    │
+    ╱     │  ← Debris
+   ╱~~~~~~│    2-3ft thick
+  ╱~~~~~~~│
+ ╱~~~~~~~~│
+╱~~~~~~~~~│
+══════════╧════ Ground
+ ↑ Entrance
+</pre>`,
+            'solar-still': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+  ╭─── Clear plastic ───╮
+ ╱    ↘  Rock   ↙      ╲
+╱       ╲     ╱          ╲
+│ Green   ╲ ╱  Green      │
+│ plants   ◊   plants     │
+│         │ │             │
+│      ┌──┴─┴──┐          │
+│      │ Cup   │          │
+╰──────┴───────┴──────────╯
+     Hole in ground
+</pre>`,
+            'quinzee': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+Cross section:
+      ╱╲ Vent hole
+     ╱░░╲
+    ╱░░░░╲ ← Dome ceiling
+   ╱░░░░░░╲
+  │░░░░░░░░│ ← 12" thick walls
+  │  ┌───┐ │
+  │  │Air│ │ ← Sleeping platform
+╔═╧══╧═══╧═╧═╗   (raised)
+║   Entrance  ║
+ ↘ slopes up ↙
+</pre>`,
+            'tripod-lash': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+Top view (before spreading):
+  │   │   │
+  │   │   │ ← 3 poles
+══╪═══╪═══╪══ Lashing
+  │   │   │
+  
+After spreading:
+     ╱│╲
+    ╱ │ ╲
+   ╱  │  ╲
+  ╱   │   ╲
+ ●────●────●
+</pre>`,
+            'bow-drill': `<pre style="font-family:monospace;font-size:10px;line-height:1.2;text-align:left;color:#60a5fa">
+    Bearing block
+        ┌─●─┐ ← Hand pressure
+        │ │ │
+        └─┼─┘
+          │ Spindle
+    ╭─────┼─────╮
+    │  ╱╱╱│     │ Bow
+    ├─╱╱╱─┼─────┤
+    │╱╱╱  │     │
+    ╰─────┼─────╯
+    ══════╪══════ Fireboard
+          V
+    Coal catcher
+</pre>`
+        };
+        return diagrams[diagramId] || `<div style="opacity:0.5">Diagram not available</div>`;
+    }
+
+    function renderFieldGuidesSearch() {
+        const results = FieldGuidesModule.search(fieldGuidesState.searchQuery);
+
+        if (results.length === 0) {
+            return `
+                <div class="empty-state" style="padding:20px">
+                    <div class="empty-state__title">No results found</div>
+                    <div class="empty-state__desc">Try different search terms</div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="section-label">Search Results (${results.length})</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                ${results.map(item => `
+                    <button class="card" data-fg-item="${item.id}" style="text-align:left">
+                        <div class="card__header">
+                            <span class="card__title">${item.title}</span>
+                            <span class="chip chip--small">${item._subcategoryName}</span>
+                        </div>
+                        <div class="card__subtitle" style="font-size:11px;opacity:0.7">${item.summary || ''}</div>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function renderFieldGuidesBookmarks() {
+        const bookmarked = FieldGuidesModule.getBookmarkedItems();
+
+        if (bookmarked.length === 0) {
+            return `
+                <div class="empty-state" style="padding:20px">
+                    <div class="empty-state__icon">${Icons.get('bookmark')}</div>
+                    <div class="empty-state__title">No Bookmarks</div>
+                    <div class="empty-state__desc">Bookmark guides for quick access</div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="section-label">Bookmarked Guides (${bookmarked.length})</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                ${bookmarked.map(item => `
+                    <button class="card" data-fg-item="${item.id}" style="text-align:left">
+                        <div class="card__header">
+                            <span class="card__title">${item.title}</span>
+                            <span style="color:#f59e0b">${Icons.get('bookmarkFilled')}</span>
+                        </div>
+                        <div class="card__subtitle" style="font-size:11px;opacity:0.7">${item.summary || ''}</div>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function attachFieldGuidesHandlers() {
+        // Back button
+        const backBtn = container.querySelector('#fg-back');
+        if (backBtn) {
+            backBtn.onclick = () => {
+                if (fieldGuidesState.searchQuery) {
+                    fieldGuidesState.searchQuery = '';
+                    const input = container.querySelector('#fg-search');
+                    if (input) input.value = '';
+                } else if (fieldGuidesState.view === 'detail') {
+                    fieldGuidesState.view = 'items';
+                    fieldGuidesState.selectedItem = null;
+                } else if (fieldGuidesState.view === 'items') {
+                    fieldGuidesState.view = 'subcategories';
+                    fieldGuidesState.activeSubcategory = null;
+                } else if (fieldGuidesState.view === 'subcategories') {
+                    fieldGuidesState.view = 'categories';
+                    fieldGuidesState.activeCategory = null;
+                } else if (fieldGuidesState.view === 'bookmarks') {
+                    fieldGuidesState.view = 'categories';
+                }
+                renderFieldGuides();
+            };
+        }
+
+        // Bookmarks button
+        const bookmarksBtn = container.querySelector('#fg-bookmarks');
+        if (bookmarksBtn) {
+            bookmarksBtn.onclick = () => {
+                fieldGuidesState.view = fieldGuidesState.view === 'bookmarks' ? 'categories' : 'bookmarks';
+                fieldGuidesState.searchQuery = '';
+                renderFieldGuides();
+            };
+        }
+
+        // Search
+        const searchInput = container.querySelector('#fg-search');
+        if (searchInput) {
+            searchInput.oninput = (e) => {
+                fieldGuidesState.searchQuery = e.target.value;
+                document.getElementById('fg-content').innerHTML = renderFieldGuidesContent();
+                attachFieldGuidesContentHandlers();
+            };
+        }
+
+        attachFieldGuidesContentHandlers();
+    }
+
+    function attachFieldGuidesContentHandlers() {
+        // Category buttons
+        container.querySelectorAll('[data-fg-category]').forEach(btn => {
+            btn.onclick = () => {
+                fieldGuidesState.activeCategory = btn.dataset.fgCategory;
+                fieldGuidesState.view = 'subcategories';
+                renderFieldGuides();
+            };
+        });
+
+        // Subcategory buttons
+        container.querySelectorAll('[data-fg-subcategory]').forEach(btn => {
+            btn.onclick = () => {
+                fieldGuidesState.activeSubcategory = btn.dataset.fgSubcategory;
+                fieldGuidesState.view = 'items';
+                renderFieldGuides();
+            };
+        });
+
+        // Item buttons
+        container.querySelectorAll('[data-fg-item]').forEach(btn => {
+            btn.onclick = () => {
+                fieldGuidesState.selectedItem = btn.dataset.fgItem;
+                fieldGuidesState.view = 'detail';
+                renderFieldGuides();
+            };
+        });
+
+        // Toggle bookmark
+        const bookmarkBtn = container.querySelector('#fg-toggle-bookmark');
+        if (bookmarkBtn) {
+            bookmarkBtn.onclick = () => {
+                const id = bookmarkBtn.dataset.id;
+                const isNowBookmarked = FieldGuidesModule.toggleBookmark(id);
+                ModalsModule.showToast(isNowBookmarked ? 'Bookmarked!' : 'Bookmark removed', 'success');
+                renderFieldGuides();
+            };
+        }
+    }
+
     return { init, render };
 })();
 window.PanelsModule = PanelsModule;
+
 
