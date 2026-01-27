@@ -36,10 +36,8 @@ const TILE_DOMAINS = [
     'basemap.nationalmap.gov',          // USGS (topo, imagery, hydro)
     'apps.fs.usda.gov',                 // USFS (topo, roads, trails, recreation)
     'gis.blm.gov',                      // BLM (surface management, grazing)
-    // Weather satellite imagery (US Government - free for commercial use)
-    'gibs.earthdata.nasa.gov',          // NASA GIBS - GOES, VIIRS, MODIS satellite
-    'mesonet.agron.iastate.edu',        // Iowa Environmental Mesonet - NEXRAD radar
-    'cdn.star.nesdis.noaa.gov'          // NOAA STAR - GOES satellite imagery
+    // Weather radar and satellite tiles (Iowa Environmental Mesonet)
+    'mesonet.agron.iastate.edu'         // IEM - NEXRAD, GOES, MRMS, NWS warnings
 ];
 
 // Background sync configuration
