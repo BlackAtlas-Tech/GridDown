@@ -173,12 +173,15 @@ const RouteBuilderModule = (function() {
         currentRoute.isBuilding = false;
         isBuilding = false;
         
-        // Record for undo BEFORE saving
+        // Update State FIRST so the map renders correctly
+        updateRouteInState();
+        
+        // Record for undo
         if (typeof UndoModule !== 'undefined') {
             UndoModule.recordRouteAdd(currentRoute);
         }
         
-        // Save to storage
+        // Save to persistent storage
         Storage.Routes.save(currentRoute);
         
         const finishedRoute = { ...currentRoute };
@@ -187,6 +190,11 @@ const RouteBuilderModule = (function() {
         
         ModalsModule.showToast('Route saved! (Ctrl+Z to undo)', 'success');
         updateBuildingUI();
+        
+        // Trigger map re-render to show the finished route
+        if (typeof MapModule !== 'undefined') {
+            MapModule.render();
+        }
         
         return finishedRoute;
     }
