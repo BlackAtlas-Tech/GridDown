@@ -2,6 +2,47 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.12.0] - 2025-01-27
+
+### Added
+- **USGS Stream Gauge Integration** - Real-time water level monitoring:
+  
+  **Data Features**:
+  - Real-time streamflow (cubic feet per second)
+  - Gauge height / water level (feet)
+  - Water temperature (where available)
+  - Station metadata and USGS site numbers
+  - Direct links to USGS Water Data website
+
+  **Map Integration**:
+  - Stream gauge markers displayed on map
+  - Click markers to view station details
+  - Toggle map visibility on/off
+  - Visual water drop icons for gauge locations
+
+  **Weather Panel Integration**:
+  - New "💧 USGS Stream Gauges" section in Weather panel
+  - List of nearby gauges sorted by flow rate
+  - Detailed station view with all measurements
+  - "Navigate Here" button for routing to gauge locations
+  - "Show on Map" button to center map on station
+
+  **Offline Support**:
+  - Cached station data (24-hour retention)
+  - Graceful fallback when offline
+  - Last-known readings available without network
+
+### Technical
+- New module: `js/modules/streamgauge.js` (~600 lines)
+- USGS National Water Information System (NWIS) API integration
+- No API key required (public domain US government data)
+- Bounding box queries for efficient regional data loading
+- 15-minute cache refresh interval
+
+### Data Source
+USGS NWIS - Public domain data from ~10,000+ monitoring stations nationwide.
+Real-time provisional data subject to revision.
+
 ## [6.11.0] - 2025-01-27
 
 ### Added

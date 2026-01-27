@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.11.0';
+const CACHE_NAME = 'griddown-v6.12.0';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -25,6 +25,7 @@ const STATIC_ASSETS = [
     'js/modules/onboarding.js',
     'js/modules/medical.js',
     'js/modules/fieldguides.js',
+    'js/modules/streamgauge.js',
     'js/modules/team.js',
     'js/app.js'
 ];
