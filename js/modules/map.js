@@ -207,6 +207,10 @@ const MapModule = (function() {
         base: 'standard',  // standard | terrain | satellite
         overlays: []       // ['labels', 'hillshade']
     };
+    
+    // Custom tile layers (for satellite weather, etc.)
+    // Map of layerId -> { url, opacity, maxZoom, attribution, zIndex }
+    const customTileLayers = new Map();
 
     // Track initialization state
     let initialized = false;
@@ -781,6 +785,9 @@ const MapModule = (function() {
         // Render base layer
         renderTilesForLayer(rotatedWidth, rotatedHeight, activeLayers.base);
         
+        // Render custom tile layers (satellite weather, etc.)
+        renderCustomTileLayers(rotatedWidth, rotatedHeight);
+        
         // Render overlays
         for (const overlay of activeLayers.overlays) {
             renderTilesForLayer(rotatedWidth, rotatedHeight, overlay, true);
@@ -1004,6 +1011,155 @@ const MapModule = (function() {
         ctx.font = '11px system-ui, sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText(`⏳ Loading ${count} tiles`, width - 112, 89);
+    }
+
+    // ==================== CUSTOM TILE LAYERS ====================
+    
+    /**
+     * Add a custom tile layer (for satellite weather, etc.)
+     * @param {Object} layerInfo - { id, name, type, url, opacity, maxZoom, attribution, zIndex }
+     */
+    function addCustomTileLayer(layerInfo) {
+        if (!layerInfo || !layerInfo.id || !layerInfo.url) {
+            console.error('Invalid layer info:', layerInfo);
+            return false;
+        }
+        
+        customTileLayers.set(layerInfo.id, {
+            id: layerInfo.id,
+            name: layerInfo.name || layerInfo.id,
+            type: layerInfo.type || 'tiles',
+            url: layerInfo.url,
+            opacity: layerInfo.opacity ?? 0.7,
+            maxZoom: layerInfo.maxZoom || 18,
+            attribution: layerInfo.attribution || '',
+            zIndex: layerInfo.zIndex ?? 50
+        });
+        
+        console.log('Added custom tile layer:', layerInfo.id);
+        render();
+        return true;
+    }
+    
+    /**
+     * Remove a custom tile layer
+     */
+    function removeCustomTileLayer(layerId) {
+        if (!customTileLayers.has(layerId)) {
+            return false;
+        }
+        
+        customTileLayers.delete(layerId);
+        console.log('Removed custom tile layer:', layerId);
+        render();
+        return true;
+    }
+    
+    /**
+     * Get all custom tile layers
+     */
+    function getCustomTileLayers() {
+        return new Map(customTileLayers);
+    }
+    
+    /**
+     * Set opacity for a custom tile layer
+     */
+    function setCustomLayerOpacity(layerId, opacity) {
+        const layer = customTileLayers.get(layerId);
+        if (!layer) return false;
+        
+        layer.opacity = Math.max(0, Math.min(1, opacity));
+        render();
+        return true;
+    }
+    
+    /**
+     * Render all custom tile layers
+     */
+    function renderCustomTileLayers(width, height) {
+        if (customTileLayers.size === 0) return;
+        
+        // Sort layers by zIndex
+        const sortedLayers = [...customTileLayers.values()]
+            .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+        
+        for (const layer of sortedLayers) {
+            ctx.globalAlpha = layer.opacity;
+            renderCustomTileLayer(width, height, layer);
+            ctx.globalAlpha = 1.0;
+        }
+    }
+    
+    /**
+     * Render a single custom tile layer
+     */
+    function renderCustomTileLayer(width, height, layer) {
+        const effectiveZoom = Math.min(mapState.zoom, layer.maxZoom);
+        const scale = Math.pow(2, mapState.zoom);
+        const worldSize = mapState.tileSize * scale;
+        
+        const centerX = ((mapState.lon + 180) / 360) * worldSize;
+        const centerY = ((1 - Math.log(Math.tan(mapState.lat * Math.PI / 180) + 
+                         1 / Math.cos(mapState.lat * Math.PI / 180)) / Math.PI) / 2) * worldSize;
+        
+        const startX = centerX - width / 2;
+        const startY = centerY - height / 2;
+        
+        const startTileX = Math.floor(startX / mapState.tileSize);
+        const startTileY = Math.floor(startY / mapState.tileSize);
+        const endTileX = Math.ceil((startX + width) / mapState.tileSize);
+        const endTileY = Math.ceil((startY + height) / mapState.tileSize);
+        
+        const maxTile = Math.pow(2, effectiveZoom) - 1;
+        
+        for (let tileY = startTileY; tileY <= endTileY; tileY++) {
+            for (let tileX = startTileX; tileX <= endTileX; tileX++) {
+                const wrappedX = ((tileX % (maxTile + 1)) + (maxTile + 1)) % (maxTile + 1);
+                
+                if (tileY < 0 || tileY > maxTile) continue;
+                
+                const drawX = tileX * mapState.tileSize - startX;
+                const drawY = tileY * mapState.tileSize - startY;
+                
+                // Replace placeholders in URL template
+                const url = layer.url
+                    .replace('{z}', effectiveZoom)
+                    .replace('{x}', wrappedX)
+                    .replace('{y}', tileY);
+                
+                const cacheKey = `custom:${layer.id}:${effectiveZoom}:${wrappedX}:${tileY}`;
+                
+                // Try to draw from cache
+                if (tileCache.has(cacheKey)) {
+                    const cached = tileCache.get(cacheKey);
+                    if (cached.loaded) {
+                        ctx.drawImage(cached.img, drawX, drawY, mapState.tileSize, mapState.tileSize);
+                    }
+                } else if (!pendingTiles.has(cacheKey)) {
+                    // Start loading tile
+                    pendingTiles.add(cacheKey);
+                    
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    
+                    img.onload = () => {
+                        tileCache.set(cacheKey, { img, loaded: true });
+                        pendingTiles.delete(cacheKey);
+                        render();
+                    };
+                    
+                    img.onerror = () => {
+                        pendingTiles.delete(cacheKey);
+                        // Cache failure briefly to avoid repeated attempts
+                        tileCache.set(cacheKey, { loaded: false, error: true });
+                        setTimeout(() => tileCache.delete(cacheKey), 30000);
+                    };
+                    
+                    img.src = url;
+                }
+            }
+        }
     }
 
     function renderGrid(width, height) {
@@ -3139,7 +3295,14 @@ const MapModule = (function() {
         updateScaleBar,
         resetBearing,
         updateCompassRose,
-        destroy
+        destroy,
+        
+        // Custom tile layers (for satellite weather, etc.)
+        addCustomTileLayer,
+        removeCustomTileLayer,
+        getCustomTileLayers,
+        setCustomLayerOpacity,
+        setLayerOpacity: setCustomLayerOpacity  // Alias for compatibility
     };
 })();
 

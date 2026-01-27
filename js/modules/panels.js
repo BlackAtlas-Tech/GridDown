@@ -6430,6 +6430,10 @@ const PanelsModule = (function() {
     let routeWeatherData = null;
     let weatherLoading = false;
     let weatherError = null;
+    
+    // Satellite/Radar imagery state
+    let activeSatLayer = null;
+    let satLayerOpacity = 0.7;
 
     async function renderWeather() {
         // Check WeatherModule availability
@@ -6726,6 +6730,70 @@ const PanelsModule = (function() {
                 ` : ''}
             ` : ''}
             
+            <div class="divider"></div>
+            
+            <!-- Satellite & Radar Imagery -->
+            <div class="section-label">🛰️ Satellite & Radar Imagery</div>
+            <div style="margin-bottom:16px">
+                ${typeof SatWeatherModule !== 'undefined' ? `
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+                        <button class="btn ${activeSatLayer === 'nexrad_composite' ? 'btn--primary' : 'btn--secondary'}" 
+                                data-sat-layer="nexrad_composite"
+                                style="padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:4px">
+                            <span style="font-size:20px">📡</span>
+                            <span style="font-size:11px">Radar</span>
+                        </button>
+                        <button class="btn ${activeSatLayer === 'goes_geocolor' ? 'btn--primary' : 'btn--secondary'}" 
+                                data-sat-layer="goes_geocolor"
+                                style="padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:4px">
+                            <span style="font-size:20px">🛰️</span>
+                            <span style="font-size:11px">Satellite</span>
+                        </button>
+                        <button class="btn ${activeSatLayer === 'goes_ir' ? 'btn--primary' : 'btn--secondary'}" 
+                                data-sat-layer="goes_ir"
+                                style="padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:4px">
+                            <span style="font-size:20px">🌡️</span>
+                            <span style="font-size:11px">Infrared</span>
+                        </button>
+                        <button class="btn ${activeSatLayer === 'viirs_fires' ? 'btn--primary' : 'btn--secondary'}" 
+                                data-sat-layer="viirs_fires"
+                                style="padding:12px 10px;display:flex;flex-direction:column;align-items:center;gap:4px">
+                            <span style="font-size:20px">🔥</span>
+                            <span style="font-size:11px">Fires</span>
+                        </button>
+                    </div>
+                    
+                    ${activeSatLayer ? `
+                        <div style="padding:10px;background:var(--color-bg-elevated);border-radius:8px;margin-bottom:12px">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                                <span style="font-size:12px;font-weight:500">${SatWeatherModule.getProduct(activeSatLayer)?.name || activeSatLayer}</span>
+                                <button class="btn btn--secondary" id="clear-sat-layer" style="padding:4px 8px;font-size:10px">
+                                    Clear
+                                </button>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span style="font-size:10px;color:rgba(255,255,255,0.5)">Opacity</span>
+                                <input type="range" id="sat-opacity" min="10" max="100" value="${Math.round(satLayerOpacity * 100)}" 
+                                       style="flex:1;height:4px;accent-color:#f97316">
+                                <span style="font-size:10px;color:rgba(255,255,255,0.5)">${Math.round(satLayerOpacity * 100)}%</span>
+                            </div>
+                        </div>
+                    ` : `
+                        <div style="padding:12px;background:var(--color-bg-elevated);border-radius:8px;text-align:center">
+                            <span style="font-size:12px;color:rgba(255,255,255,0.5)">Select an overlay to view on map</span>
+                        </div>
+                    `}
+                    
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4);text-align:center">
+                        Data: NASA GIBS, NOAA, Iowa Environmental Mesonet
+                    </div>
+                ` : `
+                    <div style="padding:16px;background:var(--color-bg-elevated);border-radius:8px;text-align:center">
+                        <span style="color:rgba(255,255,255,0.5)">Satellite imagery module not available</span>
+                    </div>
+                `}
+            </div>
+            
             <div style="margin-top:20px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
                 <div style="font-size:11px;color:rgba(255,255,255,0.4)">
                     Weather data from Open-Meteo • Updates every 30 minutes
@@ -6785,6 +6853,58 @@ const PanelsModule = (function() {
                 }
             };
         });
+        
+        // Satellite/Radar layer buttons
+        container.querySelectorAll('[data-sat-layer]').forEach(btn => {
+            btn.onclick = () => {
+                const layerKey = btn.dataset.satLayer;
+                if (typeof SatWeatherModule !== 'undefined') {
+                    // Toggle layer
+                    if (activeSatLayer === layerKey) {
+                        // Clear layer
+                        SatWeatherModule.removeSatelliteLayer(layerKey);
+                        activeSatLayer = null;
+                    } else {
+                        // Remove previous layer
+                        if (activeSatLayer) {
+                            SatWeatherModule.removeSatelliteLayer(activeSatLayer);
+                        }
+                        // Add new layer
+                        SatWeatherModule.addSatelliteLayer(layerKey, satLayerOpacity);
+                        activeSatLayer = layerKey;
+                    }
+                    renderWeather();
+                }
+            };
+        });
+        
+        // Clear satellite layer button
+        const clearSatBtn = container.querySelector('#clear-sat-layer');
+        if (clearSatBtn) {
+            clearSatBtn.onclick = () => {
+                if (activeSatLayer && typeof SatWeatherModule !== 'undefined') {
+                    SatWeatherModule.removeSatelliteLayer(activeSatLayer);
+                    activeSatLayer = null;
+                    renderWeather();
+                }
+            };
+        }
+        
+        // Satellite layer opacity slider
+        const opacitySlider = container.querySelector('#sat-opacity');
+        if (opacitySlider) {
+            opacitySlider.oninput = (e) => {
+                satLayerOpacity = parseInt(e.target.value, 10) / 100;
+                if (activeSatLayer && typeof SatWeatherModule !== 'undefined') {
+                    SatWeatherModule.setLayerOpacity(activeSatLayer, satLayerOpacity);
+                }
+                // Update display
+                const display = opacitySlider.nextElementSibling;
+                if (display) {
+                    display.textContent = `${Math.round(satLayerOpacity * 100)}%`;
+                }
+            };
+        }
     }
 
     async function loadCurrentWeather() {
