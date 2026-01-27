@@ -2,6 +2,51 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.14.0] - 2025-01-27
+
+### Added
+- **Browser Compatibility Detection** - Automatic browser/platform detection:
+  
+  **Detection Features**:
+  - Identifies browser type and version (Chrome, Firefox, Safari, Edge, Samsung Internet)
+  - Detects operating system (Android, iOS, Windows, macOS, Linux)
+  - Checks support for critical APIs: Service Worker, IndexedDB, Geolocation
+  - Checks support for advanced APIs: Web Bluetooth, Web Serial, Barometer, Wake Lock
+
+  **Compatibility Levels**:
+  - ✅ Full: Chrome on Android (all features supported)
+  - 🔶 Partial: Chrome Desktop, Edge (most features, no barometer)
+  - ⚠️ Limited: Safari, Firefox (core features only, no hardware integration)
+  - ❌ Unsupported: Browsers without Service Worker
+
+  **User Interface**:
+  - First-visit compatibility banner with feature status
+  - Collapsible details showing supported/unsupported features
+  - Feature-specific warning modals when attempting unsupported features
+  - Browser and OS identification display
+  - Dismissable with preference saved to localStorage
+
+  **API for Modules**:
+  - `CompatibilityModule.requireFeature('webBluetooth')` - Check and warn
+  - `CompatibilityModule.isSupported('barometer')` - Silent check
+  - `CompatibilityModule.getSummary()` - Full compatibility report
+
+### Technical
+- New module: `js/modules/compatibility.js` (~600 lines)
+- User Agent parsing for browser/OS detection
+- Feature detection via API presence checks
+- LocalStorage persistence for banner dismissal
+- Version-tracked dismissal (re-shows after major updates)
+
+### Platform Support Matrix
+| Feature | Chrome Android | Chrome Desktop | Safari iOS | Firefox |
+|---------|---------------|----------------|------------|---------|
+| Offline/PWA | ✅ | ✅ | ✅ | ✅ |
+| Web Bluetooth | ✅ | ✅ | ❌ | ❌ |
+| Web Serial | ✅ | ✅ | ❌ | ❌ |
+| Barometer | ✅ | ❌ | ❌ | ❌ |
+| GPS | ✅ | ✅ | ✅ | ✅ |
+
 ## [6.13.0] - 2025-01-27
 
 ### Added
