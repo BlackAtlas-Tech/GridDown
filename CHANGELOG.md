@@ -2,6 +2,63 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.18.0] - 2025-01-27
+
+### Added
+- **RF Sentinel Integration** - Connect to RF Sentinel for off-grid situational awareness:
+  
+  **Track Detection Display**:
+  - Aircraft (ADS-B 1090 MHz) - Blue aircraft symbols with heading
+  - Ships (AIS 162 MHz) - Cyan boat symbols with heading
+  - Drones (Remote ID 2.4 GHz) - Amber diamond symbols
+  - Radiosondes (400 MHz) - Purple circle markers
+  - APRS Stations (144.39 MHz) - Green circle markers
+  
+  **Map Layer Toggles**:
+  - Individual on/off toggle for each detection type
+  - Real-time track counts shown when connected
+  - Settings persist across sessions
+  - Disabled types hidden from map rendering
+  
+  **Weather Source Toggle**:
+  - Internet (NWS/IEM) - Default, reliable online weather
+  - RF Sentinel FIS-B - Off-grid weather via 978 MHz UAT
+  - Stale data detection with 15-minute threshold
+  - Auto-fallback option when FIS-B data goes stale
+  
+  **Connection Features**:
+  - WebSocket real-time updates (preferred)
+  - REST polling fallback (5-second interval)
+  - Automatic reconnection with exponential backoff
+  - Health check monitoring every 30 seconds
+  - Configurable host/port (default: rfsentinel.local:8000)
+  
+  **Emergency Alerts**:
+  - Aircraft squawk detection (7500 Hijack, 7600 Radio Fail, 7700 Emergency)
+  - AIS emergency devices (SART, MOB, EPIRB)
+  - Visual emergency alert panel with pulsing indicators
+  - Toast notifications for critical emergencies
+  
+  **Map Rendering**:
+  - Track symbols with heading rotation (aircraft/ships)
+  - Age-based alpha fade for stale tracks
+  - Labels shown at zoom level 10+
+  - Emergency tracks rendered with red color and pulse effect
+  - Maximum 500 rendered tracks for performance
+  
+  **Panel UI**:
+  - Connection status with WebSocket/REST mode indicator
+  - Track statistics grid with live counts
+  - Emergency alerts section (when active)
+  - Help documentation for RF Sentinel setup
+
+### Technical Details
+- New module: `js/modules/rfsentinel.js` (~900 lines)
+- New nav item with radar icon
+- Map overlay integrated with existing render pipeline
+- Event-driven architecture for real-time updates
+- Settings persisted via IndexedDB
+
 ## [6.17.1] - 2025-01-27
 
 ### Fixed
