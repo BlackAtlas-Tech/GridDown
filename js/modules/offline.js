@@ -32,8 +32,8 @@ const OfflineModule = (function() {
         usfs_trails: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_TrailNFSPublish_01/MapServer/tile/{z}/{y}/{x}',
         usfs_recreation: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_RecreationOpportunities_01/MapServer/tile/{z}/{y}/{x}',
         // BLM
-        blm_surface: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached/MapServer/tile/{z}/{y}/{x}',
-        blm_grazing: 'https://gis.blm.gov/arcgis/rest/services/range/BLM_Natl_Grazing_Allotments/MapServer/tile/{z}/{y}/{x}',
+        blm_surface: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_with_PriUnk/MapServer/tile/{z}/{y}/{x}',
+        // Note: blm_grazing removed - requires dynamic ArcGIS export API (no tile cache)
         // Overlays
         labels: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
         hillshade: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
@@ -54,7 +54,6 @@ const OfflineModule = (function() {
         usfs_trails: { name: 'USFS Trails', size: 8, category: 'usfs' },
         usfs_recreation: { name: 'USFS Recreation', size: 5, category: 'usfs' },
         blm_surface: { name: 'BLM Surface Mgmt', size: 15, category: 'blm' },
-        blm_grazing: { name: 'BLM Grazing', size: 10, category: 'blm' },
         labels: { name: 'Labels', size: 5, category: 'overlay' },
         hillshade: { name: 'Hillshade', size: 20, category: 'overlay' },
         transportation: { name: 'Roads', size: 8, category: 'overlay' }

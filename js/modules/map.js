@@ -133,15 +133,16 @@ const MapModule = (function() {
             name: 'USA Topo',
             description: 'USGS quads with Forest Service data'
         },
-        world_topo: {
-            url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri, HERE, Garmin, USGS, NGA',
-            maxZoom: 19,
-            type: 'base',
-            category: 'usfs',
-            name: 'World Topo',
-            description: 'Detailed worldwide topographic'
-        },
+        // NOTE: world_topo is deprecated by Esri - tiles no longer maintained
+        // world_topo: {
+        //     url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+        //     attribution: '© Esri, HERE, Garmin, USGS, NGA',
+        //     maxZoom: 19,
+        //     type: 'base',
+        //     category: 'usfs',
+        //     name: 'World Topo',
+        //     description: 'Detailed worldwide topographic'
+        // },
         natgeo: {
             url: 'https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
             attribution: '© National Geographic, Esri',
@@ -154,7 +155,7 @@ const MapModule = (function() {
         
         // ===== BLM LAYERS =====
         blm_surface: {
-            url: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached/MapServer/tile/{z}/{y}/{x}',
+            url: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_with_PriUnk/MapServer/tile/{z}/{y}/{x}',
             attribution: '© Bureau of Land Management',
             maxZoom: 16,
             type: 'overlay',
@@ -162,15 +163,17 @@ const MapModule = (function() {
             name: 'BLM Surface Mgmt',
             description: 'Land ownership & management'
         },
-        blm_grazing: {
-            url: 'https://gis.blm.gov/arcgis/rest/services/range/BLM_Natl_Grazing_Allotments/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Bureau of Land Management',
-            maxZoom: 14,
-            type: 'overlay',
-            category: 'blm',
-            name: 'BLM Grazing',
-            description: 'Grazing allotments'
-        },
+        // NOTE: BLM Grazing Allotments is a dynamic service (not cached tiles)
+        // It requires ArcGIS export API which isn't currently supported
+        // blm_grazing: {
+        //     url: 'https://gis.blm.gov/arcgis/rest/services/range/BLM_Natl_Grazing_Allotment/MapServer/export',
+        //     attribution: '© Bureau of Land Management',
+        //     maxZoom: 14,
+        //     type: 'overlay',
+        //     category: 'blm',
+        //     name: 'BLM Grazing',
+        //     description: 'Grazing allotments'
+        // },
         
         // ===== OVERLAY LAYERS =====
         labels: {

@@ -492,13 +492,12 @@ const PanelsModule = (function() {
                 ]
             },
             usfs: {
-                name: 'USFS / Topo Maps',
+                name: 'Esri Topo Maps',
                 icon: '🌲',
                 collapsed: true,
                 baseLayers: [
-                    { key: 'usfs_topo', name: 'USA Topo', desc: 'USGS quads with Forest data', icon: 'terrain' },
-                    { key: 'world_topo', name: 'World Topo', desc: 'Detailed worldwide topo', icon: 'terrain' },
-                    { key: 'natgeo', name: 'Nat Geo', desc: 'National Geographic style', icon: 'map' }
+                    { key: 'usfs_topo', name: 'USA Topo', desc: 'Scanned USGS quad maps', icon: 'terrain' },
+                    { key: 'natgeo', name: 'Nat Geo', desc: 'National Geographic style (legacy)', icon: 'map' }
                 ],
                 overlays: []
             },
@@ -508,8 +507,8 @@ const PanelsModule = (function() {
                 collapsed: true,
                 baseLayers: [],
                 overlays: [
-                    { key: 'blm_surface', name: 'Surface Management', desc: 'Land ownership & management', icon: 'layers' },
-                    { key: 'blm_grazing', name: 'Grazing Allotments', desc: 'Grazing boundaries', icon: 'map' }
+                    { key: 'blm_surface', name: 'Surface Management', desc: 'Federal land ownership', icon: 'layers' }
+                    // Note: Grazing Allotments removed - requires dynamic ArcGIS export API
                 ]
             },
             overlays: {
@@ -632,10 +631,8 @@ const PanelsModule = (function() {
                 usgs_imagery_topo: 'USGS Imagery+Topo',
                 usgs_hydro: 'Hydrography',
                 usfs_topo: 'USA Topo',
-                world_topo: 'World Topo',
                 natgeo: 'Nat Geo',
                 blm_surface: 'BLM Surface',
-                blm_grazing: 'Grazing',
                 hillshade: 'Hillshade',
                 labels: 'Labels',
                 transportation: 'Roads',
@@ -2180,12 +2177,8 @@ const PanelsModule = (function() {
                                         <span>USA Topo ~40KB/tile</span>
                                     </label>
                                     <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-world_topo" style="width:auto">
-                                        <span>World Topo ~35KB/tile</span>
-                                    </label>
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
                                         <input type="checkbox" id="layer-natgeo" style="width:auto">
-                                        <span>Nat Geo ~40KB/tile</span>
+                                        <span>Nat Geo ~40KB/tile (legacy)</span>
                                     </label>
                                 </div>
                             </div>
@@ -2275,7 +2268,7 @@ const PanelsModule = (function() {
         const allLayerKeys = [
             'standard', 'terrain', 'satellite',
             'usgs_topo', 'usgs_imagery', 'usgs_hydro',
-            'usfs_topo', 'world_topo', 'natgeo',
+            'usfs_topo', 'natgeo',
             'blm_surface',
             'hillshade', 'labels'
         ];
