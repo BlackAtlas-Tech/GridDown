@@ -1018,7 +1018,64 @@ const MapModule = (function() {
         const waypoints = State.get('waypoints');
         
         routes.forEach(route => {
-            if (!route.points || route.points.length < 2) return;
+            if (!route.points || route.points.length === 0) return;
+            
+            // Render single-point routes (especially during building) as a marker
+            if (route.points.length === 1) {
+                const point = route.points[0];
+                let lat, lon;
+                if (point.waypointId) {
+                    const wp = waypoints.find(w => w.id === point.waypointId);
+                    if (wp) { lat = wp.lat; lon = wp.lon; }
+                } else if (point.lat && point.lon) {
+                    lat = point.lat; lon = point.lon;
+                }
+                
+                if (lat && lon) {
+                    const pixel = latLonToPixel(lat, lon);
+                    if (pixel.x >= -50 && pixel.x <= width + 50 && pixel.y >= -50 && pixel.y <= height + 50) {
+                        // Pulsing effect for building routes
+                        const isBuilding = route.isBuilding;
+                        const pulse = isBuilding ? (Math.sin(Date.now() / 300) + 1) / 2 : 0;
+                        const radius = 12 + (pulse * 6);
+                        
+                        // Outer glow for building routes
+                        if (isBuilding) {
+                            ctx.beginPath();
+                            ctx.arc(pixel.x, pixel.y, radius + 8, 0, Math.PI * 2);
+                            ctx.fillStyle = 'rgba(249, 115, 22, 0.2)';
+                            ctx.fill();
+                        }
+                        
+                        // Main circle
+                        ctx.beginPath();
+                        ctx.arc(pixel.x, pixel.y, radius, 0, Math.PI * 2);
+                        ctx.fillStyle = '#f97316';
+                        ctx.fill();
+                        ctx.strokeStyle = '#fff';
+                        ctx.lineWidth = 2;
+                        ctx.stroke();
+                        
+                        // Inner circle
+                        ctx.beginPath();
+                        ctx.arc(pixel.x, pixel.y, 5, 0, Math.PI * 2);
+                        ctx.fillStyle = '#fff';
+                        ctx.fill();
+                        
+                        // "Start" label for building routes
+                        if (isBuilding) {
+                            ctx.font = '10px system-ui, sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillStyle = '#fff';
+                            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                            ctx.lineWidth = 3;
+                            ctx.strokeText('Start', pixel.x, pixel.y + radius + 14);
+                            ctx.fillText('Start', pixel.x, pixel.y + radius + 14);
+                        }
+                    }
+                }
+                return;
+            }
             
             const grad = ctx.createLinearGradient(0, 0, width, height);
             grad.addColorStop(0, '#f97316');
