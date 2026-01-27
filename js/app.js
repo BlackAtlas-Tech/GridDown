@@ -33,6 +33,12 @@ const App = (function() {
                 console.log('Compatibility module initialized');
             }
             
+            // Initialize network status monitoring (early)
+            if (typeof NetworkStatusModule !== 'undefined') {
+                NetworkStatusModule.init();
+                console.log('Network status module initialized');
+            }
+            
             updateLoadingStatus('Rendering UI...');
 
             // Initialize modules
