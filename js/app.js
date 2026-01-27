@@ -108,6 +108,12 @@ const App = (function() {
                 console.log('Stream gauge module initialized');
             }
             
+            // Initialize Barometer module
+            if (typeof BarometerModule !== 'undefined') {
+                BarometerModule.init();
+                console.log('Barometer module initialized');
+            }
+            
             // Initialize Meshtastic module
             if (typeof MeshtasticModule !== 'undefined') {
                 MeshtasticModule.init();
