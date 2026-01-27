@@ -1295,6 +1295,7 @@ const MeshtasticModule = (function() {
         disconnect,
         getConnectionState,
         checkApiSupport,
+        isConnected: () => state.connectionState === ConnectionState.CONNECTED,
         
         // Position
         broadcastPosition,
