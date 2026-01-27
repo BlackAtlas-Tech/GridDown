@@ -2,6 +2,57 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.17.0] - 2025-01-27
+
+### Added
+- **Storage Quota Warning** - Browser storage monitoring and alerts:
+  
+  **Monitoring**:
+  - Uses Storage API to track IndexedDB and Cache storage usage
+  - Automatic checks every 5 minutes
+  - Three warning levels: 80% (warning), 90% (critical), 95% (danger)
+
+  **Warning Banner**:
+  - Color-coded popup at bottom-right when threshold exceeded
+  - Shows percentage used and bytes remaining
+  - Visual progress bar indicator
+  - "Manage" button links to offline panel for tile management
+  - "Dismiss" remembers level until storage increases
+
+  **API**:
+  - `StorageMonitorModule.getStatus()` - Full usage stats
+  - `StorageMonitorModule.renderCompact()` - Embeddable indicator
+  - `StorageMonitorModule.formatBytes()` - Utility function
+
+- **Network Quality Indicator** - Connection speed monitoring:
+  
+  **Detection Methods**:
+  - Network Information API (Chrome/Android): connection type, effective type, downlink, RTT
+  - Latency measurement: HEAD requests to manifest.json
+  - Automatic quality classification: excellent, good, fair, poor
+
+  **Quality Levels**:
+  - 📶 Excellent: 4 bars, green (4G + <50ms latency or >10Mbps)
+  - 📶 Good: 3 bars, lime (4G or >4Mbps)
+  - 📶 Fair: 2 bars, yellow (3G or >1Mbps)
+  - 📶 Poor: 1 bar, red (2G or <1Mbps)
+  - 📴 Offline: 0 bars, gray
+
+  **UI Components**:
+  - `renderCompact()` - Signal bars + label + speed/latency
+  - `renderDetailed()` - Full panel with type, speed, latency, status
+  - `renderBadge()` - Minimal signal bars only
+
+  **Utilities**:
+  - `estimateTileLoadTime(sizeKB)` - Predict tile download time
+  - Event subscription for quality changes
+
+### Technical
+- New module: `js/modules/storagemonitor.js` (~280 lines)
+- New module: `js/modules/networkquality.js` (~320 lines)
+- Both integrate with existing PWA infrastructure
+- Uses Navigator Storage and Network Information APIs
+
 ## [6.16.0] - 2025-01-27
 
 ### Added
