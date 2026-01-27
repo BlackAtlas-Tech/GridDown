@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.14.0';
+const CACHE_NAME = 'griddown-v6.15.0';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -28,6 +28,7 @@ const STATIC_ASSETS = [
     'js/modules/streamgauge.js',
     'js/modules/barometer.js',
     'js/modules/compatibility.js',
+    'js/modules/networkstatus.js',
     'js/modules/team.js',
     'js/app.js'
 ];

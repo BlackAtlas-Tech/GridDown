@@ -2,6 +2,42 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.15.0] - 2025-01-27
+
+### Added
+- **Offline Status Indicator** - Real-time network connectivity monitoring:
+  
+  **Offline Banner**:
+  - Persistent red banner at top of screen when offline
+  - Pulsing 📴 icon for visibility
+  - "Using cached data" message to reassure users
+  - Live duration counter showing time offline
+  - Smooth slide-in/slide-out animations
+
+  **Back Online Toast**:
+  - Green success toast when connection restored
+  - Shows how long the app was offline
+  - Auto-dismisses after 3 seconds
+
+  **Technical Features**:
+  - Listens to browser `online`/`offline` events
+  - Periodic connectivity verification (30-second interval)
+  - Actual fetch test to confirm real connectivity
+  - Event subscription system for other modules
+  - Inline indicator component for embedding in panels
+
+  **API for Other Modules**:
+  - `NetworkStatusModule.isOnline()` - Check current status
+  - `NetworkStatusModule.subscribe(callback)` - Listen for changes
+  - `NetworkStatusModule.renderInlineIndicator()` - Embeddable UI
+  - `NetworkStatusModule.getOfflineDuration()` - Time offline
+
+### Technical
+- New module: `js/modules/networkstatus.js` (~400 lines)
+- Uses `navigator.onLine` with fetch verification backup
+- CSS animations for smooth transitions
+- Body class `offline-mode` for layout adjustments
+
 ## [6.14.0] - 2025-01-27
 
 ### Added
