@@ -148,6 +148,11 @@ const SOSModule = (function() {
     const INITIAL_BURST_COUNT = 3;    // Send 3 times initially
     const INITIAL_BURST_DELAY = 5000; // 5 seconds between initial bursts
 
+    // Module state
+    let initialized = false;
+    let checkInTimerInterval = null;
+    let gpsUnsubscribe = null;
+
     // State
     let state = {
         isActive: false,
@@ -181,10 +186,42 @@ const SOSModule = (function() {
      * Initialize the SOS module
      */
     async function init() {
+        if (initialized) {
+            console.debug('[SOS] Module already initialized');
+            return;
+        }
+        
         await loadState();
         setupPositionTracking();
         setupCheckInTimer();
+        
+        initialized = true;
         console.log('[SOS] Module initialized');
+    }
+    
+    /**
+     * Destroy/cleanup the SOS module
+     */
+    function destroy() {
+        if (checkInTimerInterval) {
+            clearInterval(checkInTimerInterval);
+            checkInTimerInterval = null;
+        }
+        
+        if (gpsUnsubscribe) {
+            gpsUnsubscribe();
+            gpsUnsubscribe = null;
+        }
+        
+        // Clear broadcast interval if active
+        if (state.broadcastInterval) {
+            clearInterval(state.broadcastInterval);
+            state.broadcastInterval = null;
+        }
+        
+        subscribers = [];
+        initialized = false;
+        console.log('[SOS] Module destroyed');
     }
 
     /**
@@ -248,8 +285,8 @@ const SOSModule = (function() {
                 };
             }
             
-            // Subscribe to position updates from GPSModule
-            GPSModule.subscribe((gpsState) => {
+            // Subscribe to position updates from GPSModule and store unsubscribe
+            gpsUnsubscribe = GPSModule.subscribe((gpsState) => {
                 const pos = GPSModule.getPosition();
                 if (pos && pos.lat && pos.lon) {
                     state.currentPosition = {
@@ -305,8 +342,13 @@ const SOSModule = (function() {
      * Setup check-in timer
      */
     function setupCheckInTimer() {
-        // Check every minute
-        setInterval(() => {
+        // Clear any existing timer first
+        if (checkInTimerInterval) {
+            clearInterval(checkInTimerInterval);
+        }
+        
+        // Check every minute and store the interval reference
+        checkInTimerInterval = setInterval(() => {
             if (state.nextCheckIn && new Date() > state.nextCheckIn) {
                 // Overdue!
                 notifyCheckInOverdue();
@@ -1662,6 +1704,7 @@ const SOSModule = (function() {
     // Public API
     return {
         init,
+        destroy,
         activateSOS,
         deactivateSOS,
         checkIn,
