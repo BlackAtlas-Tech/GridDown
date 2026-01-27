@@ -38,6 +38,17 @@ const App = (function() {
             await OfflineModule.init();
             await GPSModule.init();
             WeatherModule.init();
+            
+            // Initialize satellite weather imagery module
+            if (typeof SatWeatherModule !== 'undefined') {
+                SatWeatherModule.init();
+            }
+            
+            // Initialize RF Line-of-Sight analysis module
+            if (typeof RFLOSModule !== 'undefined') {
+                RFLOSModule.init();
+            }
+            
             ContingencyModule.init();
             MeasureModule.init();
             SunMoonModule.init();
@@ -83,6 +94,12 @@ const App = (function() {
             if (typeof MedicalModule !== 'undefined') {
                 MedicalModule.init();
                 console.log('Medical reference module initialized');
+            }
+            
+            // Initialize Field Guides module
+            if (typeof FieldGuidesModule !== 'undefined') {
+                FieldGuidesModule.init();
+                console.log('Field guides module initialized');
             }
             
             // Initialize Meshtastic module
