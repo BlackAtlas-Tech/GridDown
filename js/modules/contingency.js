@@ -27,11 +27,17 @@ const ContingencyModule = (function() {
 
     // Current trip plan state
     let currentPlan = null;
+    let initialized = false;
 
     /**
      * Initialize the module
      */
     function init() {
+        if (initialized) {
+            console.debug('ContingencyModule already initialized');
+            return;
+        }
+        initialized = true;
         console.log('ContingencyModule initialized');
     }
 

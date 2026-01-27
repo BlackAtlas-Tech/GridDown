@@ -72,6 +72,8 @@ const DeclinationModule = (function() {
     let currentInclination = null;
     let currentPosition = null;
     let currentDate = null;
+    let initialized = false;
+    let eventCleanup = [];
 
     /**
      * Calculate magnetic field components at a given location and date
@@ -363,13 +365,19 @@ const DeclinationModule = (function() {
      * Initialize module - subscribe to GPS updates
      */
     function init() {
+        if (initialized) {
+            console.debug('Declination module already initialized');
+            return;
+        }
+        
         // Listen for GPS position updates
         if (typeof Events !== 'undefined') {
-            Events.on('gps:position', (data) => {
+            const cleanup = Events.on('gps:position', (data) => {
                 if (data && data.lat && data.lon) {
                     updatePosition(data.lat, data.lon);
                 }
             });
+            eventCleanup.push(cleanup);
         }
 
         // Initialize with map center if available
@@ -380,7 +388,20 @@ const DeclinationModule = (function() {
             }
         }
 
+        initialized = true;
         console.log('Declination module initialized (WMM2020)');
+    }
+    
+    /**
+     * Cleanup module resources
+     */
+    function destroy() {
+        eventCleanup.forEach(cleanup => {
+            if (typeof cleanup === 'function') cleanup();
+        });
+        eventCleanup = [];
+        initialized = false;
+        console.log('Declination module destroyed');
     }
 
     /**
@@ -400,6 +421,7 @@ const DeclinationModule = (function() {
     // Public API
     return {
         init,
+        destroy,
         calculate,
         getDeclination,
         updatePosition,

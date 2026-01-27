@@ -407,6 +407,7 @@ const RadioModule = (function() {
     ];
 
     let repeaters = [...SAMPLE_REPEATERS];
+    let initialized = false;
 
     /**
      * Search repeaters by location or callsign
@@ -470,9 +471,15 @@ const RadioModule = (function() {
     // ==========================================
 
     async function init() {
+        if (initialized) {
+            console.debug('RadioModule already initialized');
+            return;
+        }
+        
         await loadCustomFrequencies();
         await loadRallyPoints();
         await loadRepeaters();
+        initialized = true;
         console.log('RadioModule initialized');
     }
 

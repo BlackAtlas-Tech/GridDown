@@ -55,11 +55,18 @@ const GPSModule = (function() {
 
     // Subscribers for position updates
     const subscribers = new Set();
+    
+    let initialized = false;
 
     /**
      * Initialize GPS module
      */
     async function init() {
+        if (initialized) {
+            console.debug('GPSModule already initialized');
+            return state;
+        }
+        
         // Load saved preferences
         await loadPreferences();
         
@@ -67,6 +74,7 @@ const GPSModule = (function() {
         state.hasGeolocation = 'geolocation' in navigator;
         state.hasSerial = 'serial' in navigator;
         
+        initialized = true;
         console.log('GPSModule initialized', {
             geolocation: state.hasGeolocation,
             serial: state.hasSerial
@@ -534,7 +542,7 @@ const GPSModule = (function() {
      */
     function parseGGA(parts) {
         // $GPGGA,time,lat,N/S,lon,E/W,quality,satellites,hdop,altitude,M,geoid,M,age,station*checksum
-        const quality = parseInt(parts[6]) || 0;
+        const quality = parseInt(parts[6], 10) || 0;
         
         if (quality === 0) {
             state.fix = 'none';
@@ -549,7 +557,7 @@ const GPSModule = (function() {
             state.lastUpdate = new Date();
         }
 
-        state.satellites = parseInt(parts[7]) || null;
+        state.satellites = parseInt(parts[7], 10) || null;
         state.hdop = parseFloat(parts[8]) || null;
         state.altitude = parseFloat(parts[9]) || null;
         state.fix = quality >= 1 ? (state.altitude !== null ? '3D' : '2D') : 'none';
@@ -607,7 +615,7 @@ const GPSModule = (function() {
      */
     function parseGSA(parts) {
         // $GPGSA,mode,fix,sat1,sat2,...,sat12,pdop,hdop,vdop*checksum
-        const fixType = parseInt(parts[2]) || 1;
+        const fixType = parseInt(parts[2], 10) || 1;
         
         switch (fixType) {
             case 1: state.fix = 'none'; break;
@@ -624,7 +632,7 @@ const GPSModule = (function() {
     function parseGSV(parts) {
         // $GPGSV,totalMsgs,msgNum,satsInView,sat1prn,elev,azim,snr,...*checksum
         // We just extract total satellites in view
-        const satsInView = parseInt(parts[3]);
+        const satsInView = parseInt(parts[3], 10);
         if (!isNaN(satsInView)) {
             state.satellitesInView = satsInView;
         }

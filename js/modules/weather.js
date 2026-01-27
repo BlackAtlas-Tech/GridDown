@@ -67,15 +67,37 @@ const WeatherModule = (function() {
             moderate: 3
         }
     };
+    
+    let initialized = false;
+    let cleanupInterval = null;
 
     /**
      * Initialize the module
      */
     function init() {
+        if (initialized) {
+            console.debug('WeatherModule already initialized');
+            return;
+        }
+        
         console.log('WeatherModule initialized');
         
         // Set up periodic cache cleanup
-        setInterval(cleanupCache, 5 * 60 * 1000);
+        cleanupInterval = setInterval(cleanupCache, 5 * 60 * 1000);
+        initialized = true;
+    }
+    
+    /**
+     * Cleanup module resources
+     */
+    function destroy() {
+        if (cleanupInterval) {
+            clearInterval(cleanupInterval);
+            cleanupInterval = null;
+        }
+        weatherCache.clear();
+        initialized = false;
+        console.log('WeatherModule destroyed');
     }
 
     /**
@@ -763,6 +785,7 @@ const WeatherModule = (function() {
     // Public API
     return {
         init,
+        destroy,
         fetchWeather,
         getWaypointWeather,
         analyzeRouteWeather,

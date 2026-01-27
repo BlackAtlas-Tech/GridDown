@@ -167,6 +167,7 @@ const APRSModule = (function() {
     
     // Scoped event manager for cleanup
     let aprsEvents = null;
+    let initialized = false;
 
     // ==================== Initialization ====================
 
@@ -174,6 +175,11 @@ const APRSModule = (function() {
      * Initialize APRS module
      */
     function init() {
+        if (initialized) {
+            console.debug('APRS module already initialized');
+            return;
+        }
+        
         // Create scoped event manager
         aprsEvents = EventManager.createScopedManager(EventManager.SCOPES.APRS);
         
@@ -186,6 +192,7 @@ const APRSModule = (function() {
         // Start beacon timer if enabled
         aprsEvents.setInterval(checkBeacon, 10000);
         
+        initialized = true;
         console.log('APRS module initialized');
     }
     
@@ -204,6 +211,7 @@ const APRSModule = (function() {
             aprsEvents = null;
         }
         
+        initialized = false;
         console.log('APRS module destroyed');
     }
 
@@ -679,7 +687,7 @@ const APRSModule = (function() {
             // Uncompressed position
             // Format: DDMM.MMN/DDDMM.MMW
             const latStr = data.slice(idx, idx + 8);
-            const latDeg = parseInt(latStr.slice(0, 2));
+            const latDeg = parseInt(latStr.slice(0, 2), 10);
             const latMin = parseFloat(latStr.slice(2, 7));
             const latDir = latStr.charAt(7);
             
@@ -689,7 +697,7 @@ const APRSModule = (function() {
             const symTable = data.charAt(idx + 8);
             
             const lonStr = data.slice(idx + 9, idx + 18);
-            const lonDeg = parseInt(lonStr.slice(0, 3));
+            const lonDeg = parseInt(lonStr.slice(0, 3), 10);
             const lonMin = parseFloat(lonStr.slice(3, 8));
             const lonDir = lonStr.charAt(8);
             
@@ -705,15 +713,15 @@ const APRSModule = (function() {
             // Parse extension data (course/speed, altitude, etc.)
             const extension = data.slice(idx + 19);
             if (extension.length >= 7 && extension.charAt(3) === '/') {
-                result.course = parseInt(extension.slice(0, 3)) || 0;
-                result.speed = parseInt(extension.slice(4, 7)) || 0; // knots
+                result.course = parseInt(extension.slice(0, 3), 10) || 0;
+                result.speed = parseInt(extension.slice(4, 7), 10) || 0; // knots
                 result.speed = Math.round(result.speed * 1.15078); // Convert to mph
             }
             
             // Look for altitude /A=NNNNNN
             const altMatch = data.match(/\/A=(-?\d{6})/);
             if (altMatch) {
-                result.altitude = parseInt(altMatch[1]);
+                result.altitude = parseInt(altMatch[1], 10);
             }
             
             // Comment after position
@@ -810,8 +818,8 @@ const APRSModule = (function() {
                 latDigits += digit;
             }
             
-            const latDeg = parseInt(latDigits.slice(0, 2));
-            const latMin = parseInt(latDigits.slice(2, 4)) + parseInt(latDigits.slice(4, 6)) / 100;
+            const latDeg = parseInt(latDigits.slice(0, 2), 10);
+            const latMin = parseInt(latDigits.slice(2, 4), 10) + parseInt(latDigits.slice(4, 6), 10) / 100;
             let lat = latDeg + latMin / 60;
             if (latDir === 'S') lat = -lat;
             
@@ -1338,7 +1346,7 @@ const APRSModule = (function() {
         digiPath.forEach((digi, i) => {
             const parts = digi.split('-');
             const call = parts[0];
-            const ssid = parseInt(parts[1]) || 0;
+            const ssid = parseInt(parts[1], 10) || 0;
             const isLast = i === digiPath.length - 1;
             const digiAddr = encodeCallsign(call, ssid, isLast);
             frame.set(digiAddr, idx);
@@ -1707,7 +1715,7 @@ const APRSModule = (function() {
         // Configuration
         setCallsign: (call, ssid = 9) => {
             state.myCallsign = call.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            state.mySSID = Math.min(15, Math.max(0, parseInt(ssid) || 0));
+            state.mySSID = Math.min(15, Math.max(0, parseInt(ssid, 10) || 0));
             saveSettings();
         },
         getCallsign: () => getMyFullCallsign(),

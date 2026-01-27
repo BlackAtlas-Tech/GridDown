@@ -184,11 +184,18 @@ const CommPlanModule = (function() {
     };
 
     let savedPlans = [];
+    let initialized = false;
 
     // ==================== Initialization ====================
 
     async function init() {
+        if (initialized) {
+            console.debug('CommPlan module already initialized');
+            return;
+        }
+        
         await loadPlans();
+        initialized = true;
         console.log('CommPlan module initialized');
     }
 

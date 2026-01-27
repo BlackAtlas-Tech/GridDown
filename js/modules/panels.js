@@ -525,8 +525,13 @@ const PanelsModule = (function() {
             }
         };
         
-        // Get expanded state from localStorage or default
-        const expandedState = JSON.parse(localStorage.getItem('gd_layer_expanded') || '{}');
+        // Get expanded state from localStorage or default (with try-catch for private browsing)
+        let expandedState = {};
+        try {
+            expandedState = JSON.parse(localStorage.getItem('gd_layer_expanded') || '{}');
+        } catch (e) {
+            console.warn('Could not read layer expanded state from localStorage:', e);
+        }
         
         container.innerHTML = `
             <div class="panel__header"><h2 class="panel__title">Map Layers</h2></div>
@@ -649,10 +654,14 @@ const PanelsModule = (function() {
                 content.style.display = isExpanded ? 'none' : '';
                 category.classList.toggle('layer-category--expanded', !isExpanded);
                 
-                // Save state
-                const state = JSON.parse(localStorage.getItem('gd_layer_expanded') || '{}');
-                state[catKey] = !isExpanded;
-                localStorage.setItem('gd_layer_expanded', JSON.stringify(state));
+                // Save state (with try-catch for private browsing/quota)
+                try {
+                    const state = JSON.parse(localStorage.getItem('gd_layer_expanded') || '{}');
+                    state[catKey] = !isExpanded;
+                    localStorage.setItem('gd_layer_expanded', JSON.stringify(state));
+                } catch (e) {
+                    console.warn('Could not save layer expanded state to localStorage:', e);
+                }
             };
         });
         

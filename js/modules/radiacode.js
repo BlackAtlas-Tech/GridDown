@@ -217,10 +217,16 @@ const RadiaCodeModule = (function() {
     let radiacodeEvents = null;
     let pollInterval = null;
     let demoInterval = null;
+    let initialized = false;
 
     // ==================== Initialization ====================
 
     function init() {
+        if (initialized) {
+            console.debug('RadiaCode module already initialized');
+            return;
+        }
+        
         if (typeof EventManager !== 'undefined' && EventManager.createScopedManager) {
             radiacodeEvents = EventManager.createScopedManager(EventManager.SCOPES.RADIACODE || 'radiacode');
         }
@@ -228,6 +234,7 @@ const RadiaCodeModule = (function() {
         loadSettings();
         loadTracks();
         
+        initialized = true;
         console.log('RadiaCode module initialized');
         console.log('Web Bluetooth available:', 'bluetooth' in navigator);
     }
@@ -245,6 +252,7 @@ const RadiaCodeModule = (function() {
         stopPolling();
         stopDemo();
         
+        initialized = false;
         console.log('RadiaCode module destroyed');
     }
 

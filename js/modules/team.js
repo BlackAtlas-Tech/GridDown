@@ -80,6 +80,9 @@ const TeamModule = (function() {
     // STATE
     // =========================================================================
     
+    let initialized = false;
+    let eventCleanup = [];
+    
     let state = {
         currentTeam: null,
         myMemberId: null,
@@ -93,16 +96,37 @@ const TeamModule = (function() {
     // =========================================================================
     
     async function init() {
+        if (initialized) {
+            console.debug('TeamModule already initialized');
+            return;
+        }
+        
         console.log('TeamModule initializing...');
         await loadTeamState();
         
         if (typeof Events !== 'undefined') {
-            Events.on('meshtastic:message', handleMeshMessage);
-            Events.on('meshtastic:position', handlePositionUpdate);
-            Events.on('meshtastic:connection', handleConnectionChange);
+            // Store cleanup functions for event listeners
+            eventCleanup.push(Events.on('meshtastic:message', handleMeshMessage));
+            eventCleanup.push(Events.on('meshtastic:position', handlePositionUpdate));
+            eventCleanup.push(Events.on('meshtastic:connection', handleConnectionChange));
         }
         
+        initialized = true;
         console.log('TeamModule ready', state.currentTeam ? `- Team: ${state.currentTeam.name}` : '- No team');
+    }
+    
+    /**
+     * Cleanup module resources
+     */
+    function destroy() {
+        // Remove event listeners
+        eventCleanup.forEach(cleanup => {
+            if (typeof cleanup === 'function') cleanup();
+        });
+        eventCleanup = [];
+        
+        initialized = false;
+        console.log('TeamModule destroyed');
     }
     
     async function loadTeamState() {
@@ -1262,6 +1286,7 @@ const TeamModule = (function() {
     
     return {
         init,
+        destroy,
         
         // Team management
         createTeam,

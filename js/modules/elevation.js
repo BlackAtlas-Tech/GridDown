@@ -11,11 +11,18 @@ const ElevationModule = (function() {
 
     // API endpoint
     const ELEVATION_API = 'https://api.open-meteo.com/v1/elevation';
+    
+    let initialized = false;
 
     /**
      * Initialize the module
      */
     function init() {
+        if (initialized) {
+            console.debug('ElevationModule already initialized');
+            return;
+        }
+        initialized = true;
         console.log('ElevationModule initialized');
     }
 
