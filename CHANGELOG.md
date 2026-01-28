@@ -2,6 +2,23 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.18.2] - 2025-01-27
+
+### Fixed
+- **Offline Maps Draw Region on Touch Devices** - Region drawing now works on mobile/tablet:
+  
+  **Problem**: The "Draw Region" button would enter drawing mode but touch events (tap, drag) were not being handled, making it impossible to actually draw a region on touch devices.
+  
+  **Solution**: Added offline region drawing support to all three touch event handlers:
+  - `handleTouchStart`: Detects drawing mode and initiates region selection
+  - `handleTouchMove`: Updates the selection rectangle as user drags
+  - `handleTouchEnd`: Completes the selection and triggers download modal
+  
+  **Notes**:
+  - Two-finger gestures (pinch/rotate) now cancel drawing mode
+  - Drawing works identically to mouse-based drawing on desktop
+  - Tested on both single-touch and multi-touch scenarios
+
 ## [6.18.1] - 2025-01-27
 
 ### Added
