@@ -2842,6 +2842,22 @@ const MapModule = (function() {
         if (e.touches.length === 1) {
             e.preventDefault();
             const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            const coords = pixelToLatLon(x, y);
+            
+            // Check if OfflineModule is in drawing mode
+            if (typeof OfflineModule !== 'undefined') {
+                const drawingState = OfflineModule.getDrawingState();
+                if (drawingState.isDrawing) {
+                    OfflineModule.handleDrawStart(coords);
+                    mapState.isDrawingRegion = true;
+                    mapState.drawStart = { x, y };
+                    cancelLongPress();
+                    return;
+                }
+            }
             
             // Reset gesture state
             gestureState.isActive = false;
@@ -2873,6 +2889,16 @@ const MapModule = (function() {
             cancelLongPress();
             mapState.isDragging = false;
             
+            // Cancel drawing if active
+            if (mapState.isDrawingRegion) {
+                mapState.isDrawingRegion = false;
+                mapState.drawStart = null;
+                mapState.drawEnd = null;
+                if (typeof OfflineModule !== 'undefined') {
+                    OfflineModule.cancelDrawing();
+                }
+            }
+            
             // Initialize two-finger gesture
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
@@ -2898,6 +2924,24 @@ const MapModule = (function() {
     function handleTouchMove(e) {
         if (e.touches.length === 1 && mapState.dragStart && !gestureState.isActive) {
             const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            
+            // Check if we're drawing a region
+            if (mapState.isDrawingRegion && mapState.drawStart) {
+                e.preventDefault();
+                if (typeof OfflineModule !== 'undefined') {
+                    const coords = pixelToLatLon(x, y);
+                    const bounds = OfflineModule.handleDrawMove(coords);
+                    if (bounds) {
+                        mapState.drawEnd = { x, y };
+                        render();
+                    }
+                }
+                return;
+            }
+            
             const dx = touch.clientX - longPressState.startX;
             const dy = touch.clientY - longPressState.startY;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -3008,6 +3052,24 @@ const MapModule = (function() {
         
         if (e.touches.length === 0) {
             // All fingers lifted
+            
+            // Check if we were drawing a region
+            if (mapState.isDrawingRegion && mapState.drawStart) {
+                if (typeof OfflineModule !== 'undefined' && e.changedTouches.length > 0) {
+                    const touch = e.changedTouches[0];
+                    const rect = canvas.getBoundingClientRect();
+                    const x = touch.clientX - rect.left;
+                    const y = touch.clientY - rect.top;
+                    const coords = pixelToLatLon(x, y);
+                    OfflineModule.handleDrawEnd(coords);
+                }
+                mapState.isDrawingRegion = false;
+                mapState.drawStart = null;
+                mapState.drawEnd = null;
+                render();
+                return;
+            }
+            
             const elapsed = Date.now() - longPressState.startTime;
             if (!mapState.isDragging && !longPressState.isLongPress && !gestureState.isActive && elapsed < 300) {
                 // This was a tap - let normal click event handle it
