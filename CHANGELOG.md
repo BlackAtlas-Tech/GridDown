@@ -2,6 +2,20 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.18.3] - 2025-01-28
+
+### Fixed
+- **Modal Accessibility (aria-hidden)** - Fixed accessibility violation where modal container had `aria-hidden="true"` while focused elements were inside:
+  - Modal container now sets `aria-hidden="false"` when opening
+  - Sets `aria-hidden="true"` when closing
+  - Eliminates browser warning about hidden focus
+
+- **Offline Mode Console Spam** - Reduced console noise when in offline mode:
+  - Network connectivity checks now stop when user enables "Offline Mode" toggle
+  - Checks resume when offline mode is disabled
+  - Uses State.subscribe to react to offline mode changes
+  - Eliminates repeated 503 errors and ServiceWorker update failures in console
+
 ## [6.18.2] - 2025-01-27
 
 ### Fixed
