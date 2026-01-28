@@ -817,6 +817,9 @@ const ModalsModule = (function() {
         
         const typeConfig = Constants.WAYPOINT_TYPES[wp.type] || Constants.WAYPOINT_TYPES.custom;
         
+        // Show modal - update aria-hidden for accessibility
+        container.setAttribute('aria-hidden', 'false');
+        
         container.innerHTML = `
             <div class="modal-backdrop" id="modal-backdrop" role="presentation">
                 <div class="modal" style="max-width:480px;max-height:90vh" role="dialog" aria-modal="true" aria-labelledby="modal-title">
@@ -1194,6 +1197,9 @@ const ModalsModule = (function() {
     function confirmDeleteWaypoint(wp) {
         const type = Constants.WAYPOINT_TYPES[wp.type] || Constants.WAYPOINT_TYPES.custom;
         
+        // Show modal - update aria-hidden for accessibility
+        container.setAttribute('aria-hidden', 'false');
+        
         container.innerHTML = `
             <div class="modal-backdrop" id="modal-backdrop" role="presentation">
                 <div class="modal" style="max-width:360px" role="alertdialog" aria-modal="true" aria-labelledby="delete-modal-title" aria-describedby="delete-modal-desc">
@@ -1273,6 +1279,7 @@ const ModalsModule = (function() {
 
     function closeModal() {
         container.innerHTML = '';
+        container.setAttribute('aria-hidden', 'true');
         currentWaypoint = null;
         pendingPhotos = [];  // Reset pending photos
         removeKeyboardListener();

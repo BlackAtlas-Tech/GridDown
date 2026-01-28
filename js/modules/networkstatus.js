@@ -36,8 +36,34 @@ const NetworkStatusModule = (function() {
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
         
+        // Listen for app offline mode toggle via State subscriber
+        if (typeof State !== 'undefined') {
+            State.subscribe((newState, prevState) => {
+                const appOfflineMode = newState.isOffline;
+                const wasAppOffline = prevState?.isOffline;
+                
+                if (appOfflineMode !== wasAppOffline) {
+                    if (appOfflineMode) {
+                        // App is in user-controlled offline mode - stop checking
+                        stopConnectivityCheck();
+                        handleOffline(); // Update UI to show offline
+                    } else {
+                        // App offline mode disabled - resume checking
+                        startConnectivityCheck();
+                        // Check actual connectivity
+                        checkConnectivity().then(online => {
+                            if (online) handleOnline();
+                        });
+                    }
+                }
+            }, ['isOffline']);
+        }
+        
         // Start periodic connectivity check (backup for unreliable events)
-        startConnectivityCheck();
+        // Only if not already in app offline mode
+        if (typeof State === 'undefined' || !State.get('isOffline')) {
+            startConnectivityCheck();
+        }
         
         // Show initial state if offline
         if (!isOnline) {
@@ -127,8 +153,14 @@ const NetworkStatusModule = (function() {
     
     /**
      * Actually check connectivity by making a small request
+     * Skips check if app is in user-controlled offline mode
      */
     async function checkConnectivity() {
+        // Skip if app is in user-controlled offline mode
+        if (typeof State !== 'undefined' && State.get('isOffline')) {
+            return false;
+        }
+        
         // First check navigator.onLine
         if (!navigator.onLine) return false;
         
@@ -147,7 +179,7 @@ const NetworkStatusModule = (function() {
             clearTimeout(timeout);
             return response.ok;
         } catch (e) {
-            // Network error - offline or blocked
+            // Network error - offline or blocked (don't log, this is expected when offline)
             return false;
         }
     }
