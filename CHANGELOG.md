@@ -2,6 +2,51 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.19.7] - 2025-01-29
+
+### Added
+- **SSTV Image Annotation** - Draw on images before transmission:
+  - **Toolbar**: Pen, Arrow, Circle, Rectangle, Text, and Eraser tools
+  - **Customization**: Color picker and line width selector (Thin/Medium/Thick/Bold)
+  - **Actions**: Undo (↩️) and Clear All (🗑️) buttons
+  - **Overlay System**: Annotations drawn on transparent layer above base image
+  - **Auto-Flatten**: Annotations automatically merged before SSTV transmission
+  - **Text Tool**: Input field appears when text tool selected, click to place
+  - **Touch Support**: Full touch device compatibility for mobile annotation
+
+- **Annotate from History** - Edit received images:
+  - "Annotate & TX" button in received image detail modal
+  - Opens image in Transmit tab with annotation tools
+  - Non-destructive: original image preserved in history
+
+### Technical
+- Annotation canvas overlay with `position: absolute` stacking
+- Drawing state: tool, color, width, history stack (20 levels)
+- Mouse/touch event handlers with coordinate scaling
+- Shape preview during drag (arrow, circle, rectangle)
+- `flattenAnnotations()` merges layers via `drawImage()`
+- `hasAnnotations()` checks alpha channel for content
+- CSS `.sstv-tool-active` class for tool selection feedback
+
+## [6.19.6] - 2025-01-29
+
+### Added
+- **SSTV Expandable Windows** - Full-screen viewing for better signal analysis:
+  - Expand button (⛶) on both Waterfall Display and Received Image
+  - Full-screen modal overlay with dark background
+  - Waterfall: Larger 800×300 canvas with live frequency updates
+  - Preview: Full-size image display with mode and dimension info
+  - Live updates continue in expanded mode during active decoding
+  - Close with button, Escape key, or click outside
+  - Frequency scale labels in expanded waterfall (SYNC/BLACK/VIS/WHITE)
+
+### Technical
+- New functions: `openSSTVExpandedView()`, `closeSSTVExpandedView()`
+- Expanded waterfall updates at 50ms intervals with signal quality feedback
+- Expanded preview updates at 100ms to track live decode progress
+- Colormap rendering shared with inline display
+- Keyboard handler (Escape) and click-outside-to-close support
+
 ## [6.19.5] - 2025-01-29
 
 ### Added

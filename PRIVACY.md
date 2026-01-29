@@ -18,12 +18,29 @@ GridDown is designed with privacy as a core principle. We collect no personal da
 
 ## Data Storage
 
-All data you create in GridDown (waypoints, routes, settings) is stored **locally on your device** using your browser's IndexedDB storage. This data:
+All data you create in GridDown (waypoints, routes, settings, received SSTV images) is stored **locally on your device** using your browser's IndexedDB storage. This data:
 
 - Never leaves your device unless you explicitly export it
 - Is not accessible to BlackDot Technology
 - Is not synced to any cloud service
 - Can be deleted at any time by clearing your browser data
+
+## Device Permissions
+
+GridDown may request the following device permissions. All are optional and only used when you initiate the relevant feature:
+
+| Permission | Feature | Purpose |
+|------------|---------|---------|
+| **Location** | GPS tracking, navigation | Show your position on map, calculate distances |
+| **Microphone** | SSTV receive | Decode SSTV audio signals from radio |
+| **Camera** | SSTV transmit | Capture photos for SSTV transmission |
+| **Bluetooth** | APRS, Meshtastic, RadiaCode | Connect to external radio/sensor devices |
+| **Serial Port** | TNC devices | Connect to serial APRS equipment |
+
+**Important**: 
+- Audio from your microphone is processed **locally** for SSTV decoding and is never transmitted over the internet
+- Camera images are stored **locally** and only transmitted as SSTV audio through your radio when you explicitly click "Transmit"
+- No audio, images, or device data is sent to BlackDot Technology or any third party
 
 ## External Services
 
@@ -60,6 +77,15 @@ If you use RF Sentinel integration:
 - Data flows directly between GridDown and your RF Sentinel instance
 - No data passes through BlackDot Technology servers
 
+## SSTV (Slow Scan Television)
+
+When using SSTV features:
+- **Receiving**: Audio from your microphone is decoded locally into images
+- **Transmitting**: Images are encoded locally into audio tones played through your speaker
+- **Storage**: Received images are stored in your browser's local storage
+- **No cloud processing**: All encoding, decoding, and AI enhancement runs entirely on your device
+- **Amateur radio compliance**: You are responsible for ensuring proper licensing and identification when transmitting
+
 ## Export & Sharing
 
 When you export plans or data:
@@ -74,6 +100,7 @@ You can:
 - Delete all stored data by clearing your browser's site data
 - Operate completely offline after initial setup
 - Export all your data at any time
+- Revoke device permissions at any time through browser settings
 
 ## Children's Privacy
 

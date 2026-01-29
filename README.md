@@ -168,32 +168,58 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 
 ## 📺 SSTV (Slow Scan Television) (NEW in v6.19)
 
-Transmit and receive images over amateur radio using industry-standard SSTV modes.
+Transmit and receive images over amateur radio using industry-standard SSTV modes. Full-featured codec with real-time DSP processing and AI enhancement.
 
-### Supported Modes
-| Mode | Resolution | Time | Color Mode |
-|------|------------|------|------------|
-| Robot 36 | 320×240 | 36s | YCrCb |
-| Robot 72 | 320×240 | 72s | YCrCb |
-| Martin M1 | 320×256 | 114s | GBR |
-| Martin M2 | 160×256 | 58s | GBR |
-| Scottie S1 | 320×256 | 110s | GBR |
-| Scottie S2 | 160×256 | 71s | GBR |
-| PD-90 | 320×256 | 90s | YCrCb |
-| PD-120 | 640×496 | 126s | YCrCb |
+### Supported Modes (12 Total)
+
+| Mode | Resolution | Time | Color Mode | VIS Code |
+|------|------------|------|------------|----------|
+| Robot 36 | 320×240 | 36s | YCrCb | 0x08 |
+| Robot 72 | 320×240 | 72s | YCrCb | 0x0C |
+| Martin M1 | 320×256 | 114s | GBR | 0x2C |
+| Martin M2 | 160×256 | 58s | GBR | 0x28 |
+| Scottie S1 | 320×256 | 110s | GBR | 0x3C |
+| Scottie S2 | 160×256 | 71s | GBR | 0x38 |
+| PD-90 | 320×256 | 90s | YCrCb | 0x63 |
+| PD-120 | 640×496 | 126s | YCrCb | 0x5F |
+| PD-180 | 640×496 | 180s | YCrCb | 0x60 |
+| PD-240 | 640×496 | 240s | YCrCb | 0x62 |
+| PD-290 | 800×616 | 290s | YCrCb | 0x64 |
+| Wraase SC2-180 | 320×256 | 180s | RGB | 0x55 |
 
 ### Receive Features
 - **Auto VIS code detection** - Automatically identifies transmission mode
 - **Real-time decode progress** with live preview
-- **Signal strength meter** for tuning
-- **Image history** with export to PNG
+- **Signal strength meter** for tuning assistance
+- **Image history** with timestamps, mode info, and PNG export
+- **Annotate & Retransmit** - Open received images in editor for markup
 
 ### Transmit Features
 - **Camera capture** - Take photo and transmit
 - **Gallery import** - Send existing images
 - **Map view capture** - Transmit your current tactical view
 - **Automatic callsign overlay** for legal compliance
-- **Grid square auto-calculation** from GPS
+- **Grid square auto-calculation** from GPS position
+- **Mode-specific scaling** - Images auto-resized to mode dimensions
+
+### DSP Processing (NEW in v6.19.4)
+- **Waterfall Display** - Real-time FFT spectrogram with 4 colormaps (Viridis, Plasma, Thermal, Grayscale)
+- **Frequency markers** - Visual indicators for SYNC, BLACK, VIS, WHITE frequencies
+- **Auto-Slant Correction** - Fixes image skew from sample rate mismatches
+- **Frequency Drift Compensation** - Tracks and corrects transmitter frequency drift (±50 Hz)
+- **Signal Quality Analysis** - Guidance for optimal signal levels
+
+### Image Annotation (NEW in v6.19.7)
+- **Drawing Tools** - Pen, Arrow, Circle, Rectangle, Text, Eraser
+- **Customization** - Color picker and line width (Thin/Medium/Thick/Bold)
+- **Undo/Clear** - 20-level undo history
+- **Auto-Flatten** - Annotations automatically merged before transmission
+- **Touch Support** - Full mobile/tablet drawing support
+
+### Expandable Views (NEW in v6.19.6)
+- **Full-screen waterfall** - 800×300 expanded display with live updates
+- **Full-screen image preview** - Large format during active decode
+- **Keyboard shortcut** - Press Escape to close
 
 ### AI Enhancement (NEW in v6.19.2)
 - **2× and 4× AI upscaling** using Real-CUGAN/Real-ESRGAN models
@@ -204,13 +230,14 @@ Transmit and receive images over amateur radio using industry-standard SSTV mode
 
 ### Hardware Requirements
 - Any amateur radio with audio output (receive)
-- Audio interface for transmit (Digirig, SignaLink, etc.)
-- See [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) for details
+- Audio interface for transmit (Digirig, SignaLink, direct cable)
+- See [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) for detailed setup
 
 ### Legal Requirements
 - Valid amateur radio license required for transmitting
 - Callsign verification before TX enabled
 - 10-minute identification reminder
+- Automatic callsign overlay option
 
 ---
 
@@ -478,8 +505,9 @@ GridDown/
         ├── meshtastic.js   # Mesh networking
         ├── radiacode.js    # Gamma spectrometer
         ├── rfsentinel.js   # RF Sentinel integration (NEW)
-        ├── sstv.js         # SSTV encode/decode (NEW)
-        ├── sstv-ai.js      # SSTV AI enhancement (NEW)
+        ├── sstv.js         # SSTV encode/decode
+        ├── sstv-ai.js      # SSTV AI enhancement
+        ├── sstv-dsp.js     # SSTV DSP (waterfall, slant, drift)
         ├── team.js         # Team management
         ├── medical.js      # Medical reference
         ├── fieldguides.js  # Offline field guides (NEW)
@@ -640,16 +668,17 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.19.3** (January 2025)
+**Current Version: 6.19.7** (January 2025)
 
 ### Recent Highlights
+- **v6.19.7** - SSTV image annotation with drawing tools and auto-flatten for TX
+- **v6.19.6** - Expandable full-screen views for waterfall and received images
+- **v6.19.5** - Frequency drift compensation, 4 new SSTV modes (PD-180/240/290, Wraase SC2-180)
+- **v6.19.4** - DSP module with waterfall display and auto-slant correction
 - **v6.19.3** - SSTV storage API fix
 - **v6.19.2** - SSTV AI Enhancement module (upscaling, denoising, OCR)
 - **v6.19.0** - SSTV encode/decode with 8 modes, callsign overlay, map capture
 - **v6.18.5** - Settings version display fix, About section branding
-- **v6.18.4** - Pre-launch polish, privacy policy
-- **v6.18.3** - Modal accessibility fix, offline mode console cleanup
-- **v6.18.2** - Touch support for offline map region drawing
 - **v6.18.1** - MQTT connection support for RF Sentinel
 - **v6.18.0** - RF Sentinel integration with multi-protocol RF detection
 
