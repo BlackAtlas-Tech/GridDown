@@ -411,7 +411,8 @@ const Constants = (function() {
         { id: 'offline', icon: 'download', label: 'Offline' },
         { id: 'team', icon: 'team', label: 'Team' },
         { id: 'rfsentinel', icon: 'radar', label: 'RF Sentinel' },
-        { id: 'sstv', icon: 'camera', label: 'SSTV' }
+        { id: 'sstv', icon: 'camera', label: 'SSTV' },
+        { id: 'sarsat', icon: 'broadcast', label: 'SARSAT' }
     ];
 
     const MAP_LAYERS = [
