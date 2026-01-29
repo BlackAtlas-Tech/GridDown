@@ -429,6 +429,7 @@ const PanelsModule = (function() {
             case 'comms': renderComms(); break;
             case 'terrain': renderTerrain(); break;
             case 'radio': renderRadio(); break;
+            case 'sstv': renderSSTV(); break;
             case 'medical': renderMedical(); break;
             case 'fieldguides': renderFieldGuides(); break;
             default: renderMapLayers();
@@ -7311,7 +7312,7 @@ const PanelsModule = (function() {
             <div class="settings-group">
                 <div class="settings-row">
                     <span class="settings-row__label">Version</span>
-                    <span style="font-size:13px;color:rgba(255,255,255,0.6)">6.2.2</span>
+                    <span id="app-version" style="font-size:13px;color:rgba(255,255,255,0.6)">Loading...</span>
                 </div>
                 <div class="settings-row">
                     <span class="settings-row__label">Storage Used</span>
@@ -7326,9 +7327,23 @@ const PanelsModule = (function() {
                 <div style="font-size:24px;margin-bottom:8px">🧭</div>
                 <div style="font-size:14px;font-weight:600;color:#f97316">GridDown</div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Offline Tactical Navigation</div>
-                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:8px">MIT License • 2025</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:8px">
+                    <a href="https://github.com/BlackDotTechnology/GridDown" target="_blank" rel="noopener" style="color:rgba(255,255,255,0.4);text-decoration:none">MIT License</a> • BlackDot Technology • 2025
+                </div>
             </div>
         `;
+        
+        // Load version from manifest
+        fetch('manifest.json')
+            .then(r => r.json())
+            .then(manifest => {
+                const versionEl = container.querySelector('#app-version');
+                if (versionEl) versionEl.textContent = manifest.version || 'Unknown';
+            })
+            .catch(() => {
+                const versionEl = container.querySelector('#app-version');
+                if (versionEl) versionEl.textContent = '6.18.4';
+            });
         
         // Event Handlers
         
@@ -12023,6 +12038,739 @@ ${text}
         } catch (e) {
             console.error('Failed to save medical bookmarks:', e);
         }
+    }
+
+    // ==========================================
+    // SSTV PANEL
+    // ==========================================
+    
+    let sstvInitialized = false;
+    let sstvActiveTab = 'receive';
+    let sstvReceiveActive = false;
+    let sstvTransmitMode = 'Robot36';
+    let sstvTransmitSource = 'camera';
+
+    async function renderSSTV() {
+        // Initialize SSTVModule if needed
+        if (typeof SSTVModule !== 'undefined' && !sstvInitialized) {
+            await SSTVModule.init();
+            sstvInitialized = true;
+            
+            // Subscribe to SSTV events
+            if (typeof Events !== 'undefined') {
+                Events.on('sstv:status', handleSSTVStatus);
+                Events.on('sstv:modeDetected', handleSSTVModeDetected);
+                Events.on('sstv:progress', handleSSTVProgress);
+                Events.on('sstv:imageComplete', handleSSTVImageComplete);
+                Events.on('sstv:transmitStarted', handleSSTVTransmitStarted);
+                Events.on('sstv:transmitComplete', handleSSTVTransmitComplete);
+            }
+        }
+
+        if (typeof SSTVModule === 'undefined') {
+            container.innerHTML = `
+                <div class="panel__header">
+                    <h2 class="panel__title">📺 SSTV</h2>
+                </div>
+                <div class="empty-state">
+                    <div class="empty-state__icon">${Icons.get('camera')}</div>
+                    <div class="empty-state__title">SSTV Module Not Loaded</div>
+                    <div class="empty-state__desc">Slow Scan Television features are not available</div>
+                </div>
+            `;
+            return;
+        }
+
+        const settings = SSTVModule.getSettings();
+        const receivedImages = SSTVModule.getReceivedImages();
+        const isReceiving = SSTVModule.isReceiving();
+        const isTransmitting = SSTVModule.isTransmitting();
+
+        const tabs = [
+            { id: 'receive', label: '📥 Receive', icon: 'download' },
+            { id: 'transmit', label: '📤 Transmit', icon: 'upload' },
+            { id: 'history', label: '🖼️ History', icon: 'image' },
+            { id: 'settings', label: '⚙️ Settings', icon: 'settings' }
+        ];
+
+        container.innerHTML = `
+            <div class="panel__header">
+                <h2 class="panel__title">📺 SSTV</h2>
+                <div style="display:flex;gap:8px;align-items:center">
+                    ${settings.callsign ? `<span class="chip chip--small">${settings.callsign}</span>` : ''}
+                </div>
+            </div>
+
+            <!-- Status Banner -->
+            ${isReceiving ? `
+                <div class="alert alert--info" style="margin-bottom:12px">
+                    <span>🎤 Receiving...</span>
+                    <span id="sstv-rx-status">Waiting for signal</span>
+                </div>
+            ` : ''}
+            ${isTransmitting ? `
+                <div class="alert alert--warning" style="margin-bottom:12px">
+                    <span>📡 Transmitting...</span>
+                    <span id="sstv-tx-status">Sending image</span>
+                </div>
+            ` : ''}
+
+            <!-- Tabs -->
+            <div class="radio-tabs" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:16px">
+                ${tabs.map(tab => `
+                    <button class="chip ${sstvActiveTab === tab.id ? 'chip--active' : ''}" 
+                        data-sstv-tab="${tab.id}">
+                        ${tab.label}
+                    </button>
+                `).join('')}
+            </div>
+
+            <!-- Content Area -->
+            <div id="sstv-content">
+                ${renderSSTVTabContent()}
+            </div>
+        `;
+
+        // Tab handlers
+        container.querySelectorAll('[data-sstv-tab]').forEach(btn => {
+            btn.onclick = () => {
+                sstvActiveTab = btn.dataset.sstvTab;
+                document.getElementById('sstv-content').innerHTML = renderSSTVTabContent();
+                attachSSTVHandlers();
+            };
+        });
+
+        attachSSTVHandlers();
+    }
+
+    function renderSSTVTabContent() {
+        switch (sstvActiveTab) {
+            case 'receive': return renderSSTVReceive();
+            case 'transmit': return renderSSTVTransmit();
+            case 'history': return renderSSTVHistory();
+            case 'settings': return renderSSTVSettings();
+            default: return '';
+        }
+    }
+
+    function renderSSTVReceive() {
+        const isReceiving = typeof SSTVModule !== 'undefined' && SSTVModule.isReceiving();
+        const decoderState = typeof SSTVModule !== 'undefined' ? SSTVModule.getDecoderState() : {};
+
+        return `
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">Audio Input</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
+                    Connect your radio's audio output to your device's microphone input via audio cable.
+                </p>
+                
+                <!-- Signal Meter -->
+                <div style="margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span style="font-size:12px;color:var(--text-secondary)">Signal Level</span>
+                        <span id="sstv-signal-level" style="font-size:12px;font-family:var(--font-mono)">--</span>
+                    </div>
+                    <div style="background:var(--bg-secondary);border-radius:4px;height:8px;overflow:hidden">
+                        <div id="sstv-signal-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.1s"></div>
+                    </div>
+                </div>
+
+                <!-- Decoder Status -->
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                        <span>Status:</span>
+                        <span id="sstv-rx-phase" style="font-weight:500">${decoderState.phase || 'IDLE'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                        <span>Mode:</span>
+                        <span id="sstv-rx-mode" style="font-weight:500">${decoderState.mode || '--'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between">
+                        <span>Progress:</span>
+                        <span id="sstv-rx-progress" style="font-weight:500">${decoderState.mode ? 
+                            `${decoderState.currentLine || 0}/${SSTVModule.MODES[decoderState.mode]?.height || 0}` : '--'}</span>
+                    </div>
+                </div>
+
+                <!-- Preview -->
+                <div id="sstv-rx-preview" style="background:#000;border-radius:8px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;margin-bottom:16px">
+                    <canvas id="sstv-rx-canvas" style="max-width:100%;max-height:100%;display:none"></canvas>
+                    <span style="color:var(--text-secondary)">No image</span>
+                </div>
+
+                <!-- Controls -->
+                <div style="display:flex;gap:8px">
+                    ${isReceiving ? `
+                        <button class="btn btn--danger" id="sstv-stop-rx" style="flex:1">
+                            ${Icons.get('stop')} Stop
+                        </button>
+                    ` : `
+                        <button class="btn btn--primary" id="sstv-start-rx" style="flex:1">
+                            ${Icons.get('antenna')} Start Receive
+                        </button>
+                    `}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card__title">Connection Guide</div>
+                <ol style="padding-left:20px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+                    <li>Connect audio cable from radio headphone/speaker jack to device mic input</li>
+                    <li>Set radio to SSTV frequency (e.g., 14.230 MHz USB, 145.500 MHz FM)</li>
+                    <li>Adjust radio volume to moderate level</li>
+                    <li>Click "Start Receive" and wait for SSTV signal</li>
+                </ol>
+            </div>
+        `;
+    }
+
+    function renderSSTVTransmit() {
+        const settings = typeof SSTVModule !== 'undefined' ? SSTVModule.getSettings() : {};
+        const isTransmitting = typeof SSTVModule !== 'undefined' && SSTVModule.isTransmitting();
+        const modes = typeof SSTVModule !== 'undefined' ? SSTVModule.MODES : {};
+
+        return `
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">Transmit Settings</div>
+                
+                ${!settings.callsign ? `
+                    <div class="alert alert--warning" style="margin-bottom:12px">
+                        ⚠️ Callsign required for transmission. Set in Settings tab.
+                    </div>
+                ` : ''}
+
+                <!-- Mode Selection -->
+                <div class="form-group">
+                    <label class="form-label">Mode</label>
+                    <select id="sstv-tx-mode" class="form-select">
+                        ${Object.entries(modes).map(([key, mode]) => `
+                            <option value="${key}" ${sstvTransmitMode === key ? 'selected' : ''}>
+                                ${mode.name} (${mode.width}×${mode.height}, ${mode.totalTime}s)
+                            </option>
+                        `).join('')}
+                    </select>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">
+                        ${modes[sstvTransmitMode]?.description || ''}
+                    </div>
+                </div>
+
+                <!-- Source Selection -->
+                <div class="form-group">
+                    <label class="form-label">Image Source</label>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap">
+                        <button class="chip ${sstvTransmitSource === 'camera' ? 'chip--active' : ''}" data-sstv-source="camera">
+                            📷 Camera
+                        </button>
+                        <button class="chip ${sstvTransmitSource === 'gallery' ? 'chip--active' : ''}" data-sstv-source="gallery">
+                            🖼️ Gallery
+                        </button>
+                        <button class="chip ${sstvTransmitSource === 'map' ? 'chip--active' : ''}" data-sstv-source="map">
+                            🗺️ Map View
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Image Preview -->
+                <div id="sstv-tx-preview" style="background:#000;border-radius:8px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;margin-bottom:16px;position:relative">
+                    <canvas id="sstv-tx-canvas" style="max-width:100%;max-height:100%;display:none"></canvas>
+                    <span id="sstv-tx-placeholder" style="color:var(--text-secondary)">Select image source</span>
+                    ${settings.callsign && settings.autoCallsignOverlay ? `
+                        <div style="position:absolute;bottom:8px;left:8px;background:rgba(0,0,0,0.6);padding:4px 8px;border-radius:4px;font-family:monospace;font-size:12px">
+                            ${settings.callsign}${settings.gridSquare ? ' ' + settings.gridSquare : ''}
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Hidden file input -->
+                <input type="file" id="sstv-file-input" accept="image/*" style="display:none">
+
+                <!-- Transmit Button -->
+                <button class="btn btn--primary" id="sstv-transmit-btn" style="width:100%" 
+                    ${!settings.callsign || isTransmitting ? 'disabled' : ''}>
+                    ${isTransmitting ? `
+                        ${Icons.get('broadcast')} Transmitting...
+                    ` : `
+                        📡 Transmit SSTV
+                    `}
+                </button>
+                
+                <p style="font-size:11px;color:var(--text-secondary);margin-top:8px;text-align:center">
+                    Requires valid amateur radio license. Audio outputs to speaker/headphone jack.
+                </p>
+            </div>
+
+            <div class="card">
+                <div class="card__title">Transmission Guide</div>
+                <ol style="padding-left:20px;color:var(--text-secondary);font-size:13px;line-height:1.6">
+                    <li>Connect device audio output to radio mic input (use appropriate interface)</li>
+                    <li>Set radio to SSTV frequency and enable TX</li>
+                    <li>Select image source and verify preview</li>
+                    <li>Key PTT (or use VOX) and click Transmit</li>
+                    <li>Wait for transmission to complete before releasing PTT</li>
+                </ol>
+            </div>
+        `;
+    }
+
+    function renderSSTVHistory() {
+        const images = typeof SSTVModule !== 'undefined' ? SSTVModule.getReceivedImages() : [];
+
+        if (images.length === 0) {
+            return `
+                <div class="empty-state">
+                    <div class="empty-state__icon">${Icons.get('image')}</div>
+                    <div class="empty-state__title">No Received Images</div>
+                    <div class="empty-state__desc">Received SSTV images will appear here</div>
+                </div>
+            `;
+        }
+
+        return `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <span style="color:var(--text-secondary)">${images.length} image${images.length !== 1 ? 's' : ''}</span>
+                <button class="btn btn--secondary btn--small" id="sstv-clear-history">
+                    ${Icons.get('trash')} Clear All
+                </button>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+                ${images.map(img => `
+                    <div class="card" style="padding:8px;cursor:pointer" data-sstv-image="${img.id}">
+                        <div style="background:#000;border-radius:4px;aspect-ratio:4/3;overflow:hidden;margin-bottom:8px">
+                            <img src="${img.imageData ? SSTVModule.imageDataToDataURL(img.imageData) : ''}" 
+                                 style="width:100%;height:100%;object-fit:contain"
+                                 alt="SSTV ${img.mode}">
+                        </div>
+                        <div style="font-size:11px">
+                            <div style="font-weight:500">${img.mode}</div>
+                            <div style="color:var(--text-secondary)">${new Date(img.timestamp).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function renderSSTVSettings() {
+        const settings = typeof SSTVModule !== 'undefined' ? SSTVModule.getSettings() : {};
+
+        return `
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">Station Information</div>
+                
+                <div class="form-group">
+                    <label class="form-label">Callsign</label>
+                    <input type="text" id="sstv-callsign" class="form-input" 
+                        value="${settings.callsign || ''}" 
+                        placeholder="e.g., W1ABC"
+                        style="text-transform:uppercase">
+                    <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+                        Required for transmission. Auto-added to images.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Grid Square</label>
+                    <div style="display:flex;gap:8px">
+                        <input type="text" id="sstv-grid" class="form-input" 
+                            value="${settings.gridSquare || ''}" 
+                            placeholder="e.g., EM48wu"
+                            style="flex:1;text-transform:uppercase">
+                        <button class="btn btn--secondary" id="sstv-grid-gps" title="Get from GPS">
+                            ${Icons.get('locate')}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Default Mode</label>
+                    <select id="sstv-default-mode" class="form-select">
+                        ${Object.entries(typeof SSTVModule !== 'undefined' ? SSTVModule.MODES : {}).map(([key, mode]) => `
+                            <option value="${key}" ${settings.defaultMode === key ? 'selected' : ''}>
+                                ${mode.name}
+                            </option>
+                        `).join('')}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                        <input type="checkbox" id="sstv-auto-callsign" 
+                            ${settings.autoCallsignOverlay ? 'checked' : ''}>
+                        <span>Auto-add callsign overlay to images</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">Audio Settings</div>
+                
+                <div class="form-group">
+                    <label class="form-label">Output Volume</label>
+                    <input type="range" id="sstv-gain" min="0" max="100" 
+                        value="${Math.round((settings.gainLevel || 1) * 100)}"
+                        style="width:100%">
+                </div>
+
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                        <input type="checkbox" id="sstv-vox" 
+                            ${settings.voxEnabled ? 'checked' : ''}>
+                        <span>VOX mode (auto-trigger on audio)</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card__title">License Acknowledgment</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
+                    SSTV transmission requires a valid amateur radio license and compliance with 
+                    applicable regulations (FCC Part 97 in the US).
+                </p>
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                    <input type="checkbox" id="sstv-license-ack" 
+                        ${settings.licenseAcknowledged ? 'checked' : ''}>
+                    <span style="font-size:13px">I hold a valid amateur radio license and will comply with all applicable regulations</span>
+                </label>
+            </div>
+
+            <button class="btn btn--primary" id="sstv-save-settings" style="width:100%;margin-top:16px">
+                Save Settings
+            </button>
+        `;
+    }
+
+    function attachSSTVHandlers() {
+        // Receive handlers
+        const startRxBtn = container.querySelector('#sstv-start-rx');
+        if (startRxBtn) {
+            startRxBtn.onclick = async () => {
+                const success = await SSTVModule.startReceive();
+                if (success) {
+                    renderSSTV();
+                }
+            };
+        }
+
+        const stopRxBtn = container.querySelector('#sstv-stop-rx');
+        if (stopRxBtn) {
+            stopRxBtn.onclick = () => {
+                SSTVModule.stopReceive();
+                renderSSTV();
+            };
+        }
+
+        // Transmit handlers
+        const txModeSelect = container.querySelector('#sstv-tx-mode');
+        if (txModeSelect) {
+            txModeSelect.onchange = () => {
+                sstvTransmitMode = txModeSelect.value;
+                document.getElementById('sstv-content').innerHTML = renderSSTVTabContent();
+                attachSSTVHandlers();
+            };
+        }
+
+        container.querySelectorAll('[data-sstv-source]').forEach(btn => {
+            btn.onclick = async () => {
+                sstvTransmitSource = btn.dataset.sstvSource;
+                
+                // Update active state
+                container.querySelectorAll('[data-sstv-source]').forEach(b => 
+                    b.classList.toggle('chip--active', b.dataset.sstvSource === sstvTransmitSource));
+                
+                // Load image based on source
+                if (sstvTransmitSource === 'map') {
+                    await loadMapForTransmit();
+                } else if (sstvTransmitSource === 'gallery') {
+                    document.getElementById('sstv-file-input').click();
+                } else if (sstvTransmitSource === 'camera') {
+                    await loadCameraForTransmit();
+                }
+            };
+        });
+
+        const fileInput = container.querySelector('#sstv-file-input');
+        if (fileInput) {
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    loadImageFile(file);
+                }
+            };
+        }
+
+        const transmitBtn = container.querySelector('#sstv-transmit-btn');
+        if (transmitBtn) {
+            transmitBtn.onclick = async () => {
+                const canvas = document.getElementById('sstv-tx-canvas');
+                if (canvas && canvas.style.display !== 'none') {
+                    await SSTVModule.transmit(canvas, sstvTransmitMode);
+                    renderSSTV();
+                } else {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Select an image first', 'error');
+                    }
+                }
+            };
+        }
+
+        // History handlers
+        container.querySelectorAll('[data-sstv-image]').forEach(card => {
+            card.onclick = () => {
+                const id = card.dataset.sstvImage;
+                showSSTVImageDetail(id);
+            };
+        });
+
+        const clearHistoryBtn = container.querySelector('#sstv-clear-history');
+        if (clearHistoryBtn) {
+            clearHistoryBtn.onclick = async () => {
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.confirm({
+                        title: 'Clear History',
+                        message: 'Delete all received images?',
+                        confirmText: 'Delete All',
+                        onConfirm: async () => {
+                            await SSTVModule.clearHistory();
+                            document.getElementById('sstv-content').innerHTML = renderSSTVHistory();
+                            attachSSTVHandlers();
+                        }
+                    });
+                }
+            };
+        }
+
+        // Settings handlers
+        const saveSettingsBtn = container.querySelector('#sstv-save-settings');
+        if (saveSettingsBtn) {
+            saveSettingsBtn.onclick = async () => {
+                const newSettings = {
+                    callsign: document.getElementById('sstv-callsign')?.value?.toUpperCase() || '',
+                    gridSquare: document.getElementById('sstv-grid')?.value?.toUpperCase() || '',
+                    defaultMode: document.getElementById('sstv-default-mode')?.value || 'Robot36',
+                    autoCallsignOverlay: document.getElementById('sstv-auto-callsign')?.checked || false,
+                    gainLevel: (parseInt(document.getElementById('sstv-gain')?.value) || 100) / 100,
+                    voxEnabled: document.getElementById('sstv-vox')?.checked || false,
+                    licenseAcknowledged: document.getElementById('sstv-license-ack')?.checked || false
+                };
+                
+                await SSTVModule.updateSettings(newSettings);
+                
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Settings saved', 'success');
+                }
+            };
+        }
+
+        const gridGpsBtn = container.querySelector('#sstv-grid-gps');
+        if (gridGpsBtn) {
+            gridGpsBtn.onclick = async () => {
+                const grid = await SSTVModule.updateGridSquareFromGPS();
+                if (grid) {
+                    const input = document.getElementById('sstv-grid');
+                    if (input) input.value = grid;
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(`Grid: ${grid}`, 'success');
+                    }
+                } else {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('GPS position not available', 'error');
+                    }
+                }
+            };
+        }
+    }
+
+    async function loadMapForTransmit() {
+        try {
+            const imageData = await SSTVModule.captureMapView();
+            displayTransmitPreview(imageData);
+        } catch (err) {
+            console.error('[SSTV] Failed to capture map:', err);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Failed to capture map view', 'error');
+            }
+        }
+    }
+
+    async function loadCameraForTransmit() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            const video = document.createElement('video');
+            video.srcObject = stream;
+            await video.play();
+            
+            // Capture frame
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            
+            // Stop stream
+            stream.getTracks().forEach(t => t.stop());
+            
+            const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+            displayTransmitPreview(imageData);
+        } catch (err) {
+            console.error('[SSTV] Failed to access camera:', err);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Camera access denied', 'error');
+            }
+        }
+    }
+
+    function loadImageFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+                const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                displayTransmitPreview(imageData);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function displayTransmitPreview(imageData) {
+        const canvas = document.getElementById('sstv-tx-canvas');
+        const placeholder = document.getElementById('sstv-tx-placeholder');
+        
+        if (canvas && placeholder) {
+            // Get target dimensions from selected mode
+            const mode = SSTVModule.MODES[sstvTransmitMode];
+            canvas.width = mode.width;
+            canvas.height = mode.height;
+            
+            // Draw scaled image
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = imageData.width;
+            tempCanvas.height = imageData.height;
+            tempCanvas.getContext('2d').putImageData(imageData, 0, 0);
+            
+            canvas.getContext('2d').drawImage(tempCanvas, 0, 0, mode.width, mode.height);
+            
+            canvas.style.display = 'block';
+            placeholder.style.display = 'none';
+        }
+    }
+
+    function showSSTVImageDetail(id) {
+        const images = SSTVModule.getReceivedImages();
+        const img = images.find(i => i.id === id);
+        if (!img) return;
+
+        if (typeof ModalsModule !== 'undefined') {
+            const dataURL = SSTVModule.imageDataToDataURL(img.imageData);
+            
+            ModalsModule.show({
+                title: `SSTV Image - ${img.mode}`,
+                content: `
+                    <div style="text-align:center">
+                        <img src="${dataURL}" style="max-width:100%;border-radius:8px;margin-bottom:16px">
+                        <div style="color:var(--text-secondary);font-size:13px">
+                            ${new Date(img.timestamp).toLocaleString()}<br>
+                            ${img.width}×${img.height} • ${img.duration?.toFixed(1) || '--'}s
+                        </div>
+                    </div>
+                `,
+                buttons: [
+                    {
+                        label: 'Export PNG',
+                        class: 'btn--primary',
+                        onClick: () => {
+                            SSTVModule.exportImage(id);
+                        }
+                    },
+                    {
+                        label: 'Delete',
+                        class: 'btn--danger',
+                        onClick: async () => {
+                            await SSTVModule.deleteImage(id);
+                            document.getElementById('sstv-content').innerHTML = renderSSTVHistory();
+                            attachSSTVHandlers();
+                        }
+                    },
+                    {
+                        label: 'Close',
+                        class: 'btn--secondary'
+                    }
+                ]
+            });
+        }
+    }
+
+    // SSTV Event Handlers
+    function handleSSTVStatus(status) {
+        const signalBar = document.getElementById('sstv-signal-bar');
+        const signalLevel = document.getElementById('sstv-signal-level');
+        
+        if (signalBar) {
+            signalBar.style.width = `${Math.round(status.signalStrength * 100)}%`;
+        }
+        if (signalLevel) {
+            signalLevel.textContent = status.signalStrength > 0 ? 
+                `${Math.round(status.signalStrength * 100)}%` : '--';
+        }
+    }
+
+    function handleSSTVModeDetected(data) {
+        const rxMode = document.getElementById('sstv-rx-mode');
+        const rxPhase = document.getElementById('sstv-rx-phase');
+        
+        if (rxMode) rxMode.textContent = data.mode;
+        if (rxPhase) rxPhase.textContent = 'RECEIVING';
+        
+        // Setup canvas for receiving
+        const canvas = document.getElementById('sstv-rx-canvas');
+        if (canvas) {
+            canvas.width = data.config.width;
+            canvas.height = data.config.height;
+            canvas.style.display = 'block';
+            canvas.parentElement.querySelector('span').style.display = 'none';
+        }
+    }
+
+    function handleSSTVProgress(data) {
+        const rxProgress = document.getElementById('sstv-rx-progress');
+        if (rxProgress) {
+            rxProgress.textContent = `${data.line}/${data.total}`;
+        }
+        
+        // Update preview canvas
+        const canvas = document.getElementById('sstv-rx-canvas');
+        if (canvas && data.imageData) {
+            canvas.getContext('2d').putImageData(data.imageData, 0, 0);
+        }
+    }
+
+    function handleSSTVImageComplete(data) {
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`SSTV image received: ${data.mode}`, 'success');
+        }
+        
+        // Refresh if on history tab
+        if (sstvActiveTab === 'history') {
+            document.getElementById('sstv-content').innerHTML = renderSSTVHistory();
+            attachSSTVHandlers();
+        }
+    }
+
+    function handleSSTVTransmitStarted(data) {
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`Transmitting ${data.mode} (${Math.round(data.duration)}s)...`, 'info');
+        }
+    }
+
+    function handleSSTVTransmitComplete(data) {
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`Transmission complete: ${data.mode}`, 'success');
+        }
+        renderSSTV();
     }
 
     function renderMedical() {
