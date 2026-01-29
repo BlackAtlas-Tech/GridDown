@@ -2,6 +2,37 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.19.9] - 2025-01-29
+
+### Added
+- **SARSAT Module** - Full integration for COSPAS-SARSAT 406 MHz beacon receiver
+  - Support for PLB (Personal Locator Beacon), ELT (Aviation), EPIRB (Maritime), and SSAS (Ship Security)
+  - WebSocket and Web Serial connection to external Raspberry Pi-based SDR receiver
+  - Real-time beacon tracking and map display with pulsing emergency indicators
+  - Country code decoding for 200+ countries (ITU-R M.585 / MID codes)
+  - Test beacon filtering option
+  - Auto-waypoint creation for received beacons with GPS position
+  - Alert sounds for emergency beacons
+  - Beacon detail display with hex ID, type, country, signal strength
+  - Position history tracking with track tails on map
+  
+- **SARSAT Panel** - New navigation panel for beacon receiver management
+  - Connection status and statistics
+  - Emergency beacon alerts with prominent styling
+  - Beacon type reference guide
+  - Received beacon list with "Go To" navigation
+  - Settings: auto-waypoints, alert sounds, test beacon display
+
+### Technical
+- New files: `js/modules/sarsat.js`, `docs/sarsat_receiver.py`
+- Navigation item added to sidebar
+- Map overlay rendering for beacon positions
+- Event system integration for real-time updates
+
+### Documentation
+- Included Python SDR receiver implementation for Raspberry Pi
+- Full DSP chain: Costas loop carrier recovery, Gardner TED, BCH error correction
+
 ## [6.19.8] - 2025-01-29
 
 ### Fixed

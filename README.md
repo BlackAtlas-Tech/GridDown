@@ -241,6 +241,50 @@ Transmit and receive images over amateur radio using industry-standard SSTV mode
 
 ---
 
+## 🆘 SARSAT Beacon Receiver (NEW in v6.19.9)
+
+Monitor COSPAS-SARSAT 406 MHz emergency beacons with an external Raspberry Pi-based SDR receiver.
+
+### Beacon Types Supported
+| Type | Full Name | Use Case | Icon |
+|------|-----------|----------|------|
+| **PLB** | Personal Locator Beacon | Hikers, adventurers, individuals | 🚶 |
+| **ELT** | Emergency Locator Transmitter | Aviation emergencies | ✈️ |
+| **EPIRB** | Emergency Position-Indicating Radio Beacon | Maritime vessels | ⚓ |
+| **SSAS** | Ship Security Alert System | Maritime security | 🚨 |
+
+### Features
+- **Real-time beacon tracking** with map display
+- **Emergency alerts** with pulsing visual indicators and audio alerts
+- **Country identification** from 200+ MID codes
+- **GPS position extraction** from long-format messages
+- **Test beacon filtering** - distinguish training from real emergencies
+- **Auto-waypoint creation** for beacons with coordinates
+- **Position history** tracking with track tails
+
+### Connection Methods
+- **WebSocket** - Connect to Raspberry Pi receiver over network
+- **Web Serial** - Direct USB connection to receiver hardware
+
+### Hardware Requirements
+- Raspberry Pi 4 or 5
+- RTL-SDR Blog V4 (or compatible SDR)
+- 406 MHz antenna (quarter-wave whip, ~18.5 cm)
+- Optional: 406 MHz bandpass filter and LNA
+
+### Protocol Details
+| Parameter | Value |
+|-----------|-------|
+| Frequency | 406.025 - 406.040 MHz |
+| Modulation | BPSK @ 400 bps |
+| Message Length | 112 bits (short) / 144 bits (long) |
+| Error Correction | BCH codes |
+
+### Important Notice
+This is a **supplementary monitoring tool** for situational awareness. Always contact official search and rescue services in emergencies. Receiving 406 MHz signals is legal; transmitting is strictly prohibited except by certified beacons.
+
+---
+
 ## 🥾 Field Guides (NEW in v6.13)
 
 Comprehensive offline reference library with **600+ entries** covering:
@@ -508,6 +552,7 @@ GridDown/
         ├── sstv.js         # SSTV encode/decode
         ├── sstv-ai.js      # SSTV AI enhancement
         ├── sstv-dsp.js     # SSTV DSP (waterfall, slant, drift)
+        ├── sarsat.js       # SARSAT PLB/ELT/EPIRB beacon receiver
         ├── team.js         # Team management
         ├── medical.js      # Medical reference
         ├── fieldguides.js  # Offline field guides (NEW)
@@ -668,9 +713,10 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.19.8** (January 2025)
+**Current Version: 6.19.9** (January 2025)
 
 ### Recent Highlights
+- **v6.19.9** - SARSAT 406 MHz PLB/ELT/EPIRB beacon receiver integration
 - **v6.19.8** - Fixed SSTV camera capture crash, added input validation
 - **v6.19.7** - SSTV image annotation with drawing tools and auto-flatten for TX
 - **v6.19.6** - Expandable full-screen views for waterfall and received images
