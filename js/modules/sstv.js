@@ -39,9 +39,10 @@ const SSTVModule = (function() {
         0x63: 'PD90',
         0x5F: 'PD120',
         0x61: 'PD160',
-        0xDE: 'PD180',
-        0xE2: 'PD240',
-        0x55: 'WraaseSC2-180'
+        0x60: 'PD180',
+        0x62: 'PD240',
+        0x64: 'PD290',
+        0x55: 'WraaseSC2180'
     };
 
     // Mode specifications
@@ -147,6 +148,58 @@ const SSTVModule = (function() {
             porchTime: 2.08,
             totalTime: 126,
             description: 'High resolution mode'
+        },
+        PD180: {
+            name: 'PD-180',
+            vis: 0x60,
+            width: 640,
+            height: 496,
+            colorMode: 'YCrCb',
+            scanTime: 183.040,   // ms per Y line
+            syncTime: 20.0,
+            porchTime: 2.08,
+            chromaScanTime: 91.520, // ms per chroma line (half rate)
+            totalTime: 180,
+            description: 'High resolution, longer transmission'
+        },
+        PD240: {
+            name: 'PD-240',
+            vis: 0x62,
+            width: 640,
+            height: 496,
+            colorMode: 'YCrCb',
+            scanTime: 244.480,   // ms per Y line
+            syncTime: 20.0,
+            porchTime: 2.08,
+            chromaScanTime: 122.240, // ms per chroma line
+            totalTime: 240,
+            description: 'Maximum quality PD mode'
+        },
+        PD290: {
+            name: 'PD-290',
+            vis: 0x64,
+            width: 800,
+            height: 616,
+            colorMode: 'YCrCb',
+            scanTime: 228.800,   // ms per Y line
+            syncTime: 20.0,
+            porchTime: 2.08,
+            chromaScanTime: 114.400, // ms per chroma line
+            totalTime: 290,
+            description: 'Highest resolution PD mode (800x616)'
+        },
+        WraaseSC2180: {
+            name: 'Wraase SC2-180',
+            vis: 0x55,
+            width: 320,
+            height: 256,
+            colorMode: 'RGB',    // Sequential RGB
+            scanTime: 235.0,     // ms per color component
+            syncTime: 5.5225,
+            porchTime: 0.5,
+            separatorTime: 0.0,
+            totalTime: 180,
+            description: 'Wraase SC2 format, sequential RGB'
         }
     };
 
@@ -505,6 +558,11 @@ const SSTVModule = (function() {
             if (detectSync(samples.slice(0, Math.round(SAMPLE_RATE * 0.01)), SAMPLE_RATE)) {
                 decoderState.syncCount++;
                 
+                // Record sync pulse time for slant/drift analysis
+                if (typeof SSTVDSPModule !== 'undefined') {
+                    SSTVDSPModule.recordSyncPulse(performance.now());
+                }
+                
                 // Decode pixels for this line based on mode
                 switch (config.colorMode) {
                     case 'YCrCb':
@@ -512,6 +570,9 @@ const SSTVModule = (function() {
                         break;
                     case 'GBR':
                         this.decodeGBRLine(samples, config);
+                        break;
+                    case 'RGB':
+                        this.decodeRGBLine(samples, config);
                         break;
                 }
                 
@@ -538,6 +599,10 @@ const SSTVModule = (function() {
             const width = config.width;
             const samplesPerPixel = Math.round(SAMPLE_RATE * config.scanTime / 1000 / width);
             
+            // Apply frequency drift compensation if available
+            const driftCompensation = typeof SSTVDSPModule !== 'undefined' ? 
+                SSTVDSPModule.getFrequencyDriftCompensation() : 0;
+            
             // Skip sync and porch
             const dataStart = Math.round(SAMPLE_RATE * (config.syncTime + config.porchTime) / 1000);
             
@@ -546,7 +611,11 @@ const SSTVModule = (function() {
             for (let x = 0; x < width; x++) {
                 const pixelStart = dataStart + x * samplesPerPixel;
                 const pixelSamples = samples.slice(pixelStart, pixelStart + samplesPerPixel);
-                const { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
+                let { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
+                
+                // Apply drift compensation
+                frequency -= driftCompensation;
+                
                 yData[x] = freqToLuminance(frequency);
             }
             
@@ -571,6 +640,10 @@ const SSTVModule = (function() {
             const colorDuration = Math.round(SAMPLE_RATE * config.scanTime / 1000);
             const sepDuration = Math.round(SAMPLE_RATE * (config.separatorTime || 0) / 1000);
             
+            // Apply frequency drift compensation if available
+            const driftCompensation = typeof SSTVDSPModule !== 'undefined' ? 
+                SSTVDSPModule.getFrequencyDriftCompensation() : 0;
+            
             // Decode each color channel
             const colors = { g: [], b: [], r: [] };
             const channels = ['g', 'b', 'r'];
@@ -580,7 +653,58 @@ const SSTVModule = (function() {
                 for (let x = 0; x < width; x++) {
                     const pixelStart = offset + x * samplesPerPixel;
                     const pixelSamples = samples.slice(pixelStart, pixelStart + samplesPerPixel);
-                    const { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
+                    let { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
+                    
+                    // Apply drift compensation
+                    frequency -= driftCompensation;
+                    
+                    colors[channel].push(freqToLuminance(frequency));
+                }
+                offset += colorDuration + sepDuration;
+            }
+            
+            // Write to image data
+            for (let x = 0; x < width; x++) {
+                const idx = (line * width + x) * 4;
+                decoderState.imageData.data[idx] = colors.r[x];     // R
+                decoderState.imageData.data[idx + 1] = colors.g[x]; // G
+                decoderState.imageData.data[idx + 2] = colors.b[x]; // B
+                decoderState.imageData.data[idx + 3] = 255;         // A
+            }
+        }
+        
+        /**
+         * Decode RGB line (Wraase SC2 format)
+         * RGB is sent in sequence: Red, Green, Blue
+         */
+        decodeRGBLine(samples, config) {
+            const line = decoderState.currentLine;
+            const width = config.width;
+            const samplesPerPixel = Math.round(SAMPLE_RATE * config.scanTime / 1000 / width);
+            
+            // GBR modes send Green, Blue, Red sequentially
+            const colorStart = Math.round(SAMPLE_RATE * config.syncTime / 1000);
+            const colorDuration = Math.round(SAMPLE_RATE * config.scanTime / 1000);
+            const sepDuration = Math.round(SAMPLE_RATE * (config.separatorTime || 0) / 1000);
+            
+            // Apply frequency drift compensation if available
+            const driftCompensation = typeof SSTVDSPModule !== 'undefined' ? 
+                SSTVDSPModule.getFrequencyDriftCompensation() : 0;
+            
+            // Decode each color channel (RGB order for Wraase)
+            const colors = { r: [], g: [], b: [] };
+            const channels = ['r', 'g', 'b'];
+            
+            let offset = colorStart;
+            for (const channel of channels) {
+                for (let x = 0; x < width; x++) {
+                    const pixelStart = offset + x * samplesPerPixel;
+                    const pixelSamples = samples.slice(pixelStart, pixelStart + samplesPerPixel);
+                    let { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
+                    
+                    // Apply drift compensation
+                    frequency -= driftCompensation;
+                    
                     colors[channel].push(freqToLuminance(frequency));
                 }
                 offset += colorDuration + sepDuration;
@@ -599,15 +723,27 @@ const SSTVModule = (function() {
         completeImage() {
             decoderState.phase = 'COMPLETE';
             
+            let finalImageData = decoderState.imageData;
+            
+            // Apply auto-slant correction if available and enabled
+            if (typeof SSTVDSPModule !== 'undefined' && SSTVDSPModule.isSlantCorrectionEnabled()) {
+                const slantFactor = SSTVDSPModule.getSlantFactor();
+                if (Math.abs(slantFactor - 1.0) > 0.002) {
+                    finalImageData = SSTVDSPModule.correctSlant(decoderState.imageData);
+                    console.log(`[SSTV] Applied slant correction: ${((slantFactor - 1) * 100).toFixed(2)}%`);
+                }
+            }
+            
             const imageEntry = {
                 id: Date.now().toString(36),
                 timestamp: new Date().toISOString(),
                 mode: decoderState.mode,
-                imageData: decoderState.imageData,
-                width: decoderState.imageData.width,
-                height: decoderState.imageData.height,
+                imageData: finalImageData,
+                width: finalImageData.width,
+                height: finalImageData.height,
                 syncCount: decoderState.syncCount,
-                duration: (performance.now() - decoderState.startTime) / 1000
+                duration: (performance.now() - decoderState.startTime) / 1000,
+                slantCorrected: finalImageData !== decoderState.imageData
             };
             
             // Add to history
@@ -678,6 +814,9 @@ const SSTVModule = (function() {
                     break;
                 case 'GBR':
                     this.encodeGBR(resizedImage, config);
+                    break;
+                case 'RGB':
+                    this.encodeRGB(resizedImage, config);
                     break;
             }
             
@@ -820,6 +959,62 @@ const SSTVModule = (function() {
                     const idx = (line * width + x) * 4;
                     const r = imageData.data[idx];
                     const freq = luminanceToFreq(r);
+                    const pixelTime = config.scanTime / width;
+                    this.appendTone(freq, pixelTime);
+                }
+            }
+        }
+        
+        /**
+         * Encode RGB sequential (Wraase SC2 format)
+         * Order: Red, Green, Blue for each line
+         */
+        encodeRGB(imageData, config) {
+            const width = config.width;
+            const height = config.height;
+            
+            for (let line = 0; line < height; line++) {
+                // Sync pulse
+                this.appendTone(FREQ.SYNC, config.syncTime);
+                
+                // Porch
+                if (config.porchTime) {
+                    this.appendTone(FREQ.BLACK, config.porchTime);
+                }
+                
+                // Red channel
+                for (let x = 0; x < width; x++) {
+                    const idx = (line * width + x) * 4;
+                    const r = imageData.data[idx];
+                    const freq = luminanceToFreq(r);
+                    const pixelTime = config.scanTime / width;
+                    this.appendTone(freq, pixelTime);
+                }
+                
+                // Separator (if any)
+                if (config.separatorTime) {
+                    this.appendTone(FREQ.BLACK, config.separatorTime);
+                }
+                
+                // Green channel
+                for (let x = 0; x < width; x++) {
+                    const idx = (line * width + x) * 4;
+                    const g = imageData.data[idx + 1];
+                    const freq = luminanceToFreq(g);
+                    const pixelTime = config.scanTime / width;
+                    this.appendTone(freq, pixelTime);
+                }
+                
+                // Separator (if any)
+                if (config.separatorTime) {
+                    this.appendTone(FREQ.BLACK, config.separatorTime);
+                }
+                
+                // Blue channel
+                for (let x = 0; x < width; x++) {
+                    const idx = (line * width + x) * 4;
+                    const b = imageData.data[idx + 2];
+                    const freq = luminanceToFreq(b);
                     const pixelTime = config.scanTime / width;
                     this.appendTone(freq, pixelTime);
                 }
@@ -1166,7 +1361,7 @@ const SSTVModule = (function() {
 
     async function loadReceivedImages() {
         try {
-            const saved = await Storage.get('sstv_history');
+            const saved = await Storage.Settings.get('sstv_history');
             if (saved) {
                 // Restore ImageData objects from stored format
                 receivedImages = saved.map(entry => {
@@ -1195,7 +1390,7 @@ const SSTVModule = (function() {
                 return stored;
             });
             
-            await Storage.set('sstv_history', storable);
+            await Storage.Settings.set('sstv_history', storable);
         } catch (err) {
             console.error('[SSTV] Failed to save history:', err);
         }
@@ -1373,9 +1568,18 @@ const SSTVModule = (function() {
         VIS_CODES,
         FREQ,
         
-        // For testing
+        // For testing/integration
         _decoder: decoder,
-        _encoder: encoder
+        _encoder: encoder,
+        
+        // Expose audio state for waterfall/DSP integration
+        _getAudioState: () => ({
+            context: audioContext,
+            source: sourceNode,
+            analyser: analyser,
+            stream: mediaStream,
+            sampleRate: audioContext ? audioContext.sampleRate : SAMPLE_RATE
+        })
     };
 })();
 

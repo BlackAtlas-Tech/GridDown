@@ -12046,7 +12046,12 @@ ${text}
     
     let sstvInitialized = false;
     let sstvActiveTab = 'receive';
-    let sstvReceiveActive = false;
+    let sstvEnhanceInitialized = false;
+    let sstvEnhanceMethod = 'local-2x';
+    let sstvEnhanceDenoiseStrength = 0.3;
+    let sstvEnhanceOCR = true;
+    let sstvEnhanceSelectedImage = null;
+    let sstvEnhanceProcessing = false;
     let sstvTransmitMode = 'Robot36';
     let sstvTransmitSource = 'camera';
 
@@ -12089,6 +12094,7 @@ ${text}
         const tabs = [
             { id: 'receive', label: '📥 Receive', icon: 'download' },
             { id: 'transmit', label: '📤 Transmit', icon: 'upload' },
+            { id: 'enhance', label: '✨ AI Enhance', icon: 'zoomIn' },
             { id: 'history', label: '🖼️ History', icon: 'image' },
             { id: 'settings', label: '⚙️ Settings', icon: 'settings' }
         ];
@@ -12147,6 +12153,7 @@ ${text}
         switch (sstvActiveTab) {
             case 'receive': return renderSSTVReceive();
             case 'transmit': return renderSSTVTransmit();
+            case 'enhance': return renderSSTVEnhance();
             case 'history': return renderSSTVHistory();
             case 'settings': return renderSSTVSettings();
             default: return '';
@@ -12156,6 +12163,9 @@ ${text}
     function renderSSTVReceive() {
         const isReceiving = typeof SSTVModule !== 'undefined' && SSTVModule.isReceiving();
         const decoderState = typeof SSTVModule !== 'undefined' ? SSTVModule.getDecoderState() : {};
+        const dspAvailable = typeof SSTVDSPModule !== 'undefined';
+        const waterfallRunning = dspAvailable && SSTVDSPModule.isWaterfallRunning();
+        const slantEnabled = dspAvailable && SSTVDSPModule.isSlantCorrectionEnabled();
 
         return `
             <div class="card" style="margin-bottom:16px">
@@ -12173,7 +12183,37 @@ ${text}
                     <div style="background:var(--bg-secondary);border-radius:4px;height:8px;overflow:hidden">
                         <div id="sstv-signal-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.1s"></div>
                     </div>
+                    <div id="sstv-signal-guidance" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px"></div>
                 </div>
+
+                <!-- Waterfall Display -->
+                ${dspAvailable ? `
+                <div style="margin-bottom:16px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <span style="font-size:12px;font-weight:500">📊 Waterfall Display</span>
+                        <div style="display:flex;gap:4px;align-items:center">
+                            <select id="sstv-waterfall-colormap" style="font-size:11px;padding:2px 4px;border-radius:4px;background:var(--bg-secondary);border:1px solid var(--border);color:var(--text-primary)">
+                                <option value="viridis" selected>Viridis</option>
+                                <option value="plasma">Plasma</option>
+                                <option value="thermal">Thermal</option>
+                                <option value="grayscale">Grayscale</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div style="background:#000;border-radius:8px;padding:4px;position:relative">
+                        <canvas id="sstv-waterfall-canvas" width="400" height="150" style="width:100%;height:150px;display:block;border-radius:4px"></canvas>
+                        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-secondary);margin-top:4px;padding:0 4px">
+                            <span>1100 Hz</span>
+                            <span>SYNC</span>
+                            <span>BLACK</span>
+                            <span>VIS</span>
+                            <span>WHITE</span>
+                            <span>2400 Hz</span>
+                        </div>
+                    </div>
+                    <div id="sstv-dominant-freq" style="font-size:11px;color:var(--accent);margin-top:4px;text-align:center">--</div>
+                </div>
+                ` : ''}
 
                 <!-- Decoder Status -->
                 <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;margin-bottom:16px">
@@ -12211,6 +12251,105 @@ ${text}
                     `}
                 </div>
             </div>
+
+            <!-- Slant Correction -->
+            ${dspAvailable ? `
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">🔧 Auto-Slant Correction</div>
+                <p style="color:var(--text-secondary);font-size:12px;margin-bottom:12px">
+                    Automatically corrects image skew caused by sample rate mismatches between your device and the transmitter.
+                </p>
+                
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
+                        <input type="checkbox" id="sstv-slant-enabled" ${slantEnabled ? 'checked' : ''}>
+                        <span>Enable auto-correction</span>
+                    </label>
+                </div>
+                
+                <div id="sstv-slant-info" style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:12px">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span>Expected line time:</span>
+                        <span id="sstv-slant-expected">--</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span>Measured line time:</span>
+                        <span id="sstv-slant-measured">--</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                        <span>Correction:</span>
+                        <span id="sstv-slant-correction" style="font-weight:500;color:var(--accent)">0.00%</span>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn btn--secondary btn--small" id="sstv-slant-reset" style="flex:1">
+                            Reset Analysis
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Manual Correction -->
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                    <div style="font-size:12px;margin-bottom:8px">Manual Correction</div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="range" id="sstv-slant-manual" min="-5" max="5" step="0.1" value="0" 
+                            style="flex:1" title="Manual slant adjustment">
+                        <span id="sstv-slant-manual-value" style="font-family:var(--font-mono);font-size:11px;min-width:50px;text-align:right">0.0%</span>
+                    </div>
+                    <p style="font-size:10px;color:var(--text-secondary);margin-top:4px">
+                        Use this to manually correct slant on completed images in History.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Frequency Drift Compensation -->
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">📡 Frequency Drift Compensation</div>
+                <p style="color:var(--text-secondary);font-size:12px;margin-bottom:12px">
+                    Compensates for transmitter frequency drift by tracking the sync pulse frequency.
+                </p>
+                
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
+                        <input type="checkbox" id="sstv-drift-enabled" ${SSTVDSPModule.isDriftCorrectionEnabled() ? 'checked' : ''}>
+                        <span>Enable auto-correction</span>
+                    </label>
+                </div>
+                
+                <div id="sstv-drift-info" style="background:var(--bg-secondary);border-radius:8px;padding:12px;font-size:12px">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span>Expected sync:</span>
+                        <span>1200 Hz</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span>Measured sync:</span>
+                        <span id="sstv-drift-measured">-- Hz</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                        <span>Drift:</span>
+                        <span id="sstv-drift-value" style="font-weight:500;color:var(--accent)">0.0 Hz</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+                        <span>Confidence:</span>
+                        <span id="sstv-drift-confidence">--</span>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <button class="btn btn--secondary btn--small" id="sstv-drift-reset" style="flex:1">
+                            Reset
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Manual Drift Adjustment -->
+                <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                    <div style="font-size:12px;margin-bottom:8px">Manual Adjustment</div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="range" id="sstv-drift-manual" min="-50" max="50" step="1" value="0" 
+                            style="flex:1" title="Manual drift adjustment">
+                        <span id="sstv-drift-manual-value" style="font-family:var(--font-mono);font-size:11px;min-width:50px;text-align:right">0 Hz</span>
+                    </div>
+                </div>
+            </div>
+            ` : ''}
 
             <div class="card">
                 <div class="card__title">Connection Guide</div>
@@ -12351,6 +12490,486 @@ ${text}
         `;
     }
 
+    function renderSSTVEnhance() {
+        const images = typeof SSTVModule !== 'undefined' ? SSTVModule.getReceivedImages() : [];
+        const enhanceAvailable = typeof SSTVEnhanceModule !== 'undefined';
+        const isProcessing = enhanceAvailable && SSTVEnhanceModule.isProcessing();
+        
+        // Initialize enhance module if needed
+        if (enhanceAvailable && !sstvEnhanceInitialized) {
+            SSTVEnhanceModule.init().then(() => {
+                sstvEnhanceInitialized = true;
+                
+                // Subscribe to progress events
+                if (typeof Events !== 'undefined') {
+                    Events.on('sstvEnhance:progress', handleEnhanceProgress);
+                }
+            });
+        }
+
+        if (!enhanceAvailable) {
+            return `
+                <div class="empty-state">
+                    <div class="empty-state__icon">${Icons.get('zoomIn')}</div>
+                    <div class="empty-state__title">AI Enhancement Not Available</div>
+                    <div class="empty-state__desc">Enhancement module not loaded</div>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">✨ AI Image Enhancement</div>
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">
+                    Upscale, denoise, and extract text from SSTV images using neural networks.
+                </p>
+
+                <!-- Processing Status -->
+                ${isProcessing ? `
+                    <div class="alert alert--info" style="margin-bottom:12px">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span class="spinner"></span>
+                            <span id="enhance-status">Processing...</span>
+                        </div>
+                        <div style="background:var(--bg-secondary);border-radius:4px;height:4px;margin-top:8px;overflow:hidden">
+                            <div id="enhance-progress-bar" style="background:var(--accent);height:100%;width:0%;transition:width 0.2s"></div>
+                        </div>
+                    </div>
+                ` : ''}
+
+                <!-- Enhancement Settings -->
+                <div class="form-group">
+                    <label class="form-label">Upscale Method</label>
+                    <select id="enhance-method" class="form-select" ${isProcessing ? 'disabled' : ''}>
+                        <option value="none" ${sstvEnhanceMethod === 'none' ? 'selected' : ''}>None (Denoise only)</option>
+                        <option value="local-2x" ${sstvEnhanceMethod === 'local-2x' ? 'selected' : ''}>2× Upscale (Local, ~2MB model)</option>
+                        <option value="local-4x" ${sstvEnhanceMethod === 'local-4x' ? 'selected' : ''}>4× Upscale (Local, ~17MB model)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Denoise Strength: ${Math.round(sstvEnhanceDenoiseStrength * 100)}%</label>
+                    <input type="range" id="enhance-denoise" min="0" max="100" 
+                        value="${Math.round(sstvEnhanceDenoiseStrength * 100)}"
+                        style="width:100%" ${isProcessing ? 'disabled' : ''}>
+                </div>
+
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                        <input type="checkbox" id="enhance-ocr" ${sstvEnhanceOCR ? 'checked' : ''} ${isProcessing ? 'disabled' : ''}>
+                        <span>Extract text (callsigns, coordinates)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Image Selection -->
+            <div class="card" style="margin-bottom:16px">
+                <div class="card__title">Select Image to Enhance</div>
+                
+                ${images.length === 0 ? `
+                    <div style="text-align:center;padding:20px;color:var(--text-secondary)">
+                        <p>No received images yet.</p>
+                        <p style="font-size:12px">Receive SSTV images first, then enhance them here.</p>
+                    </div>
+                ` : `
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:200px;overflow-y:auto">
+                        ${images.slice(0, 12).map(img => `
+                            <div class="enhance-thumb ${sstvEnhanceSelectedImage === img.id ? 'enhance-thumb--selected' : ''}" 
+                                 data-enhance-select="${img.id}"
+                                 style="cursor:pointer;border:2px solid ${sstvEnhanceSelectedImage === img.id ? 'var(--accent)' : 'transparent'};
+                                        border-radius:4px;overflow:hidden;aspect-ratio:4/3">
+                                <img src="${img.imageData ? SSTVModule.imageDataToDataURL(img.imageData) : ''}" 
+                                     style="width:100%;height:100%;object-fit:cover"
+                                     alt="${img.mode}">
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    ${sstvEnhanceSelectedImage ? `
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+                                Selected: ${images.find(i => i.id === sstvEnhanceSelectedImage)?.mode || 'Unknown'}
+                            </div>
+                            <button class="btn btn--primary" id="enhance-start-btn" style="width:100%" ${isProcessing ? 'disabled' : ''}>
+                                ${isProcessing ? '⏳ Processing...' : '✨ Enhance Image'}
+                            </button>
+                        </div>
+                    ` : `
+                        <p style="text-align:center;padding:12px;color:var(--text-secondary);font-size:12px">
+                            Click an image above to select it
+                        </p>
+                    `}
+                `}
+            </div>
+
+            <!-- Enhanced Result -->
+            <div class="card" id="enhance-result-card" style="display:none">
+                <div class="card__title">Enhanced Result</div>
+                <div id="enhance-preview" style="background:#000;border-radius:8px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;margin-bottom:12px">
+                    <canvas id="enhance-result-canvas" style="max-width:100%;max-height:100%"></canvas>
+                </div>
+                
+                <!-- OCR Results -->
+                <div id="enhance-ocr-results" style="display:none;margin-bottom:12px">
+                    <div style="font-weight:500;margin-bottom:8px">📝 Extracted Text</div>
+                    <div id="enhance-ocr-content" style="background:var(--bg-secondary);border-radius:4px;padding:12px;font-family:var(--font-mono);font-size:12px"></div>
+                </div>
+                
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn--primary" id="enhance-save-btn" style="flex:1">
+                        ${Icons.get('download')} Save Enhanced
+                    </button>
+                    <button class="btn btn--secondary" id="enhance-compare-btn">
+                        Compare
+                    </button>
+                </div>
+            </div>
+
+            <!-- Model Management -->
+            <div class="card">
+                <div class="card__title">🧠 AI Models</div>
+                <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">
+                    Models are downloaded separately to keep GridDown lightweight (~600KB).<br>
+                    Import ONNX models for offline AI enhancement.
+                </p>
+                
+                <!-- Installed Models -->
+                <div style="margin-bottom:12px">
+                    <div style="font-weight:500;margin-bottom:8px">Installed Models</div>
+                    <div id="enhance-models-list" style="display:flex;flex-direction:column;gap:8px">
+                        <!-- Model cards rendered by loadModelsList() -->
+                        <div style="color:var(--text-secondary);font-size:12px">Loading...</div>
+                    </div>
+                </div>
+                
+                <!-- Import Model -->
+                <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+                    <div style="font-weight:500;margin-bottom:8px">Import Model</div>
+                    <div style="display:flex;gap:8px;margin-bottom:8px">
+                        <select id="enhance-import-model-type" class="form-select" style="flex:1">
+                            <optgroup label="Upscaling (Recommended)">
+                                <option value="realcugan-x2">Real-CUGAN 2× (2.9 MB) ⭐</option>
+                                <option value="realesrgan-x2">Real-ESRGAN 2× (6.5 MB)</option>
+                                <option value="realesrgan-x4">Real-ESRGAN 4× (16.7 MB)</option>
+                            </optgroup>
+                            <optgroup label="Denoising">
+                                <option value="scunet">SCUNet (9.2 MB)</option>
+                                <option value="nafnet">NAFNet (8.4 MB)</option>
+                            </optgroup>
+                            <optgroup label="Face Enhancement">
+                                <option value="gfpgan">GFPGAN (348 MB)</option>
+                            </optgroup>
+                        </select>
+                        <button class="btn btn--secondary btn--small" id="enhance-import-btn">
+                            📁 Import
+                        </button>
+                    </div>
+                    <input type="file" id="enhance-model-file" accept=".onnx,.bin" style="display:none">
+                    
+                    <!-- Download Links -->
+                    <div id="enhance-download-links" style="background:var(--bg-secondary);border-radius:4px;padding:10px;margin-top:8px">
+                        <div style="font-size:11px;font-weight:500;margin-bottom:6px">📥 Download Sources</div>
+                        <div style="font-size:11px;color:var(--text-secondary);line-height:1.5">
+                            <strong>Real-CUGAN (Recommended for SSTV):</strong><br>
+                            <a href="https://github.com/bilibili/ailab/tree/main/Real-CUGAN" target="_blank" rel="noopener" style="color:var(--accent)">GitHub (bilibili)</a> - Download up2x-latest-denoise3x.onnx<br>
+                            <a href="https://huggingface.co/maadaa/Real-CUGAN/tree/main" target="_blank" rel="noopener" style="color:var(--accent)">Hugging Face</a> - Alternative mirror<br><br>
+                            
+                            <strong>Real-ESRGAN (General upscaling):</strong><br>
+                            <a href="https://github.com/xinntao/Real-ESRGAN/releases" target="_blank" rel="noopener" style="color:var(--accent)">GitHub Releases</a> - Download realesrgan-x2/x4.onnx<br>
+                            <a href="https://huggingface.co/ai-forever/Real-ESRGAN/tree/main" target="_blank" rel="noopener" style="color:var(--accent)">Hugging Face</a> - ONNX models<br><br>
+                            
+                            <strong>SCUNet (Denoising):</strong><br>
+                            <a href="https://github.com/cszn/SCUNet" target="_blank" rel="noopener" style="color:var(--accent)">GitHub</a> - Best for radio interference patterns<br><br>
+                            
+                            <strong>NAFNet (Fast denoise):</strong><br>
+                            <a href="https://github.com/megvii-research/NAFNet" target="_blank" rel="noopener" style="color:var(--accent)">GitHub</a> - Lightweight denoising
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Cache Info -->
+                <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:12px">
+                    <div id="enhance-cache-info" style="font-size:12px;color:var(--text-secondary)">
+                        Loading cache info...
+                    </div>
+                    <button class="btn btn--secondary btn--small" id="enhance-clear-cache" style="margin-top:8px">
+                        🗑️ Clear All Models
+                    </button>
+                </div>
+            </div>
+            
+            <!-- OCR Info -->
+            <div class="card">
+                <div class="card__title">📝 OCR (Text Recognition)</div>
+                <p style="font-size:12px;color:var(--text-secondary)">
+                    OCR uses <a href="https://tesseract.projectnaptha.com/" target="_blank" rel="noopener" 
+                    style="color:var(--accent)">Tesseract.js</a> loaded from CDN on demand (~3MB download).<br>
+                    Extracts callsigns, grid squares, coordinates, and frequencies from images.<br><br>
+                    <strong>No model download required</strong> - loaded automatically when OCR is enabled.
+                </p>
+            </div>
+            
+            <!-- Processing Tips -->
+            <div class="card">
+                <div class="card__title">💡 Tips</div>
+                <ul style="font-size:12px;color:var(--text-secondary);margin:0;padding-left:16px;line-height:1.6">
+                    <li><strong>Real-CUGAN 2×</strong> is recommended for SSTV - optimized for the noise patterns</li>
+                    <li>Enable <strong>WebGPU</strong> in Chrome for 5-10× faster processing</li>
+                    <li>Denoise before upscaling for best results with noisy SSTV images</li>
+                    <li>OCR works best on enhanced images - run it after upscaling</li>
+                    <li>Face enhancement (GFPGAN) is a large model - only needed for portraits</li>
+                </ul>
+            </div>
+        `;
+    }
+
+    function handleEnhanceProgress(data) {
+        const statusEl = document.getElementById('enhance-status');
+        const progressBar = document.getElementById('enhance-progress-bar');
+        
+        if (statusEl) statusEl.textContent = data.message;
+        if (progressBar) progressBar.style.width = `${Math.round(data.progress * 100)}%`;
+        
+        if (data.phase === 'complete' || data.phase === 'error') {
+            sstvEnhanceProcessing = false;
+        }
+    }
+
+    async function runEnhancement() {
+        if (!sstvEnhanceSelectedImage || sstvEnhanceProcessing) return;
+        
+        const images = SSTVModule.getReceivedImages();
+        const selectedImg = images.find(i => i.id === sstvEnhanceSelectedImage);
+        if (!selectedImg || !selectedImg.imageData) return;
+        
+        sstvEnhanceProcessing = true;
+        document.getElementById('sstv-content').innerHTML = renderSSTVEnhance();
+        attachSSTVHandlers();
+        
+        try {
+            const result = await SSTVEnhanceModule.enhance(selectedImg.imageData, {
+                upscaleMethod: sstvEnhanceMethod,
+                denoiseStrength: sstvEnhanceDenoiseStrength,
+                runOcr: sstvEnhanceOCR
+            });
+            
+            // Show result
+            const resultCard = document.getElementById('enhance-result-card');
+            const canvas = document.getElementById('enhance-result-canvas');
+            const ocrResults = document.getElementById('enhance-ocr-results');
+            const ocrContent = document.getElementById('enhance-ocr-content');
+            
+            if (resultCard && canvas) {
+                resultCard.style.display = 'block';
+                canvas.width = result.imageData.width;
+                canvas.height = result.imageData.height;
+                canvas.getContext('2d').putImageData(result.imageData, 0, 0);
+                
+                // Store for saving
+                window._enhancedImageData = result.imageData;
+                window._enhancedMetadata = result.metadata;
+            }
+            
+            // Show OCR results
+            if (ocrResults && ocrContent && result.metadata.ocr) {
+                const ocr = result.metadata.ocr.extracted || {};
+                let ocrHtml = '';
+                
+                if (ocr.callsigns && ocr.callsigns.length > 0) {
+                    ocrHtml += `<div><strong>Callsigns:</strong> ${ocr.callsigns.join(', ')}</div>`;
+                }
+                if (ocr.gridSquares && ocr.gridSquares.length > 0) {
+                    ocrHtml += `<div><strong>Grid Squares:</strong> ${ocr.gridSquares.join(', ')}</div>`;
+                }
+                if (ocr.coordinates && ocr.coordinates.length > 0) {
+                    ocrHtml += `<div><strong>Coordinates:</strong> ${ocr.coordinates.join('; ')}</div>`;
+                }
+                if (ocr.frequencies && ocr.frequencies.length > 0) {
+                    ocrHtml += `<div><strong>Frequencies:</strong> ${ocr.frequencies.join(', ')}</div>`;
+                }
+                
+                if (ocrHtml) {
+                    ocrContent.innerHTML = ocrHtml;
+                    ocrResults.style.display = 'block';
+                } else if (result.metadata.ocr.raw) {
+                    ocrContent.innerHTML = `<em>Raw text:</em><br><pre style="white-space:pre-wrap;font-size:11px">${result.metadata.ocr.raw.substring(0, 500)}</pre>`;
+                    ocrResults.style.display = 'block';
+                } else {
+                    ocrContent.innerHTML = '<em>No text detected</em>';
+                    ocrResults.style.display = 'block';
+                }
+            }
+            
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`Enhanced in ${result.metadata.processingTime}ms`, 'success');
+            }
+            
+        } catch (err) {
+            console.error('[SSTV Enhance] Error:', err);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`Enhancement failed: ${err.message}`, 'error');
+            }
+        }
+        
+        sstvEnhanceProcessing = false;
+        document.getElementById('sstv-content').innerHTML = renderSSTVEnhance();
+        attachSSTVHandlers();
+    }
+
+    function saveEnhancedImage() {
+        if (!window._enhancedImageData) return;
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = window._enhancedImageData.width;
+        canvas.height = window._enhancedImageData.height;
+        canvas.getContext('2d').putImageData(window._enhancedImageData, 0, 0);
+        
+        const dataURL = canvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.href = dataURL;
+        link.download = `sstv_enhanced_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('Enhanced image saved', 'success');
+        }
+    }
+
+    async function loadEnhanceCacheInfo() {
+        const infoEl = document.getElementById('enhance-cache-info');
+        const modelsListEl = document.getElementById('enhance-models-list');
+        
+        if (typeof SSTVEnhanceModule === 'undefined') {
+            if (infoEl) infoEl.innerHTML = 'Enhancement module not loaded';
+            if (modelsListEl) modelsListEl.innerHTML = '<div style="color:var(--text-secondary);font-size:12px">Module not loaded</div>';
+            return;
+        }
+        
+        try {
+            // Load available models with cache status
+            const models = await SSTVEnhanceModule.getAvailableModels();
+            const cached = await SSTVEnhanceModule.getCachedModels();
+            
+            // Render models list
+            if (modelsListEl) {
+                modelsListEl.innerHTML = models.map(m => `
+                    <div style="background:var(--bg-secondary);border-radius:4px;padding:8px;display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                            <div style="font-weight:500;font-size:13px">${m.name}</div>
+                            <div style="font-size:11px;color:var(--text-secondary)">
+                                ${m.description} • ${m.size}
+                            </div>
+                        </div>
+                        <div>
+                            ${m.cached ? 
+                                `<span style="color:var(--success);font-size:12px">✓ Cached</span>` :
+                                `<span style="color:var(--text-secondary);font-size:12px">Not cached</span>`
+                            }
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            // Update cache info
+            if (infoEl) {
+                if (cached.length === 0) {
+                    infoEl.innerHTML = 'No models cached. Import ONNX models for offline AI enhancement.';
+                } else {
+                    const totalSize = cached.reduce((sum, m) => sum + (m.size || 0), 0);
+                    infoEl.innerHTML = `
+                        <strong>${cached.length}</strong> model(s) cached 
+                        (<strong>${(totalSize / 1024 / 1024).toFixed(1)} MB</strong>)
+                    `;
+                }
+            }
+        } catch (err) {
+            console.error('[SSTV Enhance] Cache info error:', err);
+            if (infoEl) infoEl.innerHTML = 'Cache info unavailable';
+            if (modelsListEl) modelsListEl.innerHTML = '<div style="color:var(--warning);font-size:12px">Error loading models</div>';
+        }
+    }
+
+    async function importEnhanceModel() {
+        if (typeof SSTVEnhanceModule === 'undefined') return;
+        
+        const modelTypeSelect = document.getElementById('enhance-import-model-type');
+        const modelId = modelTypeSelect?.value;
+        if (!modelId) return;
+        
+        const fileInput = document.getElementById('enhance-model-file');
+        if (!fileInput) return;
+        
+        // Trigger file selection
+        fileInput.onchange = async () => {
+            const file = fileInput.files?.[0];
+            if (!file) return;
+            
+            try {
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Importing ${file.name}...`, 'info');
+                }
+                
+                // Map select values to MODEL_REGISTRY IDs
+                const modelIdMap = {
+                    'realcugan-x2': 'realcugan-x2',
+                    'realesrgan-x2': 'realesrgan-x2',
+                    'realesrgan-x4': 'realesrgan-x4',
+                    'scunet': 'scunet',
+                    'nafnet': 'nafnet',
+                    'gfpgan': 'gfpgan'
+                };
+                
+                const actualModelId = modelIdMap[modelId] || modelId;
+                await SSTVEnhanceModule.importModel(actualModelId, file);
+                
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Model imported successfully!', 'success');
+                }
+                
+                // Refresh the display
+                await loadEnhanceCacheInfo();
+                
+            } catch (err) {
+                console.error('[SSTV Enhance] Import error:', err);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Import failed: ${err.message}`, 'error');
+                }
+            }
+            
+            // Clear file input
+            fileInput.value = '';
+        };
+        
+        fileInput.click();
+    }
+
+    async function clearEnhanceModels() {
+        if (typeof SSTVEnhanceModule === 'undefined') return;
+        
+        if (typeof ModalsModule !== 'undefined') {
+            const confirmed = await ModalsModule.confirm(
+                'Clear All Models',
+                'Are you sure you want to delete all downloaded AI models? You will need to re-import them to use AI enhancement.'
+            );
+            if (!confirmed) return;
+        }
+        
+        try {
+            const count = await SSTVEnhanceModule.clearAllModels();
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`Cleared ${count} model(s)`, 'success');
+            }
+            await loadEnhanceCacheInfo();
+        } catch (err) {
+            console.error('[SSTV Enhance] Clear error:', err);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`Failed to clear models: ${err.message}`, 'error');
+            }
+        }
+    }
+
     function renderSSTVSettings() {
         const settings = typeof SSTVModule !== 'undefined' ? SSTVModule.getSettings() : {};
 
@@ -12440,6 +13059,176 @@ ${text}
         `;
     }
 
+    // Waterfall update interval ID
+    let waterfallUpdateInterval = null;
+
+    /**
+     * Initialize SSTV waterfall display
+     */
+    async function initSSTVWaterfall() {
+        if (typeof SSTVDSPModule === 'undefined' || typeof SSTVModule === 'undefined') {
+            console.warn('[SSTV] DSP module not available for waterfall');
+            return;
+        }
+
+        const canvas = document.getElementById('sstv-waterfall-canvas');
+        if (!canvas) {
+            console.warn('[SSTV] Waterfall canvas not found');
+            return;
+        }
+
+        // Get audio context and source from SSTVModule
+        // Note: SSTVModule needs to expose these for waterfall integration
+        const audioState = SSTVModule._getAudioState ? SSTVModule._getAudioState() : null;
+        
+        if (audioState && audioState.context && audioState.source) {
+            const success = SSTVDSPModule.initWaterfall(
+                canvas, 
+                audioState.context, 
+                audioState.source
+            );
+            
+            if (success) {
+                SSTVDSPModule.startWaterfall();
+                startWaterfallUpdateLoop();
+                console.log('[SSTV] Waterfall display initialized');
+            }
+        } else {
+            console.warn('[SSTV] Audio state not available for waterfall');
+        }
+    }
+
+    /**
+     * Start waterfall update loop for frequency/signal display
+     */
+    function startWaterfallUpdateLoop() {
+        if (waterfallUpdateInterval) {
+            clearInterval(waterfallUpdateInterval);
+        }
+
+        waterfallUpdateInterval = setInterval(() => {
+            if (typeof SSTVDSPModule === 'undefined') return;
+            if (!SSTVModule.isReceiving()) {
+                clearInterval(waterfallUpdateInterval);
+                waterfallUpdateInterval = null;
+                return;
+            }
+
+            // Update dominant frequency display
+            const freqInfo = SSTVDSPModule.getDominantFrequency();
+            const freqDisplay = document.getElementById('sstv-dominant-freq');
+            if (freqDisplay && freqInfo) {
+                freqDisplay.textContent = `${freqInfo.frequency.toFixed(0)} Hz (${(freqInfo.amplitude * 100).toFixed(0)}%)`;
+            }
+
+            // Update signal quality guidance
+            const signalQuality = SSTVDSPModule.analyzeSignalQuality();
+            const guidanceDisplay = document.getElementById('sstv-signal-guidance');
+            if (guidanceDisplay && signalQuality) {
+                guidanceDisplay.textContent = signalQuality.guidance;
+                
+                // Color based on status
+                const colors = {
+                    none: 'var(--text-secondary)',
+                    weak: 'var(--warning)',
+                    overload: 'var(--danger)',
+                    noise: 'var(--text-secondary)',
+                    signal: 'var(--accent)',
+                    sstv: 'var(--success)'
+                };
+                guidanceDisplay.style.color = colors[signalQuality.status] || 'var(--text-secondary)';
+            }
+
+            // Update slant display
+            updateSlantDisplay();
+
+            // Update drift display
+            updateDriftDisplay();
+        }, 200);
+    }
+
+    /**
+     * Update slant correction display
+     */
+    function updateSlantDisplay() {
+        if (typeof SSTVDSPModule === 'undefined') return;
+
+        const factor = SSTVDSPModule.getSlantFactor();
+        const config = SSTVDSPModule.getConfig();
+        
+        const expectedEl = document.getElementById('sstv-slant-expected');
+        const measuredEl = document.getElementById('sstv-slant-measured');
+        const correctionEl = document.getElementById('sstv-slant-correction');
+
+        // These would be populated by slant analysis events
+        // For now just show current factor
+        if (correctionEl) {
+            const percent = ((factor - 1) * 100).toFixed(2);
+            correctionEl.textContent = `${percent}%`;
+            correctionEl.style.color = Math.abs(factor - 1) < 0.01 ? 'var(--text-secondary)' : 'var(--accent)';
+        }
+    }
+
+    /**
+     * Handle slant analysis events from DSP module
+     */
+    if (typeof Events !== 'undefined') {
+        Events.on('sstv:slantAnalysis', (data) => {
+            const expectedEl = document.getElementById('sstv-slant-expected');
+            const measuredEl = document.getElementById('sstv-slant-measured');
+            const correctionEl = document.getElementById('sstv-slant-correction');
+
+            if (expectedEl) expectedEl.textContent = `${data.expectedLineTime.toFixed(2)} ms`;
+            if (measuredEl) measuredEl.textContent = `${data.measuredLineTime.toFixed(2)} ms`;
+            if (correctionEl) {
+                correctionEl.textContent = `${data.slantPercent.toFixed(2)}%`;
+                correctionEl.style.color = Math.abs(data.slantPercent) < 1 ? 'var(--text-secondary)' : 'var(--accent)';
+            }
+        });
+
+        Events.on('sstv:driftAnalysis', (data) => {
+            const measuredEl = document.getElementById('sstv-drift-measured');
+            const driftEl = document.getElementById('sstv-drift-value');
+            const confidenceEl = document.getElementById('sstv-drift-confidence');
+
+            if (measuredEl) measuredEl.textContent = `${data.measuredSyncFreq.toFixed(1)} Hz`;
+            if (driftEl) {
+                driftEl.textContent = `${data.driftHz >= 0 ? '+' : ''}${data.driftHz.toFixed(1)} Hz`;
+                driftEl.style.color = Math.abs(data.driftHz) < 5 ? 'var(--text-secondary)' : 'var(--accent)';
+            }
+            if (confidenceEl) {
+                confidenceEl.textContent = `${(data.confidence * 100).toFixed(0)}%`;
+            }
+        });
+    }
+
+    /**
+     * Update drift compensation display
+     */
+    function updateDriftDisplay() {
+        if (typeof SSTVDSPModule === 'undefined') return;
+
+        const status = SSTVDSPModule.getDriftAnalysisStatus();
+        
+        const measuredEl = document.getElementById('sstv-drift-measured');
+        const driftEl = document.getElementById('sstv-drift-value');
+        const confidenceEl = document.getElementById('sstv-drift-confidence');
+
+        if (measuredEl) {
+            measuredEl.textContent = status.measurementCount > 0 ? 
+                `${status.lastSyncFreq.toFixed(1)} Hz` : '-- Hz';
+        }
+        if (driftEl) {
+            const drift = status.driftHz;
+            driftEl.textContent = `${drift >= 0 ? '+' : ''}${drift.toFixed(1)} Hz`;
+            driftEl.style.color = Math.abs(drift) < 5 ? 'var(--text-secondary)' : 'var(--accent)';
+        }
+        if (confidenceEl) {
+            confidenceEl.textContent = status.measurementCount > 0 ? 
+                `${(status.confidence * 100).toFixed(0)}%` : '--';
+        }
+    }
+
     function attachSSTVHandlers() {
         // Receive handlers
         const startRxBtn = container.querySelector('#sstv-start-rx');
@@ -12447,6 +13236,10 @@ ${text}
             startRxBtn.onclick = async () => {
                 const success = await SSTVModule.startReceive();
                 if (success) {
+                    // Initialize waterfall if DSP module available
+                    if (typeof SSTVDSPModule !== 'undefined') {
+                        initSSTVWaterfall();
+                    }
                     renderSSTV();
                 }
             };
@@ -12456,8 +13249,85 @@ ${text}
         if (stopRxBtn) {
             stopRxBtn.onclick = () => {
                 SSTVModule.stopReceive();
+                // Stop waterfall
+                if (typeof SSTVDSPModule !== 'undefined') {
+                    SSTVDSPModule.stopWaterfall();
+                }
                 renderSSTV();
             };
+        }
+
+        // Waterfall colormap selector
+        const waterfallColormapSelect = container.querySelector('#sstv-waterfall-colormap');
+        if (waterfallColormapSelect && typeof SSTVDSPModule !== 'undefined') {
+            waterfallColormapSelect.onchange = () => {
+                SSTVDSPModule.setColormap(waterfallColormapSelect.value);
+            };
+        }
+
+        // Slant correction toggle
+        const slantEnabledCheckbox = container.querySelector('#sstv-slant-enabled');
+        if (slantEnabledCheckbox && typeof SSTVDSPModule !== 'undefined') {
+            slantEnabledCheckbox.onchange = () => {
+                SSTVDSPModule.setSlantCorrectionEnabled(slantEnabledCheckbox.checked);
+            };
+        }
+
+        // Slant reset button
+        const slantResetBtn = container.querySelector('#sstv-slant-reset');
+        if (slantResetBtn && typeof SSTVDSPModule !== 'undefined') {
+            slantResetBtn.onclick = () => {
+                SSTVDSPModule.resetSlantAnalysis();
+                updateSlantDisplay();
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Slant analysis reset', 'info');
+                }
+            };
+        }
+
+        // Manual slant slider
+        const slantManualSlider = container.querySelector('#sstv-slant-manual');
+        const slantManualValue = container.querySelector('#sstv-slant-manual-value');
+        if (slantManualSlider && slantManualValue) {
+            slantManualSlider.oninput = () => {
+                slantManualValue.textContent = `${parseFloat(slantManualSlider.value).toFixed(1)}%`;
+            };
+        }
+
+        // Drift correction toggle
+        const driftEnabledCheckbox = container.querySelector('#sstv-drift-enabled');
+        if (driftEnabledCheckbox && typeof SSTVDSPModule !== 'undefined') {
+            driftEnabledCheckbox.onchange = () => {
+                SSTVDSPModule.setDriftCorrectionEnabled(driftEnabledCheckbox.checked);
+            };
+        }
+
+        // Drift reset button
+        const driftResetBtn = container.querySelector('#sstv-drift-reset');
+        if (driftResetBtn && typeof SSTVDSPModule !== 'undefined') {
+            driftResetBtn.onclick = () => {
+                SSTVDSPModule.resetDriftAnalysis();
+                updateDriftDisplay();
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Drift analysis reset', 'info');
+                }
+            };
+        }
+
+        // Manual drift slider
+        const driftManualSlider = container.querySelector('#sstv-drift-manual');
+        const driftManualValue = container.querySelector('#sstv-drift-manual-value');
+        if (driftManualSlider && driftManualValue && typeof SSTVDSPModule !== 'undefined') {
+            driftManualSlider.oninput = () => {
+                const hz = parseInt(driftManualSlider.value);
+                driftManualValue.textContent = `${hz} Hz`;
+                SSTVDSPModule.setManualDriftCompensation(hz);
+            };
+        }
+
+        // Start waterfall update loop if receiving
+        if (typeof SSTVModule !== 'undefined' && SSTVModule.isReceiving()) {
+            startWaterfallUpdateLoop();
         }
 
         // Transmit handlers
@@ -12578,6 +13448,91 @@ ${text}
                     }
                 }
             };
+        }
+
+        // Enhance tab handlers
+        const enhanceMethodSelect = container.querySelector('#enhance-method');
+        if (enhanceMethodSelect) {
+            enhanceMethodSelect.onchange = () => {
+                sstvEnhanceMethod = enhanceMethodSelect.value;
+            };
+        }
+
+        const enhanceDenoiseSlider = container.querySelector('#enhance-denoise');
+        if (enhanceDenoiseSlider) {
+            enhanceDenoiseSlider.oninput = () => {
+                sstvEnhanceDenoiseStrength = parseInt(enhanceDenoiseSlider.value) / 100;
+                const label = enhanceDenoiseSlider.parentElement.querySelector('.form-label');
+                if (label) label.textContent = `Denoise Strength: ${enhanceDenoiseSlider.value}%`;
+            };
+        }
+
+        const enhanceOcrCheckbox = container.querySelector('#enhance-ocr');
+        if (enhanceOcrCheckbox) {
+            enhanceOcrCheckbox.onchange = () => {
+                sstvEnhanceOCR = enhanceOcrCheckbox.checked;
+            };
+        }
+
+        // Image selection for enhance
+        container.querySelectorAll('[data-enhance-select]').forEach(thumb => {
+            thumb.onclick = () => {
+                sstvEnhanceSelectedImage = thumb.dataset.enhanceSelect;
+                document.getElementById('sstv-content').innerHTML = renderSSTVEnhance();
+                attachSSTVHandlers();
+            };
+        });
+
+        const enhanceStartBtn = container.querySelector('#enhance-start-btn');
+        if (enhanceStartBtn) {
+            enhanceStartBtn.onclick = () => runEnhancement();
+        }
+
+        const enhanceSaveBtn = container.querySelector('#enhance-save-btn');
+        if (enhanceSaveBtn) {
+            enhanceSaveBtn.onclick = () => saveEnhancedImage();
+        }
+
+        const enhanceCompareBtn = container.querySelector('#enhance-compare-btn');
+        if (enhanceCompareBtn) {
+            enhanceCompareBtn.onclick = () => {
+                // Toggle between original and enhanced
+                const canvas = document.getElementById('enhance-result-canvas');
+                if (canvas && window._enhancedImageData && sstvEnhanceSelectedImage) {
+                    const images = SSTVModule.getReceivedImages();
+                    const original = images.find(i => i.id === sstvEnhanceSelectedImage);
+                    
+                    if (canvas.dataset.showing === 'enhanced' && original?.imageData) {
+                        canvas.width = original.imageData.width;
+                        canvas.height = original.imageData.height;
+                        canvas.getContext('2d').putImageData(original.imageData, 0, 0);
+                        canvas.dataset.showing = 'original';
+                        enhanceCompareBtn.textContent = 'Show Enhanced';
+                    } else {
+                        canvas.width = window._enhancedImageData.width;
+                        canvas.height = window._enhancedImageData.height;
+                        canvas.getContext('2d').putImageData(window._enhancedImageData, 0, 0);
+                        canvas.dataset.showing = 'enhanced';
+                        enhanceCompareBtn.textContent = 'Compare';
+                    }
+                }
+            };
+        }
+
+        // Import model button
+        const enhanceImportBtn = container.querySelector('#enhance-import-btn');
+        if (enhanceImportBtn) {
+            enhanceImportBtn.onclick = () => importEnhanceModel();
+        }
+
+        const enhanceClearCacheBtn = container.querySelector('#enhance-clear-cache');
+        if (enhanceClearCacheBtn) {
+            enhanceClearCacheBtn.onclick = () => clearEnhanceModels();
+        }
+
+        // Load cache info if on enhance tab
+        if (sstvActiveTab === 'enhance') {
+            loadEnhanceCacheInfo();
         }
     }
 
