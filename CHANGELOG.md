@@ -2,6 +2,111 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.19.5] - 2025-01-29
+
+### Added
+- **Additional SSTV Modes** - Extended mode support:
+  - PD-180 (640×496, 180s) - High resolution, longer transmission
+  - PD-240 (640×496, 240s) - Maximum quality PD mode
+  - PD-290 (800×616, 290s) - Highest resolution PD mode
+  - Wraase SC2-180 (320×256, 180s) - Sequential RGB format
+  
+- **Frequency Drift Compensation** - Automatic correction for transmitter drift:
+  - Real-time sync pulse frequency tracking
+  - Auto-compensation based on measured vs expected 1200 Hz sync
+  - Manual drift adjustment slider (±50 Hz)
+  - Confidence indicator and measurement counter
+  - Low-pass filtering for stable drift estimates
+  - Reset functionality for fresh calibration
+
+- **RGB Color Mode Support** - Full encoder/decoder for Wraase SC2 format:
+  - Sequential R-G-B channel encoding/decoding
+  - Proper sync timing for SC2 format
+
+### Improved
+- Decoder now records sync pulse times for DSP slant analysis
+- Image completion applies auto-slant correction when enabled
+- Drift compensation applied during YCrCb, GBR, and RGB decoding
+
+### Technical
+- Added `getFrequencyDriftCompensation()` to DSP module
+- Added `recordSyncFrequency()` for drift tracking
+- Added `getDriftAnalysisStatus()` for UI updates
+- Goertzel algorithm for precise sync frequency measurement
+
+## [6.19.4] - 2025-01-29
+
+### Added
+- **SSTV Waterfall Display** - Real-time spectrogram visualization for SSTV signals:
+  - Frequency range 1100-2400 Hz (SSTV band)
+  - Four colormaps: Viridis, Plasma, Thermal, Grayscale
+  - Live frequency markers for SYNC, BLACK, VIS, WHITE
+  - Dominant frequency display with amplitude
+  - Signal quality analysis with tuning guidance
+
+- **SSTV Auto-Slant Correction** - Automatic image skew correction:
+  - Sync pulse timing analysis for drift detection
+  - Image-based slant detection using edge tracking
+  - Manual correction slider (±5%)
+  - Expected vs measured line time display
+  - Per-mode timing configuration
+
+### Technical
+- New `sstv-dsp.js` module (822 lines) for advanced signal processing
+- `SSTVModule._getAudioState()` exposes audio context for DSP integration
+- Event-driven slant analysis updates via `sstv:slantAnalysis`
+- FFT-based frequency analysis using Web Audio AnalyserNode
+
+## [6.19.3] - 2025-01-29
+
+### Fixed
+- **SSTV Module Storage Error** - Fixed `Storage.get is not a function` error by using correct `Storage.Settings.get()` and `Storage.Settings.set()` API for history persistence
+
+## [6.19.2] - 2025-01-29
+
+### Added
+- **SSTV AI Enhancement Module** - Comprehensive neural network-based image enhancement:
+  - **Upscaling**: 2× and 4× upscaling using Real-CUGAN/Real-ESRGAN ONNX models
+  - **Denoising**: SCUNet and NAFNet support for radio interference removal
+  - **Face Enhancement**: Optional GFPGAN support for portrait images
+  - **OCR Text Extraction**: 
+    - Tesseract.js loaded from CDN on demand (~3MB)
+    - Callsign detection (amateur radio formats)
+    - Maidenhead grid square extraction
+    - Coordinate parsing (decimal degrees and DMS)
+  - **Lightweight Architecture** - Models NOT bundled (~600KB total app size):
+    - Users download ONNX models separately from official sources
+    - Comprehensive download links and instructions in UI
+    - Models stored in IndexedDB for offline reuse
+  - **Model Registry with Download Sources**:
+    - Real-CUGAN 2× (2.9MB) - Recommended for SSTV noise patterns
+    - Real-ESRGAN 2× (6.5MB) and 4× (16.7MB)
+    - SCUNet (9.2MB) and NAFNet (8.4MB) for denoising
+    - GFPGAN (348MB) for face restoration
+  - **WebGPU Acceleration**: 5-10× faster when supported (WASM fallback)
+  - **Processing Pipelines**:
+    - Quick (2× upscale only)
+    - Standard (denoise + 2× upscale)
+    - Quality (denoise + 4× upscale)
+    - Full (denoise + 4× + face + OCR)
+  - **Enhanced UI**:
+    - Model import/export with progress tracking
+    - Processing tips and recommendations
+    - Clear all models option with confirmation
+    - Installed models status display
+
+### Technical
+- ONNX Runtime Web 1.17.0 loaded from CDN
+- Tile-based processing (512px default) for memory efficiency
+- Progress events: `sstvEnhance:progress` (legacy) and `sstvai:progress` (new)
+- CHW tensor format for ONNX model compatibility
+- Graceful degradation when models unavailable
+
+## [6.19.1] - 2025-01-29
+
+### Fixed
+- Minor service worker cache versioning
+
 ## [6.19.0] - 2025-01-29
 
 ### Added

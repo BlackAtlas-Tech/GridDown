@@ -166,6 +166,54 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 
 ---
 
+## 📺 SSTV (Slow Scan Television) (NEW in v6.19)
+
+Transmit and receive images over amateur radio using industry-standard SSTV modes.
+
+### Supported Modes
+| Mode | Resolution | Time | Color Mode |
+|------|------------|------|------------|
+| Robot 36 | 320×240 | 36s | YCrCb |
+| Robot 72 | 320×240 | 72s | YCrCb |
+| Martin M1 | 320×256 | 114s | GBR |
+| Martin M2 | 160×256 | 58s | GBR |
+| Scottie S1 | 320×256 | 110s | GBR |
+| Scottie S2 | 160×256 | 71s | GBR |
+| PD-90 | 320×256 | 90s | YCrCb |
+| PD-120 | 640×496 | 126s | YCrCb |
+
+### Receive Features
+- **Auto VIS code detection** - Automatically identifies transmission mode
+- **Real-time decode progress** with live preview
+- **Signal strength meter** for tuning
+- **Image history** with export to PNG
+
+### Transmit Features
+- **Camera capture** - Take photo and transmit
+- **Gallery import** - Send existing images
+- **Map view capture** - Transmit your current tactical view
+- **Automatic callsign overlay** for legal compliance
+- **Grid square auto-calculation** from GPS
+
+### AI Enhancement (NEW in v6.19.2)
+- **2× and 4× AI upscaling** using Real-CUGAN/Real-ESRGAN models
+- **Denoising** for radio interference removal
+- **OCR text extraction** - Automatically detect callsigns, grid squares, coordinates
+- **Lightweight architecture** - Models downloaded separately (~2-17MB each)
+- **WebGPU acceleration** when available (WASM fallback)
+
+### Hardware Requirements
+- Any amateur radio with audio output (receive)
+- Audio interface for transmit (Digirig, SignaLink, etc.)
+- See [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) for details
+
+### Legal Requirements
+- Valid amateur radio license required for transmitting
+- Callsign verification before TX enabled
+- 10-minute identification reminder
+
+---
+
 ## 🥾 Field Guides (NEW in v6.13)
 
 Comprehensive offline reference library with **600+ entries** covering:
@@ -430,6 +478,8 @@ GridDown/
         ├── meshtastic.js   # Mesh networking
         ├── radiacode.js    # Gamma spectrometer
         ├── rfsentinel.js   # RF Sentinel integration (NEW)
+        ├── sstv.js         # SSTV encode/decode (NEW)
+        ├── sstv-ai.js      # SSTV AI enhancement (NEW)
         ├── team.js         # Team management
         ├── medical.js      # Medical reference
         ├── fieldguides.js  # Offline field guides (NEW)
@@ -590,22 +640,23 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.18.5** (January 2025)
+**Current Version: 6.19.3** (January 2025)
 
 ### Recent Highlights
+- **v6.19.3** - SSTV storage API fix
+- **v6.19.2** - SSTV AI Enhancement module (upscaling, denoising, OCR)
+- **v6.19.0** - SSTV encode/decode with 8 modes, callsign overlay, map capture
 - **v6.18.5** - Settings version display fix, About section branding
 - **v6.18.4** - Pre-launch polish, privacy policy
 - **v6.18.3** - Modal accessibility fix, offline mode console cleanup
 - **v6.18.2** - Touch support for offline map region drawing
 - **v6.18.1** - MQTT connection support for RF Sentinel
 - **v6.18.0** - RF Sentinel integration with multi-protocol RF detection
-- **v6.17.x** - Storage quota monitoring, network quality indicator, map layer audit
-- **v6.16.0** - Update notifications, feature-specific browser warnings
-- **v6.15.0** - Offline status indicator with duration tracking
-- **v6.14.0** - Barometric altimeter with pressure trends
-- **v6.13.0** - Offline field guides (600+ entries)
-- **v6.12.0** - RF Line-of-Sight analysis
-- **v6.11.0** - USGS stream gauge integration
+
+### Documentation
+- [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) - Radios, cables, and accessories
+- [Architecture Overview](docs/ARCHITECTURE.md) - Technical documentation
+- [Privacy Policy](PRIVACY.md) - Data handling practices
 
 ---
 
