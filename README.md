@@ -730,6 +730,7 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 - **v6.18.0** - RF Sentinel integration with multi-protocol RF detection
 
 ### Documentation
+- [User Guide](docs/GridDown_User_Guide.docx) - Comprehensive user manual
 - [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) - Radios, cables, and accessories
 - [Architecture Overview](docs/ARCHITECTURE.md) - Technical documentation
 - [Privacy Policy](PRIVACY.md) - Data handling practices
