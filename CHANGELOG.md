@@ -2,6 +2,27 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.19.8] - 2025-01-29
+
+### Fixed
+- **SSTV Camera Capture Crash** - Fixed camera failing to capture on some devices:
+  - Now properly waits for video metadata to load before capturing
+  - Added `playsinline` attribute for iOS Safari compatibility
+  - Added 10-second timeout for metadata loading
+  - Added dimension validation before creating canvas
+  - Better error messages showing actual failure reason
+
+- **SSTV Display Preview Safety** - Added input validation:
+  - Checks for valid imageData dimensions before processing
+  - Validates SSTV mode exists before accessing properties
+  - Try-catch wrapper with user-friendly error toast
+  - Console logging for debugging
+
+### Technical
+- Camera now requests ideal 640×480 resolution
+- Video element set to muted (required for autoplay on some browsers)
+- Added `onloadedmetadata` and `onerror` handlers with Promise wrapper
+
 ## [6.19.7] - 2025-01-29
 
 ### Added

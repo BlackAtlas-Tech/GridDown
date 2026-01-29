@@ -668,9 +668,10 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.19.7** (January 2025)
+**Current Version: 6.19.8** (January 2025)
 
 ### Recent Highlights
+- **v6.19.8** - Fixed SSTV camera capture crash, added input validation
 - **v6.19.7** - SSTV image annotation with drawing tools and auto-flatten for TX
 - **v6.19.6** - Expandable full-screen views for waterfall and received images
 - **v6.19.5** - Frequency drift compensation, 4 new SSTV modes (PD-180/240/290, Wraase SC2-180)
