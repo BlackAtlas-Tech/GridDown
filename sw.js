@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.19.9';
+const CACHE_NAME = 'griddown-v6.34.0';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -11,8 +11,9 @@ const STATIC_ASSETS = [
     'js/modules/modals.js', 'js/modules/logistics.js', 'js/modules/gpx.js',
     'js/modules/kml.js', 'js/modules/routebuilder.js', 'js/modules/elevation.js', 
     'js/modules/offline.js', 'js/modules/gps.js', 'js/modules/navigation.js',
-    'js/modules/weather.js', 'js/modules/satweather.js', 'js/modules/rflos.js', 'js/modules/contingency.js', 'js/modules/measure.js', 
-    'js/modules/sunmoon.js', 'js/modules/commplan.js', 'js/modules/terrain.js',
+    'js/modules/hiking.js',
+    'js/modules/weather.js', 'js/modules/satweather.js', 'js/modules/alerts.js', 'js/modules/airquality.js', 'js/modules/rflos.js', 'js/modules/contingency.js', 'js/modules/measure.js', 
+    'js/modules/sunmoon.js', 'js/modules/celestial.js', 'js/modules/commplan.js', 'js/modules/terrain.js',
     'js/modules/nightmode.js', 'js/modules/sos.js', 'js/modules/radio.js',
     'js/modules/plansharing.js',
     'js/modules/declination.js',

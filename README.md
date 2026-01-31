@@ -701,11 +701,18 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 ## 🙏 Acknowledgments
 
 - Built with **vanilla JavaScript** for maximum portability and offline reliability
-- Map tiles from OpenStreetMap, USGS, USFS, and Esri
+- Map tiles from OpenStreetMap, USGS, USFS, Esri, and OpenTopoMap
+- Satellite imagery from [NASA GIBS](https://earthdata.nasa.gov/gibs) (Global Imagery Browse Services)
+- Weather radar from NOAA/NWS via [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/)
+- Air quality data from [EPA AirNow](https://www.airnow.gov/) (US, Canada, Mexico)
 - Weather and elevation data from [Open-Meteo](https://open-meteo.com/)
+- Stream gauge data from [USGS National Water Information System](https://waterservices.usgs.gov/)
+- Geocoding from [OpenStreetMap Nominatim](https://nominatim.org/)
 - RadiaCode BLE protocol from [cdump/radiacode](https://github.com/cdump/radiacode) and [mkgeiger/RadiaCode](https://github.com/mkgeiger/RadiaCode) (MIT)
 - Icons inspired by Lucide/Feather icon sets
 - MQTT.js for browser-based MQTT over WebSocket
+
+See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for complete data source licensing information.
 
 ---
 
@@ -713,20 +720,18 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.19.9** (January 2025)
+**Current Version: 6.34.0** (January 2025)
 
 ### Recent Highlights
+- **v6.23.0** - Air Quality Index (AQI) integration via EPA AirNow (US/Canada/Mexico)
+- **v6.22.9** - NASA GIBS satellite imagery integration (commercial-safe, public domain)
+- **v6.22.7** - Weather overlay licensing cleanup, removed API-key-dependent layers
+- **v6.21.0** - Comprehensive accessibility improvements (ARIA attributes)
+- **v6.20.0** - Modular architecture refactoring (panels.js split into 19 modules)
 - **v6.19.9** - SARSAT 406 MHz PLB/ELT/EPIRB beacon receiver integration
-- **v6.19.8** - Fixed SSTV camera capture crash, added input validation
 - **v6.19.7** - SSTV image annotation with drawing tools and auto-flatten for TX
-- **v6.19.6** - Expandable full-screen views for waterfall and received images
-- **v6.19.5** - Frequency drift compensation, 4 new SSTV modes (PD-180/240/290, Wraase SC2-180)
 - **v6.19.4** - DSP module with waterfall display and auto-slant correction
-- **v6.19.3** - SSTV storage API fix
-- **v6.19.2** - SSTV AI Enhancement module (upscaling, denoising, OCR)
-- **v6.19.0** - SSTV encode/decode with 8 modes, callsign overlay, map capture
-- **v6.18.5** - Settings version display fix, About section branding
-- **v6.18.1** - MQTT connection support for RF Sentinel
+- **v6.19.0** - SSTV encode/decode with 12 modes, callsign overlay, map capture
 - **v6.18.0** - RF Sentinel integration with multi-protocol RF detection
 
 ### Documentation

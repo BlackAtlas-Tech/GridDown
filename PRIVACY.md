@@ -49,6 +49,8 @@ GridDown connects to the following external services **only when you have intern
 | Service | Purpose | Data Sent |
 |---------|---------|-----------|
 | Map tile providers (OSM, USGS, Esri) | Display map imagery | Tile coordinates only |
+| NASA GIBS | Satellite imagery overlays | Tile coordinates only |
+| Iowa Environmental Mesonet | NEXRAD radar imagery | Tile coordinates only |
 | Open-Meteo | Weather forecasts | Coordinates for forecast location |
 | Nominatim | Location search | Search query text |
 | USGS Water Services | Stream gauge data | Gauge station IDs |
@@ -118,4 +120,4 @@ Questions about this privacy policy can be directed to:
 
 ---
 
-*GridDown is open source software licensed under the MIT License.*
+*GridDown is dual-licensed software. See [LICENSE](LICENSE) for details.*
