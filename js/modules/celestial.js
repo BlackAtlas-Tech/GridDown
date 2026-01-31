@@ -5908,7 +5908,1091 @@ const CelestialModule = (function() {
         `;
     }
     
-    // ==================== INITIALIZATION ====================
+    // ==================== PHASE 8: INERTIAL NAVIGATION / PDR ====================
+    
+    /**
+     * Inertial Navigation State
+     * Tracks position using device sensors (accelerometer, gyroscope, magnetometer)
+     */
+    const inertialState = {
+        // Tracking state
+        isTracking: false,
+        startTime: null,
+        lastUpdateTime: null,
+        
+        // Position (relative to start or absolute if initialized)
+        startPosition: null,      // { lat, lon } - starting fix
+        currentPosition: null,    // { lat, lon } - current estimated position
+        relativePosition: { x: 0, y: 0 },  // meters from start (x=east, y=north)
+        
+        // Movement
+        heading: 0,               // degrees true (0-360)
+        headingSource: 'none',    // 'gyro', 'magnetic', 'fused', 'none'
+        speed: 0,                 // m/s instantaneous
+        
+        // Step tracking
+        stepCount: 0,
+        stepLength: 0.75,         // meters per step (default, calibratable)
+        totalDistance: 0,         // meters traveled
+        
+        // Gyroscope integration
+        gyroHeading: 0,           // heading from integrated gyro
+        gyroBias: { x: 0, y: 0, z: 0 },  // estimated bias
+        
+        // Calibration
+        isCalibrated: false,
+        calibrationData: {
+            stepLength: 0.75,
+            gyroCalibrated: false,
+            magneticDeclination: 0
+        },
+        
+        // Sensor data
+        lastAccel: null,
+        lastGyro: null,
+        lastMag: null,
+        
+        // History for analysis
+        positionHistory: [],      // Track of positions
+        stepTimes: [],            // Timestamps of detected steps
+        
+        // Confidence / drift estimation
+        confidence: 1.0,          // 0-1, degrades over time without fixes
+        estimatedDrift: 0,        // meters of estimated error
+        timeSinceLastFix: 0,      // seconds
+        
+        // Sensor availability
+        sensorsAvailable: {
+            accelerometer: false,
+            gyroscope: false,
+            magnetometer: false
+        },
+        
+        // Event handlers (store references for cleanup)
+        motionHandler: null,
+        orientationHandler: null
+    };
+    
+    // Step detection parameters
+    const STEP_DETECTION = {
+        minStepInterval: 250,     // ms - minimum time between steps
+        maxStepInterval: 2000,    // ms - maximum time between steps
+        accelThreshold: 1.2,      // g - threshold for step detection
+        peakWindow: 5,            // samples for peak detection
+        lowPassAlpha: 0.3         // low-pass filter coefficient
+    };
+    
+    // Drift estimation parameters
+    const DRIFT_PARAMS = {
+        driftRatePercent: 0.02,   // 2% of distance traveled
+        minConfidence: 0.1,       // minimum confidence floor
+        confidenceDecayRate: 0.001 // per second without fix
+    };
+    
+    /**
+     * Check which sensors are available on this device
+     * @returns {Object} Sensor availability
+     */
+    function checkSensorAvailability() {
+        const available = {
+            accelerometer: false,
+            gyroscope: false,
+            magnetometer: false,
+            deviceMotion: false,
+            deviceOrientation: false
+        };
+        
+        // Check for DeviceMotionEvent (accelerometer + gyroscope)
+        if (typeof DeviceMotionEvent !== 'undefined') {
+            available.deviceMotion = true;
+            available.accelerometer = true;
+            // Gyroscope availability checked when we get actual data
+        }
+        
+        // Check for DeviceOrientationEvent (magnetometer/compass)
+        if (typeof DeviceOrientationEvent !== 'undefined') {
+            available.deviceOrientation = true;
+            available.magnetometer = true;
+        }
+        
+        return available;
+    }
+    
+    /**
+     * Request permission for motion sensors (required on iOS 13+)
+     * @returns {Promise<boolean>} Whether permission was granted
+     */
+    async function requestSensorPermission() {
+        // iOS 13+ requires explicit permission
+        if (typeof DeviceMotionEvent !== 'undefined' && 
+            typeof DeviceMotionEvent.requestPermission === 'function') {
+            try {
+                const permission = await DeviceMotionEvent.requestPermission();
+                return permission === 'granted';
+            } catch (e) {
+                console.warn('Motion sensor permission request failed:', e);
+                return false;
+            }
+        }
+        
+        // Android and older iOS don't need permission
+        return true;
+    }
+    
+    /**
+     * Initialize inertial navigation system
+     * @param {Object} options - Configuration options
+     * @returns {Object} Initialization result
+     */
+    async function initInertialNav(options = {}) {
+        const {
+            startPosition = null,      // { lat, lon } - known starting position
+            stepLength = 0.75,         // meters per step
+            magneticDeclination = 0,   // degrees (east positive)
+            useGyroHeading = true      // prefer gyro over magnetic
+        } = options;
+        
+        // Check sensor availability
+        const sensors = checkSensorAvailability();
+        inertialState.sensorsAvailable = sensors;
+        
+        if (!sensors.deviceMotion && !sensors.deviceOrientation) {
+            return {
+                success: false,
+                error: 'No motion sensors available on this device',
+                sensors
+            };
+        }
+        
+        // Request permission if needed
+        const permissionGranted = await requestSensorPermission();
+        if (!permissionGranted) {
+            return {
+                success: false,
+                error: 'Motion sensor permission denied',
+                sensors
+            };
+        }
+        
+        // Set initial state
+        inertialState.startPosition = startPosition;
+        inertialState.currentPosition = startPosition ? { ...startPosition } : null;
+        inertialState.relativePosition = { x: 0, y: 0 };
+        inertialState.stepLength = stepLength;
+        inertialState.calibrationData.stepLength = stepLength;
+        inertialState.calibrationData.magneticDeclination = magneticDeclination;
+        inertialState.stepCount = 0;
+        inertialState.totalDistance = 0;
+        inertialState.confidence = 1.0;
+        inertialState.estimatedDrift = 0;
+        inertialState.positionHistory = [];
+        inertialState.stepTimes = [];
+        
+        return {
+            success: true,
+            sensors,
+            message: 'Inertial navigation initialized',
+            startPosition
+        };
+    }
+    
+    /**
+     * Start tracking with inertial sensors
+     * @returns {Object} Tracking status
+     */
+    function startInertialTracking() {
+        if (inertialState.isTracking) {
+            return { success: false, error: 'Already tracking' };
+        }
+        
+        const now = Date.now();
+        inertialState.isTracking = true;
+        inertialState.startTime = now;
+        inertialState.lastUpdateTime = now;
+        
+        // Accelerometer data buffer for step detection
+        let accelBuffer = [];
+        let lastStepTime = 0;
+        let filteredAccel = 0;
+        
+        // Gyroscope integration
+        let lastGyroTime = null;
+        
+        // Motion event handler (accelerometer + gyroscope)
+        inertialState.motionHandler = (event) => {
+            const now = Date.now();
+            
+            // Process accelerometer for step detection
+            if (event.accelerationIncludingGravity) {
+                const ax = event.accelerationIncludingGravity.x || 0;
+                const ay = event.accelerationIncludingGravity.y || 0;
+                const az = event.accelerationIncludingGravity.z || 0;
+                
+                // Calculate magnitude
+                const accelMag = Math.sqrt(ax*ax + ay*ay + az*az) / 9.81;  // Convert to g
+                
+                // Low-pass filter
+                filteredAccel = STEP_DETECTION.lowPassAlpha * accelMag + 
+                               (1 - STEP_DETECTION.lowPassAlpha) * filteredAccel;
+                
+                // Store in buffer
+                accelBuffer.push({ time: now, value: filteredAccel });
+                if (accelBuffer.length > STEP_DETECTION.peakWindow * 2) {
+                    accelBuffer.shift();
+                }
+                
+                // Step detection - look for peak
+                if (accelBuffer.length >= STEP_DETECTION.peakWindow) {
+                    const midIdx = Math.floor(accelBuffer.length / 2);
+                    const midVal = accelBuffer[midIdx].value;
+                    
+                    // Check if middle value is a peak
+                    let isPeak = midVal > STEP_DETECTION.accelThreshold;
+                    for (let i = 0; i < accelBuffer.length; i++) {
+                        if (i !== midIdx && accelBuffer[i].value >= midVal) {
+                            isPeak = false;
+                            break;
+                        }
+                    }
+                    
+                    // Validate step timing
+                    const timeSinceLastStep = now - lastStepTime;
+                    if (isPeak && timeSinceLastStep > STEP_DETECTION.minStepInterval &&
+                        timeSinceLastStep < STEP_DETECTION.maxStepInterval) {
+                        // Step detected!
+                        onStepDetected(now);
+                        lastStepTime = now;
+                    } else if (isPeak && lastStepTime === 0) {
+                        // First step
+                        onStepDetected(now);
+                        lastStepTime = now;
+                    }
+                }
+                
+                inertialState.lastAccel = { x: ax, y: ay, z: az, magnitude: accelMag };
+            }
+            
+            // Process gyroscope for heading
+            if (event.rotationRate) {
+                const alpha = event.rotationRate.alpha || 0;  // z-axis rotation (yaw)
+                const beta = event.rotationRate.beta || 0;   // x-axis (pitch)
+                const gamma = event.rotationRate.gamma || 0;  // y-axis (roll)
+                
+                inertialState.sensorsAvailable.gyroscope = true;
+                
+                if (lastGyroTime !== null) {
+                    const dt = (now - lastGyroTime) / 1000;  // seconds
+                    
+                    // Integrate yaw rate for heading change
+                    // rotationRate is in deg/s
+                    const headingChange = alpha * dt;
+                    
+                    // Apply bias correction
+                    const correctedChange = headingChange - (inertialState.gyroBias.z * dt);
+                    
+                    // Update gyro heading
+                    inertialState.gyroHeading = (inertialState.gyroHeading + correctedChange + 360) % 360;
+                }
+                
+                lastGyroTime = now;
+                inertialState.lastGyro = { alpha, beta, gamma };
+            }
+        };
+        
+        // Orientation event handler (magnetometer/compass)
+        inertialState.orientationHandler = (event) => {
+            if (event.alpha !== null) {
+                // Alpha is compass heading (0-360, 0 = north)
+                // Note: This is magnetic north, need to apply declination
+                const magneticHeading = event.alpha;
+                const trueHeading = (magneticHeading + inertialState.calibrationData.magneticDeclination + 360) % 360;
+                
+                // Fuse with gyro heading if available
+                if (inertialState.sensorsAvailable.gyroscope) {
+                    // Complementary filter: trust gyro for short-term, mag for long-term
+                    const alpha = 0.98;  // High trust in gyro
+                    
+                    // Handle wrap-around
+                    let diff = trueHeading - inertialState.gyroHeading;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    
+                    inertialState.heading = (inertialState.gyroHeading + (1 - alpha) * diff + 360) % 360;
+                    inertialState.headingSource = 'fused';
+                } else {
+                    inertialState.heading = trueHeading;
+                    inertialState.headingSource = 'magnetic';
+                }
+                
+                inertialState.lastMag = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
+            }
+        };
+        
+        // Add event listeners
+        if (typeof window !== 'undefined') {
+            window.addEventListener('devicemotion', inertialState.motionHandler);
+            window.addEventListener('deviceorientation', inertialState.orientationHandler);
+        }
+        
+        return {
+            success: true,
+            message: 'Inertial tracking started',
+            startTime: new Date(now).toISOString()
+        };
+    }
+    
+    /**
+     * Handle detected step
+     * @param {number} timestamp - Step timestamp
+     */
+    function onStepDetected(timestamp) {
+        inertialState.stepCount++;
+        inertialState.stepTimes.push(timestamp);
+        
+        // Keep only recent step times for cadence calculation
+        const maxStepHistory = 20;
+        if (inertialState.stepTimes.length > maxStepHistory) {
+            inertialState.stepTimes.shift();
+        }
+        
+        // Calculate distance traveled this step
+        const stepDistance = inertialState.stepLength;
+        inertialState.totalDistance += stepDistance;
+        
+        // Update relative position based on heading
+        const headingRad = inertialState.heading * DEG_TO_RAD;
+        const dx = stepDistance * Math.sin(headingRad);  // East component
+        const dy = stepDistance * Math.cos(headingRad);  // North component
+        
+        inertialState.relativePosition.x += dx;
+        inertialState.relativePosition.y += dy;
+        
+        // Update absolute position if we have a start position
+        if (inertialState.startPosition) {
+            updateAbsolutePosition();
+        }
+        
+        // Update confidence/drift estimate
+        updateDriftEstimate();
+        
+        // Record in history
+        inertialState.positionHistory.push({
+            time: timestamp,
+            relative: { ...inertialState.relativePosition },
+            absolute: inertialState.currentPosition ? { ...inertialState.currentPosition } : null,
+            heading: inertialState.heading,
+            stepCount: inertialState.stepCount,
+            confidence: inertialState.confidence
+        });
+        
+        // Limit history size
+        if (inertialState.positionHistory.length > 1000) {
+            inertialState.positionHistory = inertialState.positionHistory.slice(-500);
+        }
+    }
+    
+    /**
+     * Update absolute lat/lon from relative position
+     */
+    function updateAbsolutePosition() {
+        if (!inertialState.startPosition) return;
+        
+        const lat = inertialState.startPosition.lat;
+        const lon = inertialState.startPosition.lon;
+        
+        // Convert meters to degrees
+        // 1 degree latitude ≈ 111,111 meters
+        // 1 degree longitude ≈ 111,111 * cos(lat) meters
+        const metersPerDegreeLat = 111111;
+        const metersPerDegreeLon = 111111 * Math.cos(lat * DEG_TO_RAD);
+        
+        const dLat = inertialState.relativePosition.y / metersPerDegreeLat;
+        const dLon = inertialState.relativePosition.x / metersPerDegreeLon;
+        
+        inertialState.currentPosition = {
+            lat: lat + dLat,
+            lon: lon + dLon
+        };
+    }
+    
+    /**
+     * Update drift/confidence estimate
+     */
+    function updateDriftEstimate() {
+        // Drift grows with distance traveled
+        inertialState.estimatedDrift = inertialState.totalDistance * DRIFT_PARAMS.driftRatePercent;
+        
+        // Confidence decreases with distance and time
+        const distanceFactor = Math.max(0, 1 - (inertialState.totalDistance / 5000));  // 5km full degradation
+        const timeFactor = Math.max(0, 1 - (inertialState.timeSinceLastFix * DRIFT_PARAMS.confidenceDecayRate));
+        
+        inertialState.confidence = Math.max(
+            DRIFT_PARAMS.minConfidence,
+            distanceFactor * timeFactor
+        );
+    }
+    
+    /**
+     * Stop inertial tracking
+     * @returns {Object} Final state summary
+     */
+    function stopInertialTracking() {
+        if (!inertialState.isTracking) {
+            return { success: false, error: 'Not currently tracking' };
+        }
+        
+        // Remove event listeners
+        if (typeof window !== 'undefined') {
+            if (inertialState.motionHandler) {
+                window.removeEventListener('devicemotion', inertialState.motionHandler);
+            }
+            if (inertialState.orientationHandler) {
+                window.removeEventListener('deviceorientation', inertialState.orientationHandler);
+            }
+        }
+        
+        inertialState.isTracking = false;
+        
+        const duration = (Date.now() - inertialState.startTime) / 1000;
+        
+        return {
+            success: true,
+            summary: {
+                duration: duration,
+                stepCount: inertialState.stepCount,
+                totalDistance: inertialState.totalDistance,
+                averageSpeed: inertialState.totalDistance / duration,
+                finalPosition: inertialState.currentPosition,
+                relativePosition: inertialState.relativePosition,
+                confidence: inertialState.confidence,
+                estimatedDrift: inertialState.estimatedDrift
+            }
+        };
+    }
+    
+    /**
+     * Get current inertial navigation state
+     * @returns {Object} Current state
+     */
+    function getInertialState() {
+        const now = Date.now();
+        const duration = inertialState.startTime ? (now - inertialState.startTime) / 1000 : 0;
+        
+        // Calculate current cadence (steps per minute)
+        let cadence = 0;
+        if (inertialState.stepTimes.length >= 2) {
+            const recentSteps = inertialState.stepTimes.slice(-10);
+            const timeSpan = (recentSteps[recentSteps.length - 1] - recentSteps[0]) / 1000;
+            if (timeSpan > 0) {
+                cadence = ((recentSteps.length - 1) / timeSpan) * 60;
+            }
+        }
+        
+        // Calculate current speed (m/s)
+        const speed = cadence > 0 ? (cadence / 60) * inertialState.stepLength : 0;
+        inertialState.speed = speed;
+        
+        return {
+            isTracking: inertialState.isTracking,
+            
+            // Position
+            startPosition: inertialState.startPosition,
+            currentPosition: inertialState.currentPosition,
+            relativePosition: { ...inertialState.relativePosition },
+            
+            // Movement
+            heading: inertialState.heading,
+            headingSource: inertialState.headingSource,
+            speed: speed,
+            cadence: cadence,
+            
+            // Steps
+            stepCount: inertialState.stepCount,
+            stepLength: inertialState.stepLength,
+            totalDistance: inertialState.totalDistance,
+            
+            // Confidence
+            confidence: inertialState.confidence,
+            estimatedDrift: inertialState.estimatedDrift,
+            
+            // Timing
+            duration: duration,
+            timeSinceLastFix: inertialState.timeSinceLastFix,
+            
+            // Sensors
+            sensorsAvailable: { ...inertialState.sensorsAvailable },
+            
+            // Formatted
+            formatted: {
+                position: inertialState.currentPosition ? 
+                    `${inertialState.currentPosition.lat.toFixed(5)}°, ${inertialState.currentPosition.lon.toFixed(5)}°` : 
+                    'No fix',
+                relativePosition: `${inertialState.relativePosition.x.toFixed(1)}m E, ${inertialState.relativePosition.y.toFixed(1)}m N`,
+                heading: `${inertialState.heading.toFixed(0)}° ${inertialState.headingSource}`,
+                speed: `${(speed * 3.6).toFixed(1)} km/h`,
+                speedKnots: `${(speed * 1.944).toFixed(1)} kts`,
+                distance: `${inertialState.totalDistance.toFixed(0)} m`,
+                distanceNm: `${(inertialState.totalDistance / 1852).toFixed(2)} nm`,
+                steps: `${inertialState.stepCount} steps`,
+                cadence: `${cadence.toFixed(0)} spm`,
+                confidence: `${(inertialState.confidence * 100).toFixed(0)}%`,
+                drift: `±${inertialState.estimatedDrift.toFixed(0)} m`,
+                duration: formatDuration(duration)
+            }
+        };
+    }
+    
+    /**
+     * Format duration in seconds to human readable
+     */
+    function formatDuration(seconds) {
+        if (seconds < 60) return `${Math.floor(seconds)}s`;
+        if (seconds < 3600) return `${Math.floor(seconds/60)}m ${Math.floor(seconds%60)}s`;
+        return `${Math.floor(seconds/3600)}h ${Math.floor((seconds%3600)/60)}m`;
+    }
+    
+    /**
+     * Calibrate step length using known distance
+     * @param {number} knownDistance - Distance traveled in meters
+     * @param {number} stepCount - Number of steps taken (optional, uses current count if not provided)
+     * @returns {Object} Calibration result
+     */
+    function calibrateStepLength(knownDistance, stepCount = null) {
+        const steps = stepCount !== null ? stepCount : inertialState.stepCount;
+        
+        if (steps < 10) {
+            return {
+                success: false,
+                error: 'Need at least 10 steps for accurate calibration'
+            };
+        }
+        
+        const newStepLength = knownDistance / steps;
+        
+        // Sanity check (typical human step is 0.5-1.0m)
+        if (newStepLength < 0.3 || newStepLength > 1.5) {
+            return {
+                success: false,
+                error: `Calculated step length ${newStepLength.toFixed(2)}m is outside normal range (0.3-1.5m)`,
+                calculatedLength: newStepLength
+            };
+        }
+        
+        inertialState.stepLength = newStepLength;
+        inertialState.calibrationData.stepLength = newStepLength;
+        inertialState.isCalibrated = true;
+        
+        return {
+            success: true,
+            previousLength: inertialState.calibrationData.stepLength,
+            newLength: newStepLength,
+            steps: steps,
+            distance: knownDistance,
+            formatted: {
+                stepLength: `${(newStepLength * 100).toFixed(1)} cm`
+            }
+        };
+    }
+    
+    /**
+     * Calibrate gyroscope bias (call when device is stationary)
+     * @param {number} duration - Calibration duration in seconds (default 5)
+     * @returns {Promise<Object>} Calibration result
+     */
+    function calibrateGyroBias(duration = 5) {
+        return new Promise((resolve) => {
+            if (!inertialState.sensorsAvailable.gyroscope) {
+                resolve({
+                    success: false,
+                    error: 'Gyroscope not available'
+                });
+                return;
+            }
+            
+            const samples = [];
+            const startTime = Date.now();
+            
+            const handler = (event) => {
+                if (event.rotationRate) {
+                    samples.push({
+                        x: event.rotationRate.beta || 0,
+                        y: event.rotationRate.gamma || 0,
+                        z: event.rotationRate.alpha || 0
+                    });
+                }
+            };
+            
+            window.addEventListener('devicemotion', handler);
+            
+            setTimeout(() => {
+                window.removeEventListener('devicemotion', handler);
+                
+                if (samples.length < 10) {
+                    resolve({
+                        success: false,
+                        error: 'Not enough samples collected'
+                    });
+                    return;
+                }
+                
+                // Calculate average bias
+                const avgBias = {
+                    x: samples.reduce((a, b) => a + b.x, 0) / samples.length,
+                    y: samples.reduce((a, b) => a + b.y, 0) / samples.length,
+                    z: samples.reduce((a, b) => a + b.z, 0) / samples.length
+                };
+                
+                inertialState.gyroBias = avgBias;
+                inertialState.calibrationData.gyroCalibrated = true;
+                
+                resolve({
+                    success: true,
+                    bias: avgBias,
+                    samples: samples.length,
+                    duration: (Date.now() - startTime) / 1000,
+                    formatted: {
+                        bias: `x:${avgBias.x.toFixed(3)} y:${avgBias.y.toFixed(3)} z:${avgBias.z.toFixed(3)} °/s`
+                    }
+                });
+            }, duration * 1000);
+        });
+    }
+    
+    /**
+     * Update with external fix (GPS, celestial, etc.)
+     * Resets drift and updates confidence
+     * @param {Object} position - { lat, lon }
+     * @param {string} fixType - 'gps', 'celestial', 'manual'
+     * @returns {Object} Update result
+     */
+    function updateInertialFix(position, fixType = 'manual') {
+        const previousPosition = inertialState.currentPosition;
+        
+        // Calculate error if we have a previous position
+        let error = null;
+        if (previousPosition) {
+            const dLat = position.lat - previousPosition.lat;
+            const dLon = position.lon - previousPosition.lon;
+            const errorMeters = Math.sqrt(
+                Math.pow(dLat * 111111, 2) + 
+                Math.pow(dLon * 111111 * Math.cos(position.lat * DEG_TO_RAD), 2)
+            );
+            error = {
+                meters: errorMeters,
+                bearing: Math.atan2(dLon * Math.cos(position.lat * DEG_TO_RAD), dLat) * RAD_TO_DEG
+            };
+        }
+        
+        // Update position
+        inertialState.currentPosition = { ...position };
+        
+        // If this is first fix, set as start position too
+        if (!inertialState.startPosition) {
+            inertialState.startPosition = { ...position };
+        }
+        
+        // Reset relative position to match new fix
+        if (inertialState.startPosition) {
+            const dLat = position.lat - inertialState.startPosition.lat;
+            const dLon = position.lon - inertialState.startPosition.lon;
+            inertialState.relativePosition = {
+                x: dLon * 111111 * Math.cos(inertialState.startPosition.lat * DEG_TO_RAD),
+                y: dLat * 111111
+            };
+        }
+        
+        // Reset confidence
+        inertialState.confidence = 1.0;
+        inertialState.timeSinceLastFix = 0;
+        inertialState.estimatedDrift = 0;
+        
+        return {
+            success: true,
+            fixType: fixType,
+            position: position,
+            error: error,
+            formatted: {
+                position: `${position.lat.toFixed(5)}°, ${position.lon.toFixed(5)}°`,
+                error: error ? `${error.meters.toFixed(1)}m` : 'N/A'
+            }
+        };
+    }
+    
+    /**
+     * Perform Zero Velocity Update (ZUPT)
+     * Call when device is known to be stationary
+     * Helps calibrate sensors and reduce drift
+     * @returns {Object} ZUPT result
+     */
+    function performZUPT() {
+        // Mark current position as confirmed
+        const currentState = getInertialState();
+        
+        // Reset speed-related drift
+        inertialState.speed = 0;
+        
+        // Slight confidence boost for being stationary
+        inertialState.confidence = Math.min(1.0, inertialState.confidence + 0.05);
+        
+        // If we have gyro data, use this moment to estimate bias
+        if (inertialState.lastGyro) {
+            // During ZUPT, any rotation rate is bias
+            const alpha = 0.1;  // Slow adaptation
+            inertialState.gyroBias.z = (1 - alpha) * inertialState.gyroBias.z + 
+                                       alpha * inertialState.lastGyro.alpha;
+        }
+        
+        return {
+            success: true,
+            message: 'Zero Velocity Update applied',
+            position: currentState.currentPosition,
+            confidence: inertialState.confidence,
+            gyroBias: { ...inertialState.gyroBias }
+        };
+    }
+    
+    /**
+     * Reset inertial navigation to a known position
+     * @param {Object} position - { lat, lon } - new starting position (optional)
+     */
+    function resetInertialNav(position = null) {
+        // Stop tracking if active
+        if (inertialState.isTracking) {
+            stopInertialTracking();
+        }
+        
+        // Reset all state
+        inertialState.startPosition = position;
+        inertialState.currentPosition = position ? { ...position } : null;
+        inertialState.relativePosition = { x: 0, y: 0 };
+        inertialState.heading = 0;
+        inertialState.headingSource = 'none';
+        inertialState.speed = 0;
+        inertialState.stepCount = 0;
+        inertialState.totalDistance = 0;
+        inertialState.gyroHeading = 0;
+        inertialState.confidence = 1.0;
+        inertialState.estimatedDrift = 0;
+        inertialState.timeSinceLastFix = 0;
+        inertialState.positionHistory = [];
+        inertialState.stepTimes = [];
+        
+        return {
+            success: true,
+            message: 'Inertial navigation reset',
+            startPosition: position
+        };
+    }
+    
+    /**
+     * Get position history for plotting
+     * @param {number} maxPoints - Maximum points to return
+     * @returns {Array} Position history
+     */
+    function getInertialTrack(maxPoints = 100) {
+        const history = inertialState.positionHistory;
+        
+        if (history.length <= maxPoints) {
+            return history;
+        }
+        
+        // Downsample
+        const step = Math.ceil(history.length / maxPoints);
+        const sampled = [];
+        for (let i = 0; i < history.length; i += step) {
+            sampled.push(history[i]);
+        }
+        
+        // Always include last point
+        if (sampled[sampled.length - 1] !== history[history.length - 1]) {
+            sampled.push(history[history.length - 1]);
+        }
+        
+        return sampled;
+    }
+    
+    /**
+     * Calculate estimated position uncertainty ellipse
+     * @returns {Object} Uncertainty ellipse parameters
+     */
+    function getPositionUncertainty() {
+        const drift = inertialState.estimatedDrift;
+        const confidence = inertialState.confidence;
+        
+        // Uncertainty grows with distance and time
+        // Semi-axes of uncertainty ellipse
+        const alongTrackError = drift * 1.2;  // Larger error along direction of travel
+        const crossTrackError = drift * 0.8;  // Smaller error perpendicular
+        
+        return {
+            center: inertialState.currentPosition,
+            semiMajor: alongTrackError,
+            semiMinor: crossTrackError,
+            orientation: inertialState.heading,  // Major axis along track
+            confidence: confidence,
+            formatted: {
+                error: `±${drift.toFixed(0)}m`,
+                confidence: `${(confidence * 100).toFixed(0)}%`
+            }
+        };
+    }
+    
+    // ==================== PHASE 8: INERTIAL NAV UI ====================
+    
+    /**
+     * Render inertial navigation status widget
+     */
+    function renderInertialStatusWidget() {
+        const state = getInertialState();
+        
+        return `
+            <div class="inertial-status-widget" style="padding:12px;background:var(--color-bg-elevated);border-radius:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                    <div style="font-size:14px;font-weight:600">📡 Inertial Navigation</div>
+                    <div style="padding:4px 8px;border-radius:4px;font-size:10px;background:${state.isTracking ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'};color:${state.isTracking ? '#22c55e' : '#ef4444'}">
+                        ${state.isTracking ? '● TRACKING' : '○ STOPPED'}
+                    </div>
+                </div>
+                
+                <!-- Sensors Status -->
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <div style="flex:1;padding:6px;background:rgba(0,0,0,0.2);border-radius:4px;text-align:center;font-size:10px">
+                        <div style="opacity:${state.sensorsAvailable.accelerometer ? 1 : 0.3}">📱 Accel</div>
+                    </div>
+                    <div style="flex:1;padding:6px;background:rgba(0,0,0,0.2);border-radius:4px;text-align:center;font-size:10px">
+                        <div style="opacity:${state.sensorsAvailable.gyroscope ? 1 : 0.3}">🔄 Gyro</div>
+                    </div>
+                    <div style="flex:1;padding:6px;background:rgba(0,0,0,0.2);border-radius:4px;text-align:center;font-size:10px">
+                        <div style="opacity:${state.sensorsAvailable.magnetometer ? 1 : 0.3}">🧭 Mag</div>
+                    </div>
+                </div>
+                
+                ${state.isTracking ? `
+                    <!-- Current Position -->
+                    <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:12px;margin-bottom:12px">
+                        <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:4px">Position</div>
+                        <div style="font-size:14px;font-weight:600">${state.formatted.position}</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:2px">
+                            Relative: ${state.formatted.relativePosition}
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Grid -->
+                    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:12px">
+                        <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:18px;font-weight:700">${state.formatted.heading.split(' ')[0]}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Heading</div>
+                        </div>
+                        <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:18px;font-weight:700">${state.formatted.speed}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Speed</div>
+                        </div>
+                        <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:18px;font-weight:700">${state.stepCount}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Steps</div>
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:8px;margin-bottom:12px">
+                        <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:16px;font-weight:600">${state.formatted.distance}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Distance</div>
+                        </div>
+                        <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:16px;font-weight:600">${state.formatted.duration}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Duration</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Confidence -->
+                    <div style="margin-bottom:12px">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px">
+                            <span style="color:rgba(255,255,255,0.5)">Confidence</span>
+                            <span>${state.formatted.confidence} (${state.formatted.drift})</span>
+                        </div>
+                        <div style="height:6px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden">
+                            <div style="height:100%;width:${state.confidence * 100}%;background:${state.confidence > 0.5 ? '#22c55e' : state.confidence > 0.25 ? '#f59e0b' : '#ef4444'};border-radius:3px;transition:width 0.3s"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Controls -->
+                    <div style="display:flex;gap:8px">
+                        <button class="inertial-zupt btn btn--secondary" style="flex:1;padding:8px;font-size:11px">
+                            ⏸️ ZUPT
+                        </button>
+                        <button class="inertial-stop btn btn--secondary" style="flex:1;padding:8px;font-size:11px;color:#ef4444">
+                            ⏹️ Stop
+                        </button>
+                    </div>
+                ` : `
+                    <!-- Not Tracking -->
+                    <div style="text-align:center;padding:20px;color:rgba(255,255,255,0.5)">
+                        <div style="font-size:24px;margin-bottom:8px">📱</div>
+                        <div style="font-size:12px;margin-bottom:16px">Start tracking to use device sensors for navigation</div>
+                        <button class="inertial-start btn btn--primary" style="padding:10px 20px">
+                            ▶️ Start Tracking
+                        </button>
+                    </div>
+                `}
+            </div>
+        `;
+    }
+    
+    /**
+     * Render step length calibration widget
+     */
+    function renderInertialCalibrationWidget() {
+        const state = getInertialState();
+        
+        return `
+            <div class="inertial-calibration-widget" style="padding:12px;background:var(--color-bg-elevated);border-radius:10px">
+                <div style="font-size:14px;font-weight:600;margin-bottom:12px">⚙️ Calibration</div>
+                
+                <!-- Current Step Length -->
+                <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:12px;margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center">
+                        <div>
+                            <div style="font-size:10px;color:rgba(255,255,255,0.5)">Step Length</div>
+                            <div style="font-size:18px;font-weight:600">${(inertialState.stepLength * 100).toFixed(0)} cm</div>
+                        </div>
+                        <div style="padding:4px 8px;border-radius:4px;font-size:10px;background:${inertialState.isCalibrated ? 'rgba(34,197,94,0.2)' : 'rgba(251,191,36,0.2)'};color:${inertialState.isCalibrated ? '#22c55e' : '#f59e0b'}">
+                            ${inertialState.isCalibrated ? '✓ Calibrated' : '⚠ Default'}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Calibration Input -->
+                <div style="margin-bottom:12px">
+                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">
+                        Walk a known distance, then enter it:
+                    </label>
+                    <div style="display:flex;gap:8px">
+                        <input type="number" id="calibration-distance" placeholder="Distance (m)" min="10" step="1"
+                               style="flex:1;padding:8px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:white">
+                        <button class="calibrate-step-btn btn btn--primary" style="padding:8px 16px">
+                            Calibrate
+                        </button>
+                    </div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px">
+                        Current steps: ${state.stepCount} | Walk at least 10 steps
+                    </div>
+                </div>
+                
+                <!-- Gyro Calibration -->
+                <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <div style="font-size:11px">Gyroscope Bias</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                            ${inertialState.calibrationData.gyroCalibrated ? '✓ Calibrated' : 'Not calibrated'}
+                        </div>
+                    </div>
+                    <button class="calibrate-gyro-btn btn btn--secondary btn--full" style="padding:8px">
+                        🔄 Calibrate Gyro (hold still for 5s)
+                    </button>
+                </div>
+                
+                <!-- Magnetic Declination -->
+                <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:12px;margin-top:12px">
+                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">
+                        Magnetic Declination (°)
+                    </label>
+                    <input type="number" id="mag-declination" value="${inertialState.calibrationData.magneticDeclination}" step="0.1"
+                           style="width:100%;padding:8px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:white">
+                    <div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px">
+                        East positive, West negative. Get from local charts or declination calculator.
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render inertial track on canvas
+     * @param {CanvasRenderingContext2D} ctx - Canvas context
+     * @param {Function} meterToPixel - Function to convert meters to pixels
+     * @param {Object} options - Rendering options
+     */
+    function renderInertialTrack(ctx, meterToPixel, options = {}) {
+        const {
+            showTrack = true,
+            showUncertainty = true,
+            trackColor = '#3b82f6',
+            uncertaintyColor = 'rgba(59,130,246,0.2)'
+        } = options;
+        
+        const track = getInertialTrack(200);
+        if (track.length < 2) return;
+        
+        // Draw uncertainty ellipse at current position
+        if (showUncertainty && track.length > 0) {
+            const lastPoint = track[track.length - 1];
+            const uncertainty = getPositionUncertainty();
+            
+            const center = meterToPixel(lastPoint.relative.x, lastPoint.relative.y);
+            const majorPx = uncertainty.semiMajor * (meterToPixel(1, 0).x - meterToPixel(0, 0).x);
+            const minorPx = uncertainty.semiMinor * (meterToPixel(1, 0).x - meterToPixel(0, 0).x);
+            
+            ctx.save();
+            ctx.translate(center.x, center.y);
+            ctx.rotate(-uncertainty.orientation * DEG_TO_RAD);
+            
+            ctx.fillStyle = uncertaintyColor;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, Math.abs(majorPx), Math.abs(minorPx), 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // Draw track
+        if (showTrack) {
+            ctx.strokeStyle = trackColor;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            for (let i = 0; i < track.length; i++) {
+                const pt = meterToPixel(track[i].relative.x, track[i].relative.y);
+                if (i === 0) {
+                    ctx.moveTo(pt.x, pt.y);
+                } else {
+                    ctx.lineTo(pt.x, pt.y);
+                }
+            }
+            ctx.stroke();
+            
+            // Draw current position marker
+            const lastPt = track[track.length - 1];
+            const pos = meterToPixel(lastPt.relative.x, lastPt.relative.y);
+            
+            // Heading indicator
+            ctx.save();
+            ctx.translate(pos.x, pos.y);
+            ctx.rotate(lastPt.heading * DEG_TO_RAD);
+            
+            ctx.fillStyle = trackColor;
+            ctx.beginPath();
+            ctx.moveTo(0, -10);
+            ctx.lineTo(6, 6);
+            ctx.lineTo(0, 3);
+            ctx.lineTo(-6, 6);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+    }
+    
+    /**
+     * Render full inertial navigation widget (combines status + calibration)
+     */
+    function renderInertialNavWidget(lat = 37, lon = -122) {
+        return `
+            <div style="display:flex;flex-direction:column;gap:12px">
+                ${renderInertialStatusWidget()}
+                ${renderInertialCalibrationWidget()}
+            </div>
+        `;
+    }
     
     let initialized = false;
     
@@ -6078,6 +7162,27 @@ const CelestialModule = (function() {
         renderHorizonDistanceWidget,
         renderHandLatitudeResult,
         renderHorizonDistanceResult,
+        
+        // Phase 8: Inertial Navigation / PDR
+        checkSensorAvailability,
+        requestSensorPermission,
+        initInertialNav,
+        startInertialTracking,
+        stopInertialTracking,
+        getInertialState,
+        calibrateStepLength,
+        calibrateGyroBias,
+        updateInertialFix,
+        performZUPT,
+        resetInertialNav,
+        getInertialTrack,
+        getPositionUncertainty,
+        
+        // Phase 8: Rendering
+        renderInertialStatusWidget,
+        renderInertialCalibrationWidget,
+        renderInertialTrack,
+        renderInertialNavWidget,
         
         // Constants
         NAVIGATION_STARS,

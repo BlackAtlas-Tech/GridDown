@@ -4,6 +4,24 @@
  * 
  * APRS provides long-range position tracking over VHF radio (144.390 MHz NA)
  * Complements Meshtastic for extended coverage scenarios
+ * 
+ * ============================================================================
+ * APRS ATTRIBUTION
+ * ============================================================================
+ * APRS® is a registered trademark of APRS Software and Bob Bruninga, WB4APR.
+ * Automatic Packet Reporting System (APRS) Copyright © Bob Bruninga, WB4APR (SK)
+ * Contact: wb4apr@amsat.org
+ * 
+ * Bob Bruninga, WB4APR, the inventor of APRS, became a Silent Key on 
+ * February 7, 2022. His contributions to amateur radio are gratefully 
+ * acknowledged.
+ * 
+ * APRS Protocol: http://www.aprs.org/
+ * TAPR (Tucson Amateur Packet Radio): https://tapr.org/
+ * 
+ * Users of this module must hold a valid amateur radio license and comply
+ * with all applicable regulations when transmitting APRS packets.
+ * ============================================================================
  */
 const APRSModule = (function() {
     'use strict';

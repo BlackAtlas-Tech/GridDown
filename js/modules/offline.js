@@ -16,47 +16,29 @@ const OfflineModule = (function() {
     const PERIODIC_SYNC_TAG = 'griddown-periodic-sync';
     
     // Tile server URLs (matching map.js)
+    // NOTE: Esri basemaps removed for commercial licensing compliance
     const TILE_SERVERS = {
-        // General
+        // General (global coverage)
         standard: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
         terrain: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
-        satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        // USGS
+        // USGS (US coverage only - public domain)
         usgs_topo: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
         usgs_imagery: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
         usgs_imagery_topo: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
         usgs_hydro: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroCached/MapServer/tile/{z}/{y}/{x}',
-        // USFS
-        usfs_topo: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_FSTopo_01/MapServer/tile/{z}/{y}/{x}',
-        usfs_roads: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_RoadBasic_01/MapServer/tile/{z}/{y}/{x}',
-        usfs_trails: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_TrailNFSPublish_01/MapServer/tile/{z}/{y}/{x}',
-        usfs_recreation: 'https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_RecreationOpportunities_01/MapServer/tile/{z}/{y}/{x}',
-        // BLM
-        blm_surface: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_with_PriUnk/MapServer/tile/{z}/{y}/{x}',
-        // Note: blm_grazing removed - requires dynamic ArcGIS export API (no tile cache)
-        // Overlays
-        labels: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-        hillshade: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
-        transportation: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}'
+        // BLM (US coverage only - public domain)
+        blm_surface: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_with_PriUnk/MapServer/tile/{z}/{y}/{x}'
     };
     
     // Layer metadata for UI
     const LAYER_INFO = {
         standard: { name: 'OpenStreetMap', size: 15, category: 'general' },
         terrain: { name: 'OpenTopoMap', size: 25, category: 'general' },
-        satellite: { name: 'Satellite', size: 40, category: 'general' },
         usgs_topo: { name: 'USGS Topo', size: 30, category: 'usgs' },
         usgs_imagery: { name: 'USGS Imagery', size: 45, category: 'usgs' },
         usgs_imagery_topo: { name: 'USGS Imagery+Topo', size: 50, category: 'usgs' },
         usgs_hydro: { name: 'USGS Hydro', size: 10, category: 'usgs' },
-        usfs_topo: { name: 'USFS Topo', size: 30, category: 'usfs' },
-        usfs_roads: { name: 'USFS Roads', size: 8, category: 'usfs' },
-        usfs_trails: { name: 'USFS Trails', size: 8, category: 'usfs' },
-        usfs_recreation: { name: 'USFS Recreation', size: 5, category: 'usfs' },
-        blm_surface: { name: 'BLM Surface Mgmt', size: 15, category: 'blm' },
-        labels: { name: 'Labels', size: 5, category: 'overlay' },
-        hillshade: { name: 'Hillshade', size: 20, category: 'overlay' },
-        transportation: { name: 'Roads', size: 8, category: 'overlay' }
+        blm_surface: { name: 'BLM Surface Mgmt', size: 15, category: 'blm' }
     };
 
     // State

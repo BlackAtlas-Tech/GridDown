@@ -18,7 +18,8 @@ const MapModule = (function() {
         isDragging: false,
         dragStart: null,
         lastMousePos: null,
-        bearing: 0           // Map rotation in degrees (0 = north up)
+        bearing: 0,           // Map rotation in degrees (0 = north up)
+        interactionMode: null // Special interaction modes: 'resection-landmark', etc.
     };
     
     // Multi-touch gesture state for pinch/rotation
@@ -74,17 +75,8 @@ const MapModule = (function() {
             name: 'OpenTopoMap',
             description: 'Topographic with contours'
         },
-        satellite: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri, Maxar, Earthstar Geographics',
-            maxZoom: 19,
-            type: 'base',
-            category: 'general',
-            name: 'Satellite',
-            description: 'Aerial/satellite imagery'
-        },
         
-        // ===== USGS LAYERS =====
+        // ===== USGS LAYERS (US Government - Public Domain) =====
         usgs_topo: {
             url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}',
             attribution: '© USGS The National Map',
@@ -92,7 +84,7 @@ const MapModule = (function() {
             type: 'base',
             category: 'usgs',
             name: 'USGS Topo',
-            description: 'Official USGS topographic maps'
+            description: 'Official USGS topographic maps (US only)'
         },
         usgs_imagery: {
             url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
@@ -101,7 +93,7 @@ const MapModule = (function() {
             type: 'base',
             category: 'usgs',
             name: 'USGS Imagery',
-            description: 'USGS orthoimagery'
+            description: 'USGS orthoimagery (US only)'
         },
         usgs_imagery_topo: {
             url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}',
@@ -110,7 +102,7 @@ const MapModule = (function() {
             type: 'base',
             category: 'usgs',
             name: 'USGS Imagery + Topo',
-            description: 'Aerial imagery with topo overlay'
+            description: 'Aerial imagery with topo overlay (US only)'
         },
         usgs_hydro: {
             url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSHydroCached/MapServer/tile/{z}/{y}/{x}',
@@ -119,41 +111,10 @@ const MapModule = (function() {
             type: 'overlay',
             category: 'usgs',
             name: 'USGS Hydro',
-            description: 'Hydrography (water features)'
+            description: 'Hydrography - water features (US only)'
         },
         
-        // ===== USFS / TOPO LAYERS =====
-        // Note: Direct USFS tile servers have CORS restrictions, using Esri alternatives
-        usfs_topo: {
-            url: 'https://services.arcgisonline.com/ArcGIS/rest/services/USA_Topo_Maps/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri, USGS, NOAA',
-            maxZoom: 15,
-            type: 'base',
-            category: 'usfs',
-            name: 'USA Topo',
-            description: 'USGS quads with Forest Service data'
-        },
-        // NOTE: world_topo is deprecated by Esri - tiles no longer maintained
-        // world_topo: {
-        //     url: 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-        //     attribution: '© Esri, HERE, Garmin, USGS, NGA',
-        //     maxZoom: 19,
-        //     type: 'base',
-        //     category: 'usfs',
-        //     name: 'World Topo',
-        //     description: 'Detailed worldwide topographic'
-        // },
-        natgeo: {
-            url: 'https://services.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© National Geographic, Esri',
-            maxZoom: 16,
-            type: 'base',
-            category: 'usfs',
-            name: 'Nat Geo',
-            description: 'National Geographic style map'
-        },
-        
-        // ===== BLM LAYERS =====
+        // ===== BLM LAYERS (US Government - Public Domain) =====
         blm_surface: {
             url: 'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_with_PriUnk/MapServer/tile/{z}/{y}/{x}',
             attribution: '© Bureau of Land Management',
@@ -161,48 +122,12 @@ const MapModule = (function() {
             type: 'overlay',
             category: 'blm',
             name: 'BLM Surface Mgmt',
-            description: 'Land ownership & management'
-        },
-        // NOTE: BLM Grazing Allotments is a dynamic service (not cached tiles)
-        // It requires ArcGIS export API which isn't currently supported
-        // blm_grazing: {
-        //     url: 'https://gis.blm.gov/arcgis/rest/services/range/BLM_Natl_Grazing_Allotment/MapServer/export',
-        //     attribution: '© Bureau of Land Management',
-        //     maxZoom: 14,
-        //     type: 'overlay',
-        //     category: 'blm',
-        //     name: 'BLM Grazing',
-        //     description: 'Grazing allotments'
-        // },
-        
-        // ===== OVERLAY LAYERS =====
-        labels: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri',
-            maxZoom: 19,
-            type: 'overlay',
-            category: 'overlay',
-            name: 'Labels',
-            description: 'Place names and boundaries'
-        },
-        hillshade: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri',
-            maxZoom: 16,
-            type: 'overlay',
-            category: 'overlay',
-            name: 'Hillshade',
-            description: 'Terrain shading'
-        },
-        transportation: {
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
-            attribution: '© Esri',
-            maxZoom: 19,
-            type: 'overlay',
-            category: 'overlay',
-            name: 'Roads',
-            description: 'Major roads overlay'
+            description: 'Land ownership & management (US only)'
         }
+        
+        // NOTE: Esri basemaps (satellite, hillshade, labels, transportation, natgeo, usfs_topo)
+        // have been removed as they require commercial licensing for paid distribution.
+        // USGS Imagery can be used as a satellite alternative for US coverage.
     };
     
     // Current active layers
@@ -903,7 +828,8 @@ const MapModule = (function() {
         if (layers.baseLayer && TILE_SERVERS[layers.baseLayer]) {
             activeLayers.base = layers.baseLayer;
         } else if (layers.satellite) {
-            activeLayers.base = 'satellite';
+            // Legacy fallback: satellite was removed, use USGS imagery instead
+            activeLayers.base = 'usgs_imagery';
         } else if (layers.terrain) {
             activeLayers.base = 'terrain';
         } else {
@@ -2421,7 +2347,7 @@ const MapModule = (function() {
         
         // Update legacy flags for backwards compatibility
         layers.terrain = layerKey === 'terrain';
-        layers.satellite = layerKey === 'satellite';
+        // NOTE: satellite layer removed for commercial licensing compliance
         
         // Update internal active layers
         activeLayers.base = layerKey;
@@ -2615,6 +2541,36 @@ const MapModule = (function() {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
         const clickCoords = pixelToLatLon(x, y);
+        
+        // Check for resection-landmark mode
+        if (mapState.interactionMode === 'resection-landmark') {
+            if (typeof RangefinderModule !== 'undefined') {
+                // Prompt for landmark name
+                const name = prompt('Enter landmark name (or leave blank):');
+                RangefinderModule.addFromMapTap(clickCoords.lat, clickCoords.lon, name || null);
+                
+                // Reset mode
+                mapState.interactionMode = null;
+                
+                // Refresh UI
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Landmark added', 'success', 2000);
+                }
+                
+                // Reopen navigation panel
+                if (typeof State !== 'undefined') {
+                    State.set('activePanel', 'navigation');
+                    const sidebar = document.getElementById('sidebar');
+                    if (sidebar) sidebar.classList.add('open');
+                    if (typeof PanelsModule !== 'undefined') {
+                        PanelsModule.render();
+                    }
+                }
+                
+                render();
+                return;
+            }
+        }
         
         // Check if MeasureModule is active and handle the click there first
         if (typeof MeasureModule !== 'undefined' && MeasureModule.isActive()) {
@@ -3316,10 +3272,9 @@ const MapModule = (function() {
         const layerInfo = {
             standard: { icon: 'map', label: 'OSM' },
             terrain: { icon: 'terrain', label: 'Topo' },
-            satellite: { icon: 'satellite', label: 'Sat' },
             usgs_topo: { icon: 'terrain', label: 'USGS' },
-            usgs_imagery: { icon: 'satellite', label: 'USGS' },
-            usfs_topo: { icon: 'terrain', label: 'USFS' }
+            usgs_imagery: { icon: 'satellite', label: 'USGS Sat' },
+            usgs_imagery_topo: { icon: 'layers', label: 'USGS Hyb' }
         };
         
         const info = layerInfo[currentBase] || layerInfo.standard;
@@ -3459,13 +3414,13 @@ const MapModule = (function() {
         };
         
         // Layer switcher - cycles through base layers on click
-        const baseLayers = ['standard', 'terrain', 'satellite', 'usgs_topo', 'usfs_topo'];
+        // NOTE: Esri layers removed for commercial licensing compliance
+        const baseLayers = ['standard', 'terrain', 'usgs_topo', 'usgs_imagery'];
         const layerNames = {
             standard: 'OpenStreetMap',
             terrain: 'OpenTopoMap',
-            satellite: 'Satellite',
             usgs_topo: 'USGS Topo',
-            usfs_topo: 'USA Topo'
+            usgs_imagery: 'USGS Imagery'
         };
         
         const layerBtn = container.querySelector('#layer-btn');
@@ -3644,6 +3599,10 @@ const MapModule = (function() {
         
         // Request a render (for external modules)
         requestRender: render,
+        
+        // Interaction mode for special click handling
+        setInteractionMode: (mode) => { mapState.interactionMode = mode; },
+        getInteractionMode: () => mapState.interactionMode,
         
         // Custom tile layers (for satellite weather, etc.)
         addCustomTileLayer,

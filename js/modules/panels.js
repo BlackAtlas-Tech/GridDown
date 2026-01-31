@@ -471,6 +471,8 @@ const PanelsModule = (function() {
         const activeOverlays = layers.overlays || [];
         
         // Layer categories with metadata
+        // NOTE: Esri basemaps removed for commercial licensing compliance
+        // Only using OpenStreetMap (ODbL) and US Government public domain sources
         const layerCategories = {
             general: {
                 name: 'General Maps',
@@ -478,8 +480,7 @@ const PanelsModule = (function() {
                 collapsed: false,
                 baseLayers: [
                     { key: 'standard', name: 'OpenStreetMap', desc: 'Street map with roads & places', icon: 'map' },
-                    { key: 'terrain', name: 'OpenTopoMap', desc: 'Topographic with contour lines', icon: 'terrain' },
-                    { key: 'satellite', name: 'Satellite', desc: 'Aerial imagery (Esri)', icon: 'satellite' }
+                    { key: 'terrain', name: 'OpenTopoMap', desc: 'Topographic with contour lines', icon: 'terrain' }
                 ]
             },
             usgs: {
@@ -487,23 +488,13 @@ const PanelsModule = (function() {
                 icon: '🏔️',
                 collapsed: true,
                 baseLayers: [
-                    { key: 'usgs_topo', name: 'USGS Topo', desc: 'Official USGS topographic maps', icon: 'terrain' },
-                    { key: 'usgs_imagery', name: 'USGS Imagery', desc: 'USGS orthoimagery', icon: 'satellite' },
-                    { key: 'usgs_imagery_topo', name: 'USGS Imagery + Topo', desc: 'Aerial with topo overlay', icon: 'layers' }
+                    { key: 'usgs_topo', name: 'USGS Topo', desc: 'Official USGS topographic maps (US)', icon: 'terrain' },
+                    { key: 'usgs_imagery', name: 'USGS Imagery', desc: 'Satellite/aerial imagery (US)', icon: 'satellite' },
+                    { key: 'usgs_imagery_topo', name: 'USGS Imagery + Topo', desc: 'Aerial with topo overlay (US)', icon: 'layers' }
                 ],
                 overlays: [
-                    { key: 'usgs_hydro', name: 'Hydrography', desc: 'Rivers, streams, lakes', icon: 'water' }
+                    { key: 'usgs_hydro', name: 'Hydrography', desc: 'Rivers, streams, lakes (US)', icon: 'water' }
                 ]
-            },
-            usfs: {
-                name: 'Esri Topo Maps',
-                icon: '🌲',
-                collapsed: true,
-                baseLayers: [
-                    { key: 'usfs_topo', name: 'USA Topo', desc: 'Scanned USGS quad maps', icon: 'terrain' },
-                    { key: 'natgeo', name: 'Nat Geo', desc: 'National Geographic style (legacy)', icon: 'map' }
-                ],
-                overlays: []
             },
             blm: {
                 name: 'BLM (Bureau of Land Mgmt)',
@@ -511,8 +502,7 @@ const PanelsModule = (function() {
                 collapsed: true,
                 baseLayers: [],
                 overlays: [
-                    { key: 'blm_surface', name: 'Surface Management', desc: 'Federal land ownership', icon: 'layers' }
-                    // Note: Grazing Allotments removed - requires dynamic ArcGIS export API
+                    { key: 'blm_surface', name: 'Surface Management', desc: 'Federal land ownership (US)', icon: 'layers' }
                 ]
             },
             overlays: {
@@ -521,9 +511,6 @@ const PanelsModule = (function() {
                 collapsed: false,
                 baseLayers: [],
                 overlays: [
-                    { key: 'hillshade', name: 'Hillshade', desc: 'Terrain shading effect', icon: 'terrain' },
-                    { key: 'labels', name: 'Labels', desc: 'Place names & boundaries', icon: 'map' },
-                    { key: 'transportation', name: 'Roads Overlay', desc: 'Major roads on satellite', icon: 'route' },
                     { key: 'grid', name: 'Grid', desc: 'Reference grid overlay', icon: 'layers' }
                 ]
             }
@@ -2208,16 +2195,12 @@ const PanelsModule = (function() {
                                         <input type="checkbox" id="layer-terrain" style="width:auto">
                                         <span>OpenTopoMap ~25KB/tile</span>
                                     </label>
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-satellite" style="width:auto">
-                                        <span>Satellite (Esri) ~40KB/tile</span>
-                                    </label>
                                 </div>
                             </div>
                             
                             <!-- USGS -->
                             <div style="margin-bottom:12px">
-                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">🏔️ USGS</div>
+                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">🏔️ USGS (US only)</div>
                                 <div style="display:flex;flex-direction:column;gap:6px;padding-left:8px">
                                     <label class="checkbox-field" style="margin:0;padding:8px 12px">
                                         <input type="checkbox" id="layer-usgs_topo" style="width:auto">
@@ -2234,43 +2217,13 @@ const PanelsModule = (function() {
                                 </div>
                             </div>
                             
-                            <!-- USFS / Topo -->
-                            <div style="margin-bottom:12px">
-                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">🌲 USFS / Topo Maps</div>
-                                <div style="display:flex;flex-direction:column;gap:6px;padding-left:8px">
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-usfs_topo" style="width:auto">
-                                        <span>USA Topo ~40KB/tile</span>
-                                    </label>
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-natgeo" style="width:auto">
-                                        <span>Nat Geo ~40KB/tile (legacy)</span>
-                                    </label>
-                                </div>
-                            </div>
-                            
                             <!-- BLM -->
                             <div style="margin-bottom:12px">
-                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">🏜️ BLM</div>
+                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">🏜️ BLM (US only)</div>
                                 <div style="display:flex;flex-direction:column;gap:6px;padding-left:8px">
                                     <label class="checkbox-field" style="margin:0;padding:8px 12px">
                                         <input type="checkbox" id="layer-blm_surface" style="width:auto">
                                         <span>Land Ownership ~15KB/tile</span>
-                                    </label>
-                                </div>
-                            </div>
-                            
-                            <!-- Overlays -->
-                            <div>
-                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">📍 OVERLAYS</div>
-                                <div style="display:flex;flex-direction:column;gap:6px;padding-left:8px">
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-hillshade" style="width:auto">
-                                        <span>Hillshade ~20KB/tile</span>
-                                    </label>
-                                    <label class="checkbox-field" style="margin:0;padding:8px 12px">
-                                        <input type="checkbox" id="layer-labels" style="width:auto">
-                                        <span>Labels ~5KB/tile</span>
                                     </label>
                                 </div>
                             </div>
@@ -9206,6 +9159,7 @@ ${text}
             { id: 'fix', icon: '📍', label: 'Fix' },
             { id: 'tools', icon: '🧭', label: 'Tools' },
             { id: 'dr', icon: '📐', label: 'DR' },
+            { id: 'inertial', icon: '📱', label: 'IMU' },
             { id: 'training', icon: '🎓', label: 'Training' }
         ];
         
@@ -9276,6 +9230,8 @@ ${text}
                 return renderCelestialTools(lat, lon, date);
             case 'dr':
                 return renderCelestialDR(lat, lon, date);
+            case 'inertial':
+                return renderCelestialInertial(lat, lon, date);
             case 'training':
                 return renderCelestialTraining(lat, lon, date);
             default:
@@ -9359,9 +9315,16 @@ ${text}
         const sightLog = CelestialModule.getSightLog();
         const currentObs = CelestialModule.getCurrentObservation();
         
+        // Get camera sextant widget if module is available
+        const cameraSextantWidget = (typeof CameraSextantModule !== 'undefined') 
+            ? CameraSextantModule.renderWidget() 
+            : '';
+        
         return `
+            ${cameraSextantWidget}
+            
             <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
-                <div style="font-size:14px;font-weight:600;margin-bottom:12px">🔭 Take Observation</div>
+                <div style="font-size:14px;font-weight:600;margin-bottom:12px">📝 Manual Observation</div>
                 
                 ${currentObs ? `
                     <div style="padding:12px;background:rgba(59,130,246,0.1);border-radius:8px;margin-bottom:12px">
@@ -9555,7 +9518,19 @@ ${text}
      * Render Tools tab
      */
     function renderCelestialTools(lat, lon, date) {
+        // Get Star ID widget if module is available
+        const starIdWidget = (typeof StarIDModule !== 'undefined') 
+            ? StarIDModule.renderWidget() 
+            : '';
+        
+        // Get Star ID recommendations if module is available
+        const starIdRecs = (typeof StarIDModule !== 'undefined') 
+            ? StarIDModule.renderRecommendations() 
+            : '';
+        
         return `
+            ${starIdWidget}
+            
             <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
                 ${CelestialModule.renderSunCompassWidget(lat, lon, date)}
             </div>
@@ -9759,6 +9734,218 @@ ${text}
                 </div>
                 <div style="font-size:10px;color:rgba(255,255,255,0.5);text-align:center">
                     Formula: 1.17 × √(height in feet) = nautical miles
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render Inertial Navigation tab (Phase 8)
+     */
+    function renderCelestialInertial(lat, lon, date) {
+        const state = CelestialModule.getInertialState();
+        const sensors = CelestialModule.checkSensorAvailability();
+        
+        return `
+            <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                    <div style="font-size:16px;font-weight:700">📱 Inertial Navigation</div>
+                    <div style="padding:4px 8px;border-radius:4px;font-size:10px;background:${state.isTracking ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'};color:${state.isTracking ? '#22c55e' : '#ef4444'}">
+                        ${state.isTracking ? '● TRACKING' : '○ STOPPED'}
+                    </div>
+                </div>
+                <p style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:12px">
+                    GPS-denied navigation using device sensors (accelerometer, gyroscope, magnetometer)
+                </p>
+                
+                <!-- Sensor Status -->
+                <div style="display:flex;gap:8px;margin-bottom:12px">
+                    <div style="flex:1;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px;text-align:center">
+                        <div style="font-size:16px;opacity:${sensors.accelerometer ? 1 : 0.3}">📱</div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.6)">Accelerometer</div>
+                        <div style="font-size:8px;color:${sensors.accelerometer ? '#22c55e' : '#ef4444'}">${sensors.accelerometer ? 'Available' : 'N/A'}</div>
+                    </div>
+                    <div style="flex:1;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px;text-align:center">
+                        <div style="font-size:16px;opacity:${sensors.gyroscope ? 1 : 0.3}">🔄</div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.6)">Gyroscope</div>
+                        <div style="font-size:8px;color:${sensors.gyroscope || state.sensorsAvailable.gyroscope ? '#22c55e' : '#f59e0b'}">${sensors.gyroscope || state.sensorsAvailable.gyroscope ? 'Available' : 'Check'}</div>
+                    </div>
+                    <div style="flex:1;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px;text-align:center">
+                        <div style="font-size:16px;opacity:${sensors.magnetometer ? 1 : 0.3}">🧭</div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.6)">Magnetometer</div>
+                        <div style="font-size:8px;color:${sensors.magnetometer ? '#22c55e' : '#f59e0b'}">${sensors.magnetometer ? 'Available' : 'Check'}</div>
+                    </div>
+                </div>
+            </div>
+            
+            ${state.isTracking ? `
+                <!-- Current Status -->
+                <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
+                    <div style="font-size:14px;font-weight:600;margin-bottom:12px">📍 Current Position</div>
+                    
+                    <div style="background:rgba(0,0,0,0.3);border-radius:8px;padding:12px;margin-bottom:12px">
+                        <div style="font-size:12px;font-weight:600;text-align:center;margin-bottom:4px">
+                            ${state.formatted.position}
+                        </div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.5);text-align:center">
+                            Relative: ${state.formatted.relativePosition}
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:12px">
+                        <div style="text-align:center;padding:10px;background:rgba(59,130,246,0.1);border-radius:6px">
+                            <div style="font-size:20px;font-weight:700;color:#3b82f6">${state.heading.toFixed(0)}°</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Heading</div>
+                            <div style="font-size:8px;color:rgba(255,255,255,0.4)">${state.headingSource}</div>
+                        </div>
+                        <div style="text-align:center;padding:10px;background:rgba(34,197,94,0.1);border-radius:6px">
+                            <div style="font-size:20px;font-weight:700;color:#22c55e">${state.formatted.speed}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Speed</div>
+                        </div>
+                        <div style="text-align:center;padding:10px;background:rgba(251,191,36,0.1);border-radius:6px">
+                            <div style="font-size:20px;font-weight:700;color:#fbbf24">${state.stepCount}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Steps</div>
+                        </div>
+                    </div>
+                    
+                    <div style="display:grid;grid-template-columns:repeat(2, 1fr);gap:8px;margin-bottom:12px">
+                        <div style="text-align:center;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:16px;font-weight:600">${state.formatted.distance}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Total Distance</div>
+                        </div>
+                        <div style="text-align:center;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px">
+                            <div style="font-size:16px;font-weight:600">${state.formatted.duration}</div>
+                            <div style="font-size:9px;color:rgba(255,255,255,0.5)">Duration</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Confidence Bar -->
+                    <div style="margin-bottom:12px">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:4px">
+                            <span style="color:rgba(255,255,255,0.5)">Position Confidence</span>
+                            <span>${state.formatted.confidence} (${state.formatted.drift})</span>
+                        </div>
+                        <div style="height:8px;background:rgba(0,0,0,0.3);border-radius:4px;overflow:hidden">
+                            <div style="height:100%;width:${state.confidence * 100}%;background:${state.confidence > 0.5 ? '#22c55e' : state.confidence > 0.25 ? '#f59e0b' : '#ef4444'};border-radius:4px;transition:width 0.3s"></div>
+                        </div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px;text-align:center">
+                            Confidence degrades with distance traveled. Update with a known fix to reset.
+                        </div>
+                    </div>
+                    
+                    <!-- Controls -->
+                    <div style="display:flex;gap:8px">
+                        <button id="inertial-zupt" class="btn btn--secondary" style="flex:1;padding:10px;font-size:11px">
+                            ⏸️ ZUPT (Stopped)
+                        </button>
+                        <button id="inertial-stop" class="btn btn--secondary" style="flex:1;padding:10px;font-size:11px;color:#ef4444;border-color:#ef4444">
+                            ⏹️ Stop Tracking
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Update Fix -->
+                <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
+                    <div style="font-size:14px;font-weight:600;margin-bottom:8px">🎯 Update with Known Fix</div>
+                    <p style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:12px">
+                        Apply a known position (from GPS, celestial fix, or landmark) to reset drift
+                    </p>
+                    <button id="inertial-update-from-map" class="btn btn--primary btn--full" style="padding:10px">
+                        📍 Use Current Map Position
+                    </button>
+                </div>
+            ` : `
+                <!-- Not Tracking -->
+                <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
+                    <div style="font-size:14px;font-weight:600;margin-bottom:12px">▶️ Start Tracking</div>
+                    
+                    <p style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:12px">
+                        Initialize inertial navigation to track your position using device motion sensors.
+                        Works without GPS in tunnels, buildings, and during signal jamming.
+                    </p>
+                    
+                    <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:12px;margin-bottom:12px">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:8px">Starting Position</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                            <div>
+                                <label style="font-size:9px;color:rgba(255,255,255,0.4)">Latitude</label>
+                                <input type="number" id="inertial-start-lat" value="${lat.toFixed(5)}" step="0.00001"
+                                       style="width:100%;padding:6px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:white;font-size:11px">
+                            </div>
+                            <div>
+                                <label style="font-size:9px;color:rgba(255,255,255,0.4)">Longitude</label>
+                                <input type="number" id="inertial-start-lon" value="${lon.toFixed(5)}" step="0.00001"
+                                       style="width:100%;padding:6px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:white;font-size:11px">
+                            </div>
+                        </div>
+                        <button id="inertial-sync-start" class="btn btn--secondary btn--full" style="margin-top:8px;padding:6px;font-size:10px">
+                            📍 Sync from Map
+                        </button>
+                    </div>
+                    
+                    <button id="inertial-start" class="btn btn--primary btn--full" style="padding:12px;font-size:14px">
+                        ▶️ Start Inertial Tracking
+                    </button>
+                </div>
+            `}
+            
+            <!-- Calibration -->
+            <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px;margin-bottom:12px">
+                <div style="font-size:14px;font-weight:600;margin-bottom:12px">⚙️ Calibration</div>
+                
+                <!-- Step Length -->
+                <div style="margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <div>
+                            <div style="font-size:11px;font-weight:600">Step Length</div>
+                            <div style="font-size:10px;color:rgba(255,255,255,0.5)">Current: ${(state.stepLength * 100).toFixed(0)} cm</div>
+                        </div>
+                        <div style="padding:4px 8px;border-radius:4px;font-size:9px;background:${state.isCalibrated !== false ? 'rgba(34,197,94,0.2)' : 'rgba(251,191,36,0.2)'};color:${state.isCalibrated !== false ? '#22c55e' : '#f59e0b'}">
+                            ${state.isCalibrated !== false ? '✓ Calibrated' : 'Default'}
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px">
+                        <input type="number" id="calibration-distance" placeholder="Known distance (m)" min="5" step="1"
+                               style="flex:1;padding:8px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:white;font-size:11px">
+                        <button id="calibrate-step-btn" class="btn btn--secondary" style="padding:8px 12px;font-size:11px">
+                            Calibrate
+                        </button>
+                    </div>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.4);margin-top:4px">
+                        Walk a known distance, then enter it. Need ${state.stepCount < 10 ? (10 - state.stepCount) + ' more' : '✓'} steps.
+                    </div>
+                </div>
+                
+                <!-- Gyro Calibration -->
+                <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                        <div style="font-size:11px;font-weight:600">Gyroscope Bias</div>
+                        <div style="font-size:9px;color:rgba(255,255,255,0.5)">
+                            ${state.sensorsAvailable?.gyroscope ? (state.calibrationData?.gyroCalibrated ? '✓ Calibrated' : 'Not calibrated') : 'N/A'}
+                        </div>
+                    </div>
+                    <button id="calibrate-gyro-btn" class="btn btn--secondary btn--full" style="padding:8px;font-size:11px" ${!state.sensorsAvailable?.gyroscope ? 'disabled' : ''}>
+                        🔄 Calibrate Gyro (hold device still for 5s)
+                    </button>
+                </div>
+            </div>
+            
+            <!-- How It Works -->
+            <div style="background:var(--color-bg-elevated);border-radius:10px;padding:12px">
+                <div style="font-size:14px;font-weight:600;margin-bottom:8px">ℹ️ How It Works</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.6);line-height:1.5">
+                    <p style="margin-bottom:8px">
+                        <strong>Pedestrian Dead Reckoning (PDR)</strong> tracks your position by detecting footsteps and measuring heading changes.
+                    </p>
+                    <ul style="margin:0;padding-left:16px">
+                        <li style="margin-bottom:4px"><strong>Accelerometer:</strong> Detects footsteps</li>
+                        <li style="margin-bottom:4px"><strong>Gyroscope:</strong> Tracks heading changes (magnetic-free)</li>
+                        <li style="margin-bottom:4px"><strong>Magnetometer:</strong> Provides absolute heading reference</li>
+                        <li style="margin-bottom:4px"><strong>ZUPT:</strong> Zero Velocity Update when stopped reduces drift</li>
+                    </ul>
+                    <p style="margin-top:8px;color:rgba(255,255,255,0.4)">
+                        Accuracy: ~2-5% of distance traveled. Update with known fixes to reset drift.
+                    </p>
                 </div>
             </div>
         `;
@@ -10029,6 +10216,542 @@ ${text}
                       finder.instructions.slice(0, 4).join('\n'));
             };
         }
+        
+        // ===== Inertial Navigation Events =====
+        
+        // Start inertial tracking
+        const inertialStartBtn = container.querySelector('#inertial-start');
+        if (inertialStartBtn) {
+            inertialStartBtn.onclick = async () => {
+                const startLat = parseFloat(container.querySelector('#inertial-start-lat')?.value) || celestialState.observerLat || 37;
+                const startLon = parseFloat(container.querySelector('#inertial-start-lon')?.value) || celestialState.observerLon || -122;
+                
+                const initResult = await CelestialModule.initInertialNav({
+                    startPosition: { lat: startLat, lon: startLon },
+                    magneticDeclination: celestialState.magneticDeclination || 0
+                });
+                
+                if (!initResult.success) {
+                    alert('Failed to initialize inertial nav: ' + initResult.error);
+                    return;
+                }
+                
+                const startResult = CelestialModule.startInertialTracking();
+                if (startResult.success) {
+                    renderCelestial();
+                } else {
+                    alert('Failed to start tracking: ' + startResult.error);
+                }
+            };
+        }
+        
+        // Sync start position from map
+        const inertialSyncStartBtn = container.querySelector('#inertial-sync-start');
+        if (inertialSyncStartBtn) {
+            inertialSyncStartBtn.onclick = () => {
+                if (typeof MapModule !== 'undefined') {
+                    const mapState = MapModule.getMapState();
+                    if (mapState && mapState.lat !== undefined) {
+                        const latInput = container.querySelector('#inertial-start-lat');
+                        const lonInput = container.querySelector('#inertial-start-lon');
+                        if (latInput) latInput.value = mapState.lat.toFixed(5);
+                        if (lonInput) lonInput.value = mapState.lon.toFixed(5);
+                    }
+                }
+            };
+        }
+        
+        // Stop inertial tracking
+        const inertialStopBtn = container.querySelector('#inertial-stop');
+        if (inertialStopBtn) {
+            inertialStopBtn.onclick = () => {
+                const result = CelestialModule.stopInertialTracking();
+                if (result.success) {
+                    alert(`Tracking stopped.\n\n` +
+                          `Steps: ${result.summary.stepCount}\n` +
+                          `Distance: ${result.summary.totalDistance.toFixed(0)} m\n` +
+                          `Duration: ${(result.summary.duration / 60).toFixed(1)} min`);
+                }
+                renderCelestial();
+            };
+        }
+        
+        // ZUPT (Zero Velocity Update)
+        const zuptBtn = container.querySelector('#inertial-zupt');
+        if (zuptBtn) {
+            zuptBtn.onclick = () => {
+                const result = CelestialModule.performZUPT();
+                if (result.success) {
+                    renderCelestial();
+                }
+            };
+        }
+        
+        // Update from map position
+        const updateFromMapBtn = container.querySelector('#inertial-update-from-map');
+        if (updateFromMapBtn) {
+            updateFromMapBtn.onclick = () => {
+                if (typeof MapModule !== 'undefined') {
+                    const mapState = MapModule.getMapState();
+                    if (mapState && mapState.lat !== undefined) {
+                        const result = CelestialModule.updateInertialFix(
+                            { lat: mapState.lat, lon: mapState.lon },
+                            'map'
+                        );
+                        if (result.success) {
+                            alert(`Position updated!\n\nError from DR: ${result.formatted.error}`);
+                            renderCelestial();
+                        }
+                    }
+                }
+            };
+        }
+        
+        // Calibrate step length
+        const calibrateStepBtn = container.querySelector('#calibrate-step-btn');
+        if (calibrateStepBtn) {
+            calibrateStepBtn.onclick = () => {
+                const distance = parseFloat(container.querySelector('#calibration-distance')?.value);
+                
+                if (isNaN(distance) || distance < 5) {
+                    alert('Please enter a distance of at least 5 meters');
+                    return;
+                }
+                
+                const result = CelestialModule.calibrateStepLength(distance);
+                
+                if (result.success) {
+                    alert(`Step length calibrated!\n\nNew step length: ${result.formatted.stepLength}`);
+                    renderCelestial();
+                } else {
+                    alert('Calibration failed: ' + result.error);
+                }
+            };
+        }
+        
+        // Calibrate gyroscope
+        const calibrateGyroBtn = container.querySelector('#calibrate-gyro-btn');
+        if (calibrateGyroBtn) {
+            calibrateGyroBtn.onclick = async () => {
+                calibrateGyroBtn.disabled = true;
+                calibrateGyroBtn.textContent = '🔄 Calibrating... Hold still!';
+                
+                const result = await CelestialModule.calibrateGyroBias(5);
+                
+                if (result.success) {
+                    alert(`Gyroscope calibrated!\n\nBias: ${result.formatted.bias}`);
+                } else {
+                    alert('Calibration failed: ' + result.error);
+                }
+                
+                renderCelestial();
+            };
+        }
+        
+        // ===== Camera Sextant Events (Phase 8c) =====
+        bindCameraSextantEvents();
+        
+        // ===== Star ID Events (Phase 8e) =====
+        bindStarIDEvents();
+    }
+    
+    /**
+     * Bind Star ID events
+     */
+    function bindStarIDEvents() {
+        if (typeof StarIDModule === 'undefined') return;
+        
+        // Track star ID state
+        let starIdActive = false;
+        let selectedObject = null;
+        
+        // Update info display periodically
+        let updateInterval = null;
+        
+        // Start star ID
+        const startBtn = container.querySelector('#star-id-start');
+        if (startBtn) {
+            startBtn.onclick = async () => {
+                const videoElement = container.querySelector('#star-id-video');
+                const canvasElement = container.querySelector('#star-id-canvas');
+                const containerEl = container.querySelector('#star-id-container');
+                const activeControls = container.querySelector('#star-id-active-controls');
+                
+                if (!videoElement || !canvasElement) return;
+                
+                // Show loading state
+                startBtn.disabled = true;
+                startBtn.innerHTML = '⏳ Starting...';
+                
+                // Get observer position
+                const lat = celestialState.observerLat || 37.7749;
+                const lon = celestialState.observerLon || -122.4194;
+                
+                try {
+                    const result = await StarIDModule.startSession(videoElement, canvasElement, {
+                        lat: lat,
+                        lon: lon,
+                        onSelectionChange: (obj) => {
+                            selectedObject = obj;
+                            updateSelectionDisplay(obj);
+                        },
+                        onError: (error) => {
+                            console.error('Star ID error:', error);
+                        }
+                    });
+                    
+                    if (result.success) {
+                        starIdActive = true;
+                        
+                        // Resize canvas to match video
+                        videoElement.onloadedmetadata = () => {
+                            canvasElement.width = videoElement.videoWidth || 640;
+                            canvasElement.height = videoElement.videoHeight || 480;
+                        };
+                        
+                        // Show UI
+                        containerEl.style.display = 'block';
+                        startBtn.style.display = 'none';
+                        activeControls.style.display = 'block';
+                        
+                        // Start update interval
+                        updateInterval = setInterval(() => {
+                            const state = StarIDModule.getState();
+                            const pointingEl = container.querySelector('#star-id-pointing');
+                            const countEl = container.querySelector('#star-id-count');
+                            
+                            if (pointingEl) {
+                                pointingEl.textContent = `Az ${state.cameraAzimuth.toFixed(0)}° Alt ${state.cameraAltitude.toFixed(0)}°`;
+                            }
+                            if (countEl) {
+                                countEl.textContent = state.identifiedCount.toString();
+                            }
+                        }, 500);
+                        
+                    } else {
+                        alert('Failed to start Star ID: ' + result.error);
+                        startBtn.disabled = false;
+                        startBtn.innerHTML = '🔭 Start Star ID';
+                    }
+                } catch (e) {
+                    alert('Error: ' + e.message);
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🔭 Start Star ID';
+                }
+            };
+        }
+        
+        // Stop star ID
+        const stopBtn = container.querySelector('#star-id-stop');
+        if (stopBtn) {
+            stopBtn.onclick = () => {
+                StarIDModule.stopSession();
+                starIdActive = false;
+                
+                if (updateInterval) {
+                    clearInterval(updateInterval);
+                    updateInterval = null;
+                }
+                
+                // Hide UI
+                const containerEl = container.querySelector('#star-id-container');
+                const startBtnRef = container.querySelector('#star-id-start');
+                const activeControls = container.querySelector('#star-id-active-controls');
+                const selectionDiv = container.querySelector('#star-id-selection');
+                
+                if (containerEl) containerEl.style.display = 'none';
+                if (startBtnRef) {
+                    startBtnRef.style.display = 'block';
+                    startBtnRef.disabled = false;
+                    startBtnRef.innerHTML = '🔭 Start Star ID';
+                }
+                if (activeControls) activeControls.style.display = 'none';
+                if (selectionDiv) selectionDiv.style.display = 'none';
+            };
+        }
+        
+        // Refresh recommendations
+        const refreshRecsBtn = container.querySelector('#star-id-refresh-recs');
+        if (refreshRecsBtn) {
+            refreshRecsBtn.onclick = () => {
+                // Update observer position
+                StarIDModule.setObserverPosition(
+                    celestialState.observerLat || 37.7749,
+                    celestialState.observerLon || -122.4194
+                );
+                
+                const recsDiv = container.querySelector('#star-id-recommendations');
+                if (recsDiv) {
+                    recsDiv.innerHTML = StarIDModule.renderRecommendations();
+                    bindRecommendationClicks();
+                }
+            };
+            
+            // Initial load of recommendations
+            setTimeout(() => {
+                const recsDiv = container.querySelector('#star-id-recommendations');
+                if (recsDiv) {
+                    StarIDModule.setObserverPosition(
+                        celestialState.observerLat || 37.7749,
+                        celestialState.observerLon || -122.4194
+                    );
+                    recsDiv.innerHTML = StarIDModule.renderRecommendations();
+                    bindRecommendationClicks();
+                }
+            }, 100);
+        }
+        
+        // Bind recommendation clicks
+        function bindRecommendationClicks() {
+            container.querySelectorAll('.star-id-rec-item').forEach(item => {
+                item.onclick = () => {
+                    const name = item.dataset.name;
+                    selectedObject = { name };
+                    updateSelectionDisplay(selectedObject);
+                };
+            });
+        }
+        
+        // Update selection display
+        function updateSelectionDisplay(obj) {
+            const selectionDiv = container.querySelector('#star-id-selection');
+            const nameEl = container.querySelector('#star-id-selected-name');
+            const infoEl = container.querySelector('#star-id-selected-info');
+            
+            if (obj) {
+                if (selectionDiv) selectionDiv.style.display = 'block';
+                if (nameEl) nameEl.textContent = obj.name;
+                if (infoEl) {
+                    let info = [];
+                    if (obj.altitude !== undefined) info.push(`Alt: ${obj.altitude.toFixed(1)}°`);
+                    if (obj.azimuth !== undefined) info.push(`Az: ${obj.azimuth.toFixed(1)}°`);
+                    if (obj.magnitude !== undefined) info.push(`Mag: ${obj.magnitude.toFixed(1)}`);
+                    if (obj.constellation) info.push(obj.constellation);
+                    infoEl.textContent = info.join(' | ');
+                }
+            } else {
+                if (selectionDiv) selectionDiv.style.display = 'none';
+            }
+        }
+        
+        // Observe selected object
+        const observeBtn = container.querySelector('#star-id-observe');
+        if (observeBtn) {
+            observeBtn.onclick = () => {
+                if (!selectedObject) {
+                    alert('No object selected. Select an object first.');
+                    return;
+                }
+                
+                // Switch to observe tab with the selected body
+                celestialState.activeTab = 'observe';
+                renderCelestial();
+                
+                // Set the body in the dropdown after render
+                setTimeout(() => {
+                    const bodySelect = container.querySelector('#celestial-body-select');
+                    if (bodySelect && selectedObject.name) {
+                        // Try to find matching option
+                        for (const option of bodySelect.options) {
+                            if (option.value === selectedObject.name || 
+                                option.text.includes(selectedObject.name)) {
+                                bodySelect.value = option.value;
+                                break;
+                            }
+                        }
+                    }
+                }, 100);
+            };
+        }
+    }
+    
+    /**
+     * Bind camera sextant events
+     */
+    function bindCameraSextantEvents() {
+        if (typeof CameraSextantModule === 'undefined') return;
+        
+        // Track camera sextant state
+        let cameraSextantActive = false;
+        let lastCapturedMeasurement = null;
+        
+        // Start camera sextant
+        const startBtn = container.querySelector('#camera-sextant-start');
+        if (startBtn) {
+            startBtn.onclick = async () => {
+                const videoElement = container.querySelector('#camera-sextant-video');
+                const overlayContainer = container.querySelector('#camera-sextant-overlay-container');
+                const cameraContainer = container.querySelector('#camera-sextant-container');
+                const activeControls = container.querySelector('#camera-sextant-active-controls');
+                
+                if (!videoElement) return;
+                
+                // Show loading state
+                startBtn.disabled = true;
+                startBtn.innerHTML = '⏳ Starting camera...';
+                
+                try {
+                    const result = await CameraSextantModule.startSession(videoElement, {
+                        onAltitudeUpdate: (data) => {
+                            // Update overlay display
+                            CameraSextantModule.updateOverlayDisplay(data);
+                        },
+                        onCapture: (measurement) => {
+                            lastCapturedMeasurement = measurement;
+                        },
+                        onError: (error) => {
+                            console.error('Camera Sextant error:', error);
+                        }
+                    });
+                    
+                    if (result.success) {
+                        cameraSextantActive = true;
+                        
+                        // Show camera view
+                        cameraContainer.style.display = 'block';
+                        startBtn.style.display = 'none';
+                        activeControls.style.display = 'block';
+                        
+                        // Add overlay
+                        overlayContainer.innerHTML = CameraSextantModule.renderOverlay();
+                        
+                    } else {
+                        alert('Failed to start camera: ' + result.error);
+                        startBtn.disabled = false;
+                        startBtn.innerHTML = '📷 Start Camera Sextant';
+                    }
+                } catch (e) {
+                    alert('Error: ' + e.message);
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '📷 Start Camera Sextant';
+                }
+            };
+        }
+        
+        // Stop camera sextant
+        const stopBtn = container.querySelector('#camera-sextant-stop');
+        if (stopBtn) {
+            stopBtn.onclick = () => {
+                CameraSextantModule.stopSession();
+                cameraSextantActive = false;
+                
+                // Hide camera view
+                const cameraContainer = container.querySelector('#camera-sextant-container');
+                const startBtn = container.querySelector('#camera-sextant-start');
+                const activeControls = container.querySelector('#camera-sextant-active-controls');
+                
+                if (cameraContainer) cameraContainer.style.display = 'none';
+                if (startBtn) {
+                    startBtn.style.display = 'block';
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '📷 Start Camera Sextant';
+                }
+                if (activeControls) activeControls.style.display = 'none';
+            };
+        }
+        
+        // Calibrate horizon
+        const calibrateBtn = container.querySelector('#camera-sextant-calibrate');
+        if (calibrateBtn) {
+            calibrateBtn.onclick = () => {
+                const result = CameraSextantModule.calibrateHorizon();
+                
+                // Update accuracy display
+                const accuracy = document.getElementById('camera-sextant-accuracy');
+                if (accuracy) {
+                    accuracy.textContent = `Calibrated! Offset: ${result.offset.toFixed(1)}°`;
+                    accuracy.style.color = 'rgba(100,255,100,0.8)';
+                }
+                
+                // Visual feedback
+                calibrateBtn.innerHTML = '✓ Calibrated';
+                setTimeout(() => {
+                    calibrateBtn.innerHTML = '🎯 Calibrate Horizon';
+                }, 2000);
+            };
+        }
+        
+        // Capture altitude
+        const captureBtn = container.querySelector('#camera-sextant-capture');
+        if (captureBtn) {
+            captureBtn.onclick = () => {
+                const measurement = CameraSextantModule.captureAltitude();
+                lastCapturedMeasurement = measurement;
+                
+                // Show result
+                const resultDiv = container.querySelector('#camera-sextant-result');
+                const resultValue = container.querySelector('#camera-sextant-result-value');
+                const resultAccuracy = container.querySelector('#camera-sextant-result-accuracy');
+                
+                if (resultDiv) resultDiv.style.display = 'block';
+                if (resultValue) {
+                    resultValue.textContent = CameraSextantModule.formatAltitude(measurement.altitude);
+                }
+                if (resultAccuracy) {
+                    resultAccuracy.textContent = `Est. accuracy: ±${measurement.estimatedAccuracy.toFixed(1)}° | ` +
+                                                 `${measurement.calibrated ? 'Calibrated' : 'Uncalibrated'} | ` +
+                                                 `Roll: ${Math.abs(measurement.roll).toFixed(1)}°`;
+                }
+                
+                // Visual feedback on capture button
+                captureBtn.innerHTML = '✓ Captured!';
+                setTimeout(() => {
+                    captureBtn.innerHTML = '📸 Capture Altitude';
+                }, 1000);
+            };
+        }
+        
+        // Use captured measurement
+        const useBtn = container.querySelector('#camera-sextant-use');
+        if (useBtn) {
+            useBtn.onclick = () => {
+                if (!lastCapturedMeasurement) {
+                    alert('No measurement captured. Please capture an altitude first.');
+                    return;
+                }
+                
+                // Populate the manual observation form
+                const altDegInput = container.querySelector('#celestial-obs-alt-deg');
+                const altMinInput = container.querySelector('#celestial-obs-alt-min');
+                
+                if (altDegInput && altMinInput) {
+                    const deg = Math.floor(Math.abs(lastCapturedMeasurement.altitude));
+                    const min = ((Math.abs(lastCapturedMeasurement.altitude) % 1) * 60);
+                    
+                    altDegInput.value = deg;
+                    altMinInput.value = min.toFixed(1);
+                    
+                    // Visual feedback
+                    useBtn.innerHTML = '✓ Applied!';
+                    setTimeout(() => {
+                        useBtn.innerHTML = 'Use This Measurement';
+                    }, 1500);
+                    
+                    // Scroll to the manual observation form
+                    altDegInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    altDegInput.focus();
+                }
+                
+                // Stop camera session to save resources
+                CameraSextantModule.stopSession();
+                cameraSextantActive = false;
+                
+                // Update UI
+                const cameraContainer = container.querySelector('#camera-sextant-container');
+                const startBtnRef = container.querySelector('#camera-sextant-start');
+                const activeControls = container.querySelector('#camera-sextant-active-controls');
+                const resultDiv = container.querySelector('#camera-sextant-result');
+                
+                if (cameraContainer) cameraContainer.style.display = 'none';
+                if (startBtnRef) {
+                    startBtnRef.style.display = 'block';
+                    startBtnRef.disabled = false;
+                    startBtnRef.innerHTML = '📷 Start Camera Sextant';
+                }
+                if (activeControls) activeControls.style.display = 'none';
+                if (resultDiv) resultDiv.style.display = 'none';
+            };
+        }
     }
     
     /**
@@ -10241,6 +10964,15 @@ ${text}
                 </div>
             ` : ''}
             
+            <!-- Rangefinder Resection (GPS-Denied Position Fix) -->
+            ${typeof RangefinderModule !== 'undefined' ? `
+                <div class="divider"></div>
+                <div class="section-label">📐 GPS-Denied Position</div>
+                <div id="resection-widget">
+                    ${RangefinderModule.renderWidget()}
+                </div>
+            ` : ''}
+            
             <!-- GPS Status Reminder -->
             <div style="margin-top:16px;padding:12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:10px">
                 <div style="font-size:12px;color:#3b82f6;display:flex;align-items:center;gap:8px">
@@ -10450,6 +11182,213 @@ ${text}
                     );
                 }
             };
+        }
+        
+        // ===== Rangefinder Resection Events =====
+        bindRangefinderEvents();
+    }
+    
+    /**
+     * Bind rangefinder resection events
+     */
+    function bindRangefinderEvents() {
+        if (typeof RangefinderModule === 'undefined') return;
+        
+        // Add from waypoint button
+        const addWpBtn = container.querySelector('#resection-add-waypoint');
+        if (addWpBtn) {
+            addWpBtn.onclick = () => {
+                const waypoints = State.get('waypoints');
+                
+                // Create modal for waypoint selection
+                const modalOverlay = document.createElement('div');
+                modalOverlay.id = 'resection-wp-modal';
+                modalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+                
+                modalOverlay.innerHTML = `
+                    <div style="background:var(--color-bg-elevated, #1f2937);border-radius:16px;max-width:400px;width:100%;max-height:80vh;overflow:hidden;display:flex;flex-direction:column">
+                        <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center">
+                            <div style="font-size:16px;font-weight:600">📌 Select Landmark</div>
+                            <button id="resection-wp-close" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:18px">✕</button>
+                        </div>
+                        <div style="padding:16px;overflow-y:auto;flex:1">
+                            ${RangefinderModule.renderWaypointSelector(waypoints)}
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modalOverlay);
+                
+                // Close button
+                modalOverlay.querySelector('#resection-wp-close').onclick = () => {
+                    modalOverlay.remove();
+                };
+                
+                // Click outside to close
+                modalOverlay.onclick = (e) => {
+                    if (e.target === modalOverlay) modalOverlay.remove();
+                };
+                
+                // Waypoint selection
+                modalOverlay.querySelectorAll('.resection-wp-option').forEach(option => {
+                    option.onclick = () => {
+                        const wpId = option.dataset.wpId;
+                        const wp = waypoints.find(w => w.id === wpId);
+                        if (wp) {
+                            RangefinderModule.addFromWaypoint(wp);
+                            modalOverlay.remove();
+                            refreshResectionWidget();
+                        }
+                    };
+                });
+            };
+        }
+        
+        // Add from map button
+        const addMapBtn = container.querySelector('#resection-add-map');
+        if (addMapBtn) {
+            addMapBtn.onclick = () => {
+                // Set map to "add landmark" mode
+                if (typeof MapModule !== 'undefined') {
+                    MapModule.setInteractionMode('resection-landmark');
+                    
+                    // Show toast
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Tap on map to add landmark', 'info', 3000);
+                    }
+                    
+                    // Close panel to show map
+                    const sidebar = document.getElementById('sidebar');
+                    if (sidebar) sidebar.classList.remove('open');
+                }
+            };
+        }
+        
+        // Clear all button
+        const clearAllBtn = container.querySelector('#resection-clear-all');
+        if (clearAllBtn) {
+            clearAllBtn.onclick = () => {
+                if (confirm('Clear all landmarks?')) {
+                    RangefinderModule.clearLandmarks();
+                    refreshResectionWidget();
+                }
+            };
+        }
+        
+        // Remove individual landmark buttons
+        container.querySelectorAll('.resection-remove-lm').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.id;
+                RangefinderModule.removeLandmark(id);
+                refreshResectionWidget();
+            };
+        });
+        
+        // Distance input fields
+        container.querySelectorAll('.resection-distance-input').forEach(input => {
+            input.onchange = () => {
+                const id = input.dataset.id;
+                const distance = parseFloat(input.value);
+                if (!isNaN(distance) && distance > 0) {
+                    RangefinderModule.updateDistance(id, distance);
+                    refreshResectionWidget();
+                }
+            };
+            
+            // Also update on blur
+            input.onblur = input.onchange;
+        });
+        
+        // Calculate button
+        const calcBtn = container.querySelector('#resection-calculate');
+        if (calcBtn) {
+            calcBtn.onclick = () => {
+                const result = RangefinderModule.calculateFix();
+                
+                if (result.error) {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(result.error, 'error', 3000);
+                    } else {
+                        alert(result.error);
+                    }
+                } else {
+                    refreshResectionWidget();
+                    
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(
+                            `Position fix: ${result.position.lat.toFixed(4)}°, ${result.position.lon.toFixed(4)}° (±${result.accuracy.toFixed(0)}m)`,
+                            'success',
+                            5000
+                        );
+                    }
+                }
+            };
+        }
+        
+        // Apply fix button
+        const applyBtn = container.querySelector('#resection-apply-fix');
+        if (applyBtn) {
+            applyBtn.onclick = () => {
+                const fix = RangefinderModule.getLastFix();
+                if (!fix) return;
+                
+                // Update map center
+                if (typeof MapModule !== 'undefined') {
+                    MapModule.setCenter(fix.position.lat, fix.position.lon);
+                    MapModule.render();
+                }
+                
+                // Optionally set as manual GPS position
+                if (typeof GPSModule !== 'undefined' && GPSModule.setManualPosition) {
+                    GPSModule.setManualPosition(fix.position.lat, fix.position.lon);
+                }
+                
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Position applied to map', 'success', 2000);
+                }
+            };
+        }
+        
+        // Show details button
+        const detailsBtn = container.querySelector('#resection-show-details');
+        if (detailsBtn) {
+            detailsBtn.onclick = () => {
+                const modalOverlay = document.createElement('div');
+                modalOverlay.id = 'resection-details-modal';
+                modalOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px';
+                
+                modalOverlay.innerHTML = `
+                    <div style="background:var(--color-bg-elevated, #1f2937);border-radius:16px;max-width:400px;width:100%;max-height:80vh;overflow:hidden">
+                        <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center">
+                            <div style="font-size:16px;font-weight:600">📐 Fix Details</div>
+                            <button id="resection-details-close" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:18px">✕</button>
+                        </div>
+                        <div style="overflow-y:auto;max-height:60vh">
+                            ${RangefinderModule.renderFixDetails()}
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modalOverlay);
+                
+                modalOverlay.querySelector('#resection-details-close').onclick = () => {
+                    modalOverlay.remove();
+                };
+                
+                modalOverlay.onclick = (e) => {
+                    if (e.target === modalOverlay) modalOverlay.remove();
+                };
+            };
+        }
+        
+        // Helper to refresh widget
+        function refreshResectionWidget() {
+            const widget = container.querySelector('#resection-widget');
+            if (widget) {
+                widget.innerHTML = RangefinderModule.renderWidget();
+                bindRangefinderEvents();  // Rebind events
+            }
         }
     }
     

@@ -16,6 +16,27 @@ const SearchModule = (function() {
 
     // Search categories with icons and colors
     const CATEGORIES = {
+        action: {
+            id: 'action',
+            name: 'Actions',
+            icon: '⚡',
+            color: '#22c55e',
+            shortcut: 'a'
+        },
+        celestial: {
+            id: 'celestial',
+            name: 'Celestial',
+            icon: '⭐',
+            color: '#fbbf24',
+            shortcut: 's'
+        },
+        landmark: {
+            id: 'landmark',
+            name: 'Landmarks',
+            icon: '🏔️',
+            color: '#8b5cf6',
+            shortcut: 'l'
+        },
         waypoint: {
             id: 'waypoint',
             name: 'Waypoints',
@@ -50,8 +71,182 @@ const SearchModule = (function() {
             icon: '🎯',
             color: '#ec4899',
             shortcut: 'c'
+        },
+        help: {
+            id: 'help',
+            name: 'Help',
+            icon: '❓',
+            color: '#06b6d4',
+            shortcut: 'h'
+        },
+        settings: {
+            id: 'settings',
+            name: 'Settings',
+            icon: '⚙️',
+            color: '#6b7280',
+            shortcut: 'g'
         }
     };
+
+    // Help topics searchable in the app
+    const HELP_TOPICS = [
+        // Navigation & GPS
+        { id: 'help-gps', name: 'GPS & Location', keywords: ['gps', 'location', 'position', 'coordinates', 'accuracy'], icon: '📍', description: 'How GPS positioning works in GridDown', content: 'GridDown uses your device GPS for positioning. In GPS-denied environments, use celestial navigation or rangefinder resection.' },
+        { id: 'help-offline', name: 'Offline Maps', keywords: ['offline', 'maps', 'download', 'cache', 'tiles'], icon: '🗺️', description: 'Download maps for offline use', content: 'Download map tiles before going off-grid. Go to Offline panel to select regions and download.' },
+        { id: 'help-navigation', name: 'Route Navigation', keywords: ['navigation', 'route', 'navigate', 'directions', 'turn'], icon: '🧭', description: 'Navigate along a route', content: 'Create a route, then tap Start Navigation. Follow turn-by-turn guidance with distance and bearing.' },
+        
+        // Celestial Navigation
+        { id: 'help-celestial', name: 'Celestial Navigation', keywords: ['celestial', 'stars', 'navigation', 'sextant', 'astronomy'], icon: '⭐', description: 'Navigate using stars and celestial bodies', content: 'Use the star chart, camera sextant, and noon sight tools to determine position without GPS.' },
+        { id: 'help-star-id', name: 'Star Identification', keywords: ['star', 'identify', 'recognition', 'constellation'], icon: '✨', description: 'Identify stars using your camera', content: 'Point camera at sky, tap a star to identify it. Works offline using built-in star catalog.' },
+        { id: 'help-resection', name: 'Rangefinder Resection', keywords: ['resection', 'rangefinder', 'triangulation', 'position', 'fix'], icon: '📐', description: 'Determine position using known landmarks', content: 'Take bearings to 2-3 known landmarks (peaks, towers) to calculate your position without GPS.' },
+        
+        // Communication
+        { id: 'help-radio', name: 'Radio Frequencies', keywords: ['radio', 'frequency', 'channel', 'communication', 'ham'], icon: '📻', description: 'Managing radio frequencies', content: 'Store and organize radio frequencies for your team. Supports ham, GMRS, FRS, MURS bands.' },
+        { id: 'help-meshtastic', name: 'Meshtastic Integration', keywords: ['meshtastic', 'mesh', 'lora', 'radio', 'messaging'], icon: '📡', description: 'Connect to Meshtastic mesh network', content: 'Connect via Bluetooth to share positions and messages over LoRa mesh network.' },
+        { id: 'help-aprs', name: 'APRS Tracking', keywords: ['aprs', 'packet', 'amateur', 'tracking'], icon: '📶', description: 'Amateur radio position reporting', content: 'View APRS stations and send position reports (requires amateur radio license).' },
+        
+        // Emergency
+        { id: 'help-sos', name: 'Emergency SOS', keywords: ['sos', 'emergency', 'help', 'rescue', 'distress'], icon: '🆘', description: 'Send emergency distress signal', content: 'Activate SOS to flash screen/light, sound alarm, and prepare emergency message with coordinates.' },
+        { id: 'help-sarsat', name: 'SARSAT Beacons', keywords: ['sarsat', 'beacon', 'elt', 'plb', 'epirb', 'emergency'], icon: '🔔', description: 'Detect emergency beacons', content: 'With SDR hardware, detect 406 MHz emergency beacon signals from ELTs, PLBs, and EPIRBs.' },
+        
+        // Tools
+        { id: 'help-measure', name: 'Distance Measurement', keywords: ['measure', 'distance', 'length', 'ruler'], icon: '📏', description: 'Measure distances on the map', content: 'Tap Measure tool, then tap points on map to measure distance. Shows both metric and imperial.' },
+        { id: 'help-bearing', name: 'Compass Bearing', keywords: ['bearing', 'compass', 'direction', 'azimuth', 'heading'], icon: '🧭', description: 'Get compass bearing to a point', content: 'Tap a waypoint or map location to see bearing and distance from your position.' },
+        { id: 'help-waypoints', name: 'Waypoints', keywords: ['waypoint', 'marker', 'point', 'save', 'location'], icon: '📍', description: 'Create and manage waypoints', content: 'Tap map to add waypoint, or use search to create at specific coordinates. Organize by type and color.' },
+        
+        // Weather
+        { id: 'help-weather', name: 'Weather Information', keywords: ['weather', 'forecast', 'temperature', 'conditions'], icon: '🌤️', description: 'View weather forecasts', content: 'Weather data from NWS when online. Check satellite imagery for offline weather assessment.' },
+        { id: 'help-barometer', name: 'Barometer', keywords: ['barometer', 'pressure', 'altitude', 'weather'], icon: '🌡️', description: 'Track atmospheric pressure', content: 'Monitor pressure trends to predict weather changes. Falling pressure often indicates incoming storms.' },
+        
+        // Data
+        { id: 'help-import', name: 'Import GPX/KML', keywords: ['import', 'gpx', 'kml', 'file', 'data'], icon: '📥', description: 'Import routes and waypoints', content: 'Import GPX or KML files to load routes and waypoints from other apps.' },
+        { id: 'help-export', name: 'Export Data', keywords: ['export', 'save', 'backup', 'gpx', 'share'], icon: '📤', description: 'Export your data', content: 'Export waypoints and routes as GPX files to share or backup.' },
+        
+        // General
+        { id: 'help-keyboard', name: 'Keyboard Shortcuts', keywords: ['keyboard', 'shortcut', 'hotkey', 'keys'], icon: '⌨️', description: 'View all keyboard shortcuts', content: 'Ctrl+K: Search, N: North, G: GPS, L: Layers, M: Measure, +/-: Zoom' },
+        { id: 'help-night-mode', name: 'Night Mode', keywords: ['night', 'dark', 'red', 'mode', 'vision'], icon: '🌙', description: 'Preserve night vision', content: 'Red-tinted display to preserve dark adaptation. Activate via settings or search "night mode".' }
+    ];
+
+    // Settings options searchable in the app
+    const SETTINGS_OPTIONS = [
+        // Display
+        { id: 'setting-night-mode', name: 'Night Mode', keywords: ['night', 'dark', 'mode', 'red', 'vision'], icon: '🌙', description: 'Toggle red night mode display', action: 'toggleNightMode', type: 'toggle' },
+        { id: 'setting-units', name: 'Units (Metric/Imperial)', keywords: ['units', 'metric', 'imperial', 'miles', 'kilometers'], icon: '📏', description: 'Switch between metric and imperial', action: 'toggleUnits', type: 'toggle' },
+        { id: 'setting-coord-format', name: 'Coordinate Format', keywords: ['coordinate', 'format', 'dms', 'decimal', 'degrees'], icon: '🎯', description: 'Change coordinate display format', action: 'cycleCoordFormat', type: 'cycle' },
+        
+        // Map
+        { id: 'setting-map-layer', name: 'Map Layer', keywords: ['map', 'layer', 'satellite', 'terrain', 'topo'], icon: '🗺️', description: 'Change map layer style', action: 'changeMapLayer', type: 'select' },
+        { id: 'setting-offline-maps', name: 'Offline Maps', keywords: ['offline', 'download', 'maps', 'cache'], icon: '📥', description: 'Manage downloaded map tiles', action: 'openOfflineMaps', panel: 'offline' },
+        
+        // Location
+        { id: 'setting-gps-accuracy', name: 'GPS Accuracy Display', keywords: ['gps', 'accuracy', 'precision', 'circle'], icon: '📍', description: 'Show/hide GPS accuracy circle', action: 'toggleGpsAccuracy', type: 'toggle' },
+        { id: 'setting-track-position', name: 'Track Position', keywords: ['track', 'position', 'follow', 'gps'], icon: '🎯', description: 'Auto-center map on position', action: 'toggleTrackPosition', type: 'toggle' },
+        
+        // Notifications
+        { id: 'setting-notifications', name: 'Notifications', keywords: ['notification', 'alert', 'sound', 'vibrate'], icon: '🔔', description: 'Configure notification settings', action: 'openNotificationSettings', type: 'panel' },
+        { id: 'setting-sounds', name: 'Sound Effects', keywords: ['sound', 'audio', 'mute', 'volume'], icon: '🔊', description: 'Toggle sound effects', action: 'toggleSounds', type: 'toggle' },
+        
+        // Privacy
+        { id: 'setting-clear-data', name: 'Clear All Data', keywords: ['clear', 'delete', 'reset', 'data', 'privacy'], icon: '🗑️', description: 'Delete all stored data', action: 'clearAllData', type: 'danger' },
+        { id: 'setting-export-data', name: 'Export All Data', keywords: ['export', 'backup', 'save', 'data'], icon: '📤', description: 'Export all data as backup', action: 'exportAllData', type: 'action' },
+        
+        // Hardware
+        { id: 'setting-bluetooth', name: 'Bluetooth Devices', keywords: ['bluetooth', 'device', 'connect', 'hardware'], icon: '📶', description: 'Manage Bluetooth connections', action: 'openBluetoothSettings', type: 'panel' },
+        { id: 'setting-radiacode', name: 'Radiacode Detector', keywords: ['radiacode', 'radiation', 'detector', 'geiger'], icon: '☢️', description: 'Configure radiation detector', action: 'openRadiacodeSettings', panel: 'radiacode' },
+        
+        // About
+        { id: 'setting-version', name: 'App Version', keywords: ['version', 'about', 'info', 'update'], icon: 'ℹ️', description: 'View app version and check for updates', action: 'showAbout', type: 'info' },
+        { id: 'setting-privacy', name: 'Privacy Policy', keywords: ['privacy', 'policy', 'data', 'legal'], icon: '🔒', description: 'View privacy policy', action: 'showPrivacy', type: 'info' }
+    ];
+
+    // Action commands available in search
+    const ACTION_COMMANDS = [
+        // Waypoint actions
+        { id: 'add-waypoint', name: 'Add Waypoint', keywords: ['add', 'waypoint', 'new', 'create', 'point', 'marker'], icon: '📍', description: 'Create a new waypoint at current location', panel: 'waypoints', action: 'addWaypoint' },
+        { id: 'add-waypoint-here', name: 'Add Waypoint Here', keywords: ['add', 'waypoint', 'here', 'current', 'location'], icon: '📍', description: 'Create waypoint at map center', panel: 'waypoints', action: 'addWaypointHere' },
+        
+        // Route actions
+        { id: 'new-route', name: 'Create Route', keywords: ['new', 'route', 'create', 'build', 'path'], icon: '🛣️', description: 'Start building a new route', panel: 'routes', action: 'newRoute' },
+        { id: 'start-navigation', name: 'Start Navigation', keywords: ['start', 'navigation', 'navigate', 'go', 'begin'], icon: '🧭', description: 'Begin navigating a route', panel: 'navigation', action: 'startNavigation' },
+        { id: 'stop-navigation', name: 'Stop Navigation', keywords: ['stop', 'navigation', 'end', 'cancel'], icon: '⏹️', description: 'Stop current navigation', panel: 'navigation', action: 'stopNavigation' },
+        
+        // Measurement & Tools
+        { id: 'measure-distance', name: 'Measure Distance', keywords: ['measure', 'distance', 'length', 'ruler'], icon: '📏', description: 'Measure distance on map', panel: 'map', action: 'measureDistance' },
+        { id: 'take-bearing', name: 'Take Bearing', keywords: ['bearing', 'compass', 'direction', 'azimuth'], icon: '🧭', description: 'Get compass bearing', panel: 'gps', action: 'takeBearing' },
+        { id: 'find-position', name: 'Find My Position', keywords: ['find', 'position', 'gps', 'location', 'where'], icon: '📡', description: 'Get current GPS position', panel: 'gps', action: 'findPosition' },
+        { id: 'rangefinder-resection', name: 'Rangefinder Resection', keywords: ['rangefinder', 'resection', 'triangulation', 'position', 'fix', 'gps-denied'], icon: '📐', description: 'Calculate position from landmarks', panel: 'navigation', action: 'rangefinderResection' },
+        
+        // Celestial
+        { id: 'star-chart', name: 'View Star Chart', keywords: ['star', 'chart', 'sky', 'map', 'celestial'], icon: '🌌', description: 'Open the star chart', panel: 'celestial', action: 'starChart' },
+        { id: 'star-id', name: 'Star Identification', keywords: ['star', 'identify', 'id', 'camera', 'find'], icon: '🔭', description: 'Identify stars with camera', panel: 'celestial', action: 'starId' },
+        { id: 'camera-sextant', name: 'Camera Sextant', keywords: ['camera', 'sextant', 'altitude', 'measure', 'angle'], icon: '📷', description: 'Measure altitude with camera', panel: 'celestial', action: 'cameraSextant' },
+        { id: 'celestial-observation', name: 'Start Observation', keywords: ['observation', 'sight', 'celestial', 'observe'], icon: '👁️', description: 'Begin celestial observation', panel: 'celestial', action: 'startObservation' },
+        
+        // Offline & Maps
+        { id: 'download-maps', name: 'Download Offline Maps', keywords: ['download', 'offline', 'maps', 'cache', 'save'], icon: '💾', description: 'Download maps for offline use', panel: 'offline', action: 'downloadMaps' },
+        { id: 'change-map-layer', name: 'Change Map Layer', keywords: ['map', 'layer', 'satellite', 'topo', 'terrain', 'change'], icon: '🗺️', description: 'Switch map base layer', panel: 'map', action: 'changeMapLayer' },
+        
+        // Weather
+        { id: 'check-weather', name: 'Check Weather', keywords: ['weather', 'forecast', 'rain', 'temperature', 'conditions'], icon: '🌤️', description: 'View weather information', panel: 'weather', action: 'checkWeather' },
+        { id: 'satellite-weather', name: 'Satellite Weather', keywords: ['satellite', 'weather', 'radar', 'goes', 'imagery'], icon: '🛰️', description: 'View satellite weather imagery', panel: 'weather', action: 'satelliteWeather' },
+        
+        // Communication
+        { id: 'comm-plan', name: 'Communication Plan', keywords: ['comm', 'communication', 'radio', 'plan', 'frequencies'], icon: '📻', description: 'View communication plan', panel: 'radio', action: 'commPlan' },
+        { id: 'sos-emergency', name: 'Emergency SOS', keywords: ['sos', 'emergency', 'help', 'rescue', 'distress'], icon: '🆘', description: 'Open emergency SOS panel', panel: 'sos', action: 'emergencySOS' },
+        
+        // Hiking
+        { id: 'start-hike', name: 'Start Hiking', keywords: ['start', 'hike', 'hiking', 'trail', 'walk'], icon: '🥾', description: 'Begin recording a hike', panel: 'navigation', action: 'startHike' },
+        { id: 'stop-hike', name: 'Stop Hiking', keywords: ['stop', 'hike', 'end', 'finish'], icon: '🏁', description: 'End current hike', panel: 'navigation', action: 'stopHike' },
+        
+        // View actions
+        { id: 'center-position', name: 'Center on My Position', keywords: ['center', 'position', 'me', 'current', 'location'], icon: '🎯', description: 'Center map on GPS position', panel: null, action: 'centerOnPosition' },
+        { id: 'reset-bearing', name: 'Reset Map North', keywords: ['reset', 'north', 'bearing', 'rotation', 'map'], icon: '🧭', description: 'Reset map to north up', panel: null, action: 'resetBearing' },
+        
+        // Settings
+        { id: 'toggle-dark-mode', name: 'Toggle Night Mode', keywords: ['dark', 'night', 'mode', 'theme', 'light'], icon: '🌙', description: 'Switch between light and dark mode', panel: null, action: 'toggleNightMode' },
+        { id: 'keyboard-shortcuts', name: 'Keyboard Shortcuts', keywords: ['keyboard', 'shortcuts', 'keys', 'hotkeys', 'help'], icon: '⌨️', description: 'View all keyboard shortcuts', panel: null, action: 'showKeyboardShortcuts' },
+        
+        // Help
+        { id: 'situation-wizard', name: 'Situation Wizard', keywords: ['help', 'wizard', 'situation', 'lost', 'emergency', 'what', 'do', 'guide'], icon: '❓', description: "Get help based on your situation", panel: null, action: 'openWizard' },
+        { id: 'im-lost', name: "I'm Lost", keywords: ['lost', 'help', 'position', 'where', 'am', 'i'], icon: '🧭', description: 'Help finding your position', panel: null, action: 'openWizardLost' },
+        { id: 'need-help', name: 'I Need Help', keywords: ['help', 'emergency', 'sos', 'rescue', 'stuck'], icon: '🆘', description: 'Emergency assistance guide', panel: null, action: 'openWizardEmergency' }
+    ];
+
+    // Navigation star catalog for celestial search
+    const NAVIGATION_STARS = [
+        { name: 'Polaris', constellation: 'Ursa Minor', magnitude: 2.0, description: 'North Star - latitude reference', keywords: ['north', 'pole', 'latitude'] },
+        { name: 'Sirius', constellation: 'Canis Major', magnitude: -1.5, description: 'Brightest star in sky', keywords: ['bright', 'dog'] },
+        { name: 'Canopus', constellation: 'Carina', magnitude: -0.7, description: 'Second brightest star', keywords: ['southern'] },
+        { name: 'Arcturus', constellation: 'Boötes', magnitude: -0.05, description: 'Bright orange star', keywords: ['orange', 'spring'] },
+        { name: 'Vega', constellation: 'Lyra', magnitude: 0.0, description: 'Summer triangle star', keywords: ['summer', 'blue'] },
+        { name: 'Capella', constellation: 'Auriga', magnitude: 0.1, description: 'Winter star', keywords: ['winter', 'yellow'] },
+        { name: 'Rigel', constellation: 'Orion', magnitude: 0.1, description: 'Orion\'s foot', keywords: ['orion', 'blue', 'winter'] },
+        { name: 'Procyon', constellation: 'Canis Minor', magnitude: 0.4, description: 'Little Dog Star', keywords: ['winter'] },
+        { name: 'Betelgeuse', constellation: 'Orion', magnitude: 0.4, description: 'Orion\'s shoulder - red giant', keywords: ['orion', 'red', 'winter'] },
+        { name: 'Aldebaran', constellation: 'Taurus', magnitude: 0.9, description: 'Bull\'s eye - orange', keywords: ['taurus', 'orange', 'winter'] },
+        { name: 'Spica', constellation: 'Virgo', magnitude: 1.0, description: 'Spring star', keywords: ['spring', 'blue'] },
+        { name: 'Antares', constellation: 'Scorpius', magnitude: 1.1, description: 'Scorpion\'s heart - red', keywords: ['scorpion', 'red', 'summer'] },
+        { name: 'Fomalhaut', constellation: 'Piscis Austrinus', magnitude: 1.2, description: 'Autumn star', keywords: ['autumn', 'fall', 'southern'] },
+        { name: 'Deneb', constellation: 'Cygnus', magnitude: 1.3, description: 'Summer triangle star', keywords: ['summer', 'swan'] },
+        { name: 'Regulus', constellation: 'Leo', magnitude: 1.4, description: 'Lion\'s heart', keywords: ['lion', 'spring'] },
+        { name: 'Dubhe', constellation: 'Ursa Major', magnitude: 1.8, description: 'Big Dipper pointer star', keywords: ['dipper', 'pointer'] },
+        { name: 'Merak', constellation: 'Ursa Major', magnitude: 2.4, description: 'Big Dipper pointer star', keywords: ['dipper', 'pointer'] },
+        { name: 'Altair', constellation: 'Aquila', magnitude: 0.8, description: 'Summer triangle star', keywords: ['summer', 'eagle'] }
+    ];
+
+    // Planets for celestial search
+    const PLANETS = [
+        { name: 'Venus', type: 'planet', description: 'Morning/Evening star - brightest planet', keywords: ['morning', 'evening', 'bright'] },
+        { name: 'Mars', type: 'planet', description: 'The red planet', keywords: ['red'] },
+        { name: 'Jupiter', type: 'planet', description: 'Largest planet - very bright', keywords: ['bright', 'large', 'giant'] },
+        { name: 'Saturn', type: 'planet', description: 'Ringed planet', keywords: ['rings'] }
+    ];
+
+    // Other celestial objects
+    const OTHER_CELESTIAL = [
+        { name: 'Sun', type: 'sun', description: 'Our star - use for noon sight, shadow stick', keywords: ['noon', 'shadow', 'solar'] },
+        { name: 'Moon', type: 'moon', description: 'Excellent for observation - easy to find', keywords: ['lunar', 'phase'] }
+    ];
 
     // State
     let isOpen = false;
@@ -60,10 +255,14 @@ const SearchModule = (function() {
     let selectedIndex = 0;
     let activeCategory = null; // null = all categories
     let recentSearches = [];
+    let recentActions = []; // Track recently used actions
+    let favorites = []; // Pinned/favorite items
     let searchContainer = null;
     let debounceTimer = null;
     let initialized = false;
     let searchEvents = null; // EventManager scoped manager
+    let suggestionsMode = false; // Whether showing suggestions vs results
+    let suggestions = []; // Current contextual suggestions
 
     /**
      * Initialize the search module
@@ -80,6 +279,8 @@ const SearchModule = (function() {
         
         createSearchUI();
         loadRecentSearches();
+        loadRecentActions();
+        loadFavorites();
         setupKeyboardShortcuts();
         
         initialized = true;
@@ -132,7 +333,9 @@ const SearchModule = (function() {
                 </div>
                 <div class="global-search__body" id="search-results" role="tabpanel">
                     <div class="global-search__empty" id="search-empty">
+                        <div class="global-search__suggestions" id="search-suggestions" role="group" aria-label="Suggestions"></div>
                         <div class="global-search__recent" id="search-recent" role="group" aria-label="Recent searches"></div>
+                        <div class="global-search__quick-actions" id="search-quick-actions" role="group" aria-label="Quick actions"></div>
                         <div class="global-search__tips" role="group" aria-label="Keyboard shortcuts">
                             <div class="global-search__tip">
                                 <kbd aria-hidden="true">↑</kbd><kbd aria-hidden="true">↓</kbd> <span class="sr-only">Arrow keys to</span>Navigate
@@ -213,6 +416,13 @@ const SearchModule = (function() {
      * Handle keydown in search input
      */
     function handleInputKeydown(e) {
+        // Ctrl+D to toggle favorite on selected result
+        if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+            e.preventDefault();
+            toggleSelectedFavorite();
+            return;
+        }
+        
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault();
@@ -257,6 +467,19 @@ const SearchModule = (function() {
                     }
                 }
         }
+    }
+
+    /**
+     * Toggle favorite status on currently selected result
+     */
+    function toggleSelectedFavorite() {
+        if (results.length === 0 || selectedIndex >= results.length) return;
+        
+        const result = results[selectedIndex];
+        toggleFavorite(result);
+        
+        // Re-render to update UI
+        renderResults();
     }
 
     /**
@@ -398,11 +621,13 @@ const SearchModule = (function() {
     function performSearch() {
         if (query.length < CONFIG.minQueryLength) {
             results = [];
+            suggestionsMode = true;
             renderResults();
-            renderRecentSearches();
+            renderSuggestions();
             return;
         }
         
+        suggestionsMode = false;
         const searchResults = [];
         const lowerQuery = query.toLowerCase().trim();
         
@@ -502,6 +727,277 @@ const SearchModule = (function() {
             }
         }
         
+        // Search action commands
+        if (!activeCategory || activeCategory === 'action') {
+            ACTION_COMMANDS.forEach(action => {
+                const nameMatch = action.name.toLowerCase().includes(lowerQuery);
+                const keywordMatch = action.keywords.some(kw => kw.includes(lowerQuery) || lowerQuery.includes(kw));
+                const descMatch = action.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || keywordMatch || descMatch) {
+                    let score = 0;
+                    if (nameMatch) score = action.name.toLowerCase().startsWith(lowerQuery) ? 90 : 70;
+                    else if (keywordMatch) score = 60;
+                    else if (descMatch) score = 40;
+                    
+                    searchResults.push({
+                        id: 'action-' + action.id,
+                        category: 'action',
+                        title: action.name,
+                        subtitle: action.description,
+                        icon: action.icon,
+                        color: '#22c55e',
+                        data: action,
+                        score: score
+                    });
+                }
+            });
+        }
+        
+        // Search celestial bodies
+        if (!activeCategory || activeCategory === 'celestial') {
+            // Search stars
+            NAVIGATION_STARS.forEach(star => {
+                const nameMatch = star.name.toLowerCase().includes(lowerQuery);
+                const constMatch = star.constellation.toLowerCase().includes(lowerQuery);
+                const keywordMatch = star.keywords.some(kw => kw.includes(lowerQuery));
+                const descMatch = star.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || constMatch || keywordMatch || descMatch) {
+                    let score = 0;
+                    if (nameMatch) score = star.name.toLowerCase().startsWith(lowerQuery) ? 85 : 65;
+                    else if (constMatch) score = 55;
+                    else if (keywordMatch) score = 45;
+                    else if (descMatch) score = 35;
+                    
+                    // Get current position if CelestialModule is available
+                    let positionInfo = '';
+                    if (typeof CelestialModule !== 'undefined') {
+                        try {
+                            const pos = CelestialModule.getStarPosition(star.name, new Date());
+                            if (pos && !pos.error) {
+                                const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : { lat: 37.4215, lon: -119.1892 };
+                                const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                                if (altAz.altitude > 0) {
+                                    positionInfo = ` • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`;
+                                } else {
+                                    positionInfo = ' • Below horizon';
+                                }
+                            }
+                        } catch (e) { }
+                    }
+                    
+                    searchResults.push({
+                        id: 'star-' + star.name,
+                        category: 'celestial',
+                        title: star.name,
+                        subtitle: `${star.constellation} • Mag ${star.magnitude}${positionInfo}`,
+                        icon: star.magnitude < 1 ? '⭐' : '✦',
+                        color: '#fbbf24',
+                        data: { ...star, type: 'star' },
+                        score: score
+                    });
+                }
+            });
+            
+            // Search planets
+            PLANETS.forEach(planet => {
+                const nameMatch = planet.name.toLowerCase().includes(lowerQuery);
+                const keywordMatch = planet.keywords.some(kw => kw.includes(lowerQuery));
+                const descMatch = planet.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || keywordMatch || descMatch || lowerQuery === 'planet' || lowerQuery === 'planets') {
+                    let score = 0;
+                    if (nameMatch) score = planet.name.toLowerCase().startsWith(lowerQuery) ? 85 : 65;
+                    else if (lowerQuery === 'planet' || lowerQuery === 'planets') score = 55;
+                    else if (keywordMatch) score = 45;
+                    else if (descMatch) score = 35;
+                    
+                    // Get current position if CelestialModule is available
+                    let positionInfo = '';
+                    if (typeof CelestialModule !== 'undefined') {
+                        try {
+                            const pos = CelestialModule.getPlanetPosition(planet.name.toLowerCase(), new Date());
+                            if (pos && !pos.error) {
+                                const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : { lat: 37.4215, lon: -119.1892 };
+                                const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                                if (altAz.altitude > 0) {
+                                    positionInfo = ` • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`;
+                                } else {
+                                    positionInfo = ' • Below horizon';
+                                }
+                            }
+                        } catch (e) { }
+                    }
+                    
+                    searchResults.push({
+                        id: 'planet-' + planet.name,
+                        category: 'celestial',
+                        title: planet.name,
+                        subtitle: `Planet${positionInfo} • ${planet.description}`,
+                        icon: '🪐',
+                        color: '#fbbf24',
+                        data: { ...planet, type: 'planet' },
+                        score: score
+                    });
+                }
+            });
+            
+            // Search Sun and Moon
+            OTHER_CELESTIAL.forEach(body => {
+                const nameMatch = body.name.toLowerCase().includes(lowerQuery);
+                const keywordMatch = body.keywords.some(kw => kw.includes(lowerQuery));
+                const descMatch = body.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || keywordMatch || descMatch) {
+                    let score = 0;
+                    if (nameMatch) score = 80;
+                    else if (keywordMatch) score = 50;
+                    else if (descMatch) score = 35;
+                    
+                    // Get current position
+                    let positionInfo = '';
+                    if (typeof CelestialModule !== 'undefined') {
+                        try {
+                            const pos = body.type === 'sun' 
+                                ? CelestialModule.getSunPosition(new Date())
+                                : CelestialModule.getMoonPosition(new Date());
+                            if (pos && !pos.error) {
+                                const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : { lat: 37.4215, lon: -119.1892 };
+                                const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                                if (altAz.altitude > 0) {
+                                    positionInfo = ` • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`;
+                                } else {
+                                    positionInfo = ' • Below horizon';
+                                }
+                            }
+                        } catch (e) { }
+                    }
+                    
+                    searchResults.push({
+                        id: 'celestial-' + body.name,
+                        category: 'celestial',
+                        title: body.name,
+                        subtitle: `${body.description}${positionInfo}`,
+                        icon: body.type === 'sun' ? '☀️' : '🌙',
+                        color: body.type === 'sun' ? '#fbbf24' : '#a5b4fc',
+                        data: body,
+                        score: score
+                    });
+                }
+            });
+        }
+        
+        // Search landmarks (peaks, towers, benchmarks from landmark packs)
+        if (!activeCategory || activeCategory === 'landmark') {
+            if (typeof LandmarkModule !== 'undefined') {
+                try {
+                    // Get user's current location for distance calculation
+                    const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : null;
+                    
+                    const landmarkResults = LandmarkModule.search(lowerQuery, {
+                        limit: 15,
+                        nearLat: mapState?.lat,
+                        nearLon: mapState?.lon
+                    });
+                    
+                    landmarkResults.forEach(landmark => {
+                        // Calculate distance if we have user location
+                        let distanceInfo = '';
+                        if (mapState && landmark.lat && landmark.lon) {
+                            const dist = haversineDistanceKm(mapState.lat, mapState.lon, landmark.lat, landmark.lon);
+                            if (dist < 1) {
+                                distanceInfo = ` • ${(dist * 1000).toFixed(0)}m`;
+                            } else if (dist < 100) {
+                                distanceInfo = ` • ${dist.toFixed(1)}km`;
+                            } else {
+                                distanceInfo = ` • ${Math.round(dist)}km`;
+                            }
+                        }
+                        
+                        // Build subtitle with elevation and source
+                        let subtitle = '';
+                        if (landmark.elevation) {
+                            subtitle += `${landmark.elevation.toLocaleString()}m`;
+                        }
+                        if (landmark.source) {
+                            subtitle += subtitle ? ` • ${landmark.source}` : landmark.source;
+                        }
+                        subtitle += distanceInfo;
+                        
+                        searchResults.push({
+                            id: 'landmark-' + landmark.id,
+                            category: 'landmark',
+                            title: landmark.name,
+                            subtitle: subtitle || 'Landmark',
+                            icon: landmark.typeInfo?.icon || '🏔️',
+                            color: landmark.typeInfo?.color || '#8b5cf6',
+                            data: landmark,
+                            score: landmark.score || 50
+                        });
+                    });
+                } catch (e) {
+                    console.warn('Landmark search error:', e);
+                }
+            }
+        }
+        
+        // Search help topics
+        if (!activeCategory || activeCategory === 'help') {
+            HELP_TOPICS.forEach(topic => {
+                const nameMatch = topic.name.toLowerCase().includes(lowerQuery);
+                const keywordMatch = topic.keywords.some(kw => kw.includes(lowerQuery));
+                const descMatch = topic.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || keywordMatch || descMatch || lowerQuery === 'help') {
+                    let score = 0;
+                    if (nameMatch) score = topic.name.toLowerCase().startsWith(lowerQuery) ? 75 : 55;
+                    else if (lowerQuery === 'help') score = 50;
+                    else if (keywordMatch) score = 45;
+                    else if (descMatch) score = 35;
+                    
+                    searchResults.push({
+                        id: topic.id,
+                        category: 'help',
+                        title: topic.name,
+                        subtitle: topic.description,
+                        icon: topic.icon,
+                        color: '#06b6d4',
+                        data: topic,
+                        score: score
+                    });
+                }
+            });
+        }
+        
+        // Search settings options
+        if (!activeCategory || activeCategory === 'settings') {
+            SETTINGS_OPTIONS.forEach(setting => {
+                const nameMatch = setting.name.toLowerCase().includes(lowerQuery);
+                const keywordMatch = setting.keywords.some(kw => kw.includes(lowerQuery));
+                const descMatch = setting.description.toLowerCase().includes(lowerQuery);
+                
+                if (nameMatch || keywordMatch || descMatch || lowerQuery === 'settings' || lowerQuery === 'setting') {
+                    let score = 0;
+                    if (nameMatch) score = setting.name.toLowerCase().startsWith(lowerQuery) ? 75 : 55;
+                    else if (lowerQuery === 'settings' || lowerQuery === 'setting') score = 50;
+                    else if (keywordMatch) score = 45;
+                    else if (descMatch) score = 35;
+                    
+                    searchResults.push({
+                        id: setting.id,
+                        category: 'settings',
+                        title: setting.name,
+                        subtitle: setting.description,
+                        icon: setting.icon,
+                        color: '#6b7280',
+                        data: setting,
+                        score: score
+                    });
+                }
+            });
+        }
+        
         // Sort by score and limit results
         results = searchResults
             .sort((a, b) => b.score - a.score)
@@ -511,54 +1007,372 @@ const SearchModule = (function() {
         renderResults();
     }
 
+    // ==================== FUZZY MATCHING SYSTEM ====================
+
     /**
-     * Calculate match score for an item
+     * Calculate Levenshtein distance between two strings
+     * @param {string} a - First string
+     * @param {string} b - Second string
+     * @returns {number} Edit distance
+     */
+    function levenshteinDistance(a, b) {
+        if (a.length === 0) return b.length;
+        if (b.length === 0) return a.length;
+        
+        // Use two-row optimization for memory efficiency
+        let prevRow = new Array(b.length + 1);
+        let currRow = new Array(b.length + 1);
+        
+        // Initialize first row
+        for (let j = 0; j <= b.length; j++) {
+            prevRow[j] = j;
+        }
+        
+        for (let i = 1; i <= a.length; i++) {
+            currRow[0] = i;
+            
+            for (let j = 1; j <= b.length; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                currRow[j] = Math.min(
+                    prevRow[j] + 1,      // deletion
+                    currRow[j - 1] + 1,  // insertion
+                    prevRow[j - 1] + cost // substitution
+                );
+            }
+            
+            // Swap rows
+            [prevRow, currRow] = [currRow, prevRow];
+        }
+        
+        return prevRow[b.length];
+    }
+
+    /**
+     * Check if query matches initials of words in text
+     * "ec" matches "Eagle Creek", "bc" matches "Base Camp"
+     * @param {string} text - Text to match against
+     * @param {string} query - Query (potential initials)
+     * @returns {boolean} Whether initials match
+     */
+    function matchesInitials(text, query) {
+        if (query.length < 2 || query.length > 6) return false;
+        
+        const words = text.split(/\s+/).filter(w => w.length > 0);
+        if (words.length < 2) return false;
+        
+        // Get first letter of each word
+        const initials = words.map(w => w[0].toLowerCase()).join('');
+        
+        // Check if query matches initials exactly or as prefix
+        if (initials === query || initials.startsWith(query)) {
+            return true;
+        }
+        
+        // Also check first N letters of each word for longer queries
+        if (query.length >= words.length) {
+            const charsPerWord = Math.ceil(query.length / words.length);
+            const extendedInitials = words.map(w => 
+                w.substring(0, charsPerWord).toLowerCase()
+            ).join('');
+            
+            if (extendedInitials.startsWith(query)) {
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    /**
+     * Calculate word boundary match score
+     * Checks if query matches at word boundaries (camelCase, snake_case, spaces)
+     * @param {string} text - Text to match against
+     * @param {string} query - Search query
+     * @returns {number} Score (0-100)
+     */
+    function wordBoundaryScore(text, query) {
+        // Split text into words (handle camelCase, snake_case, spaces)
+        const words = text
+            .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase
+            .replace(/[_-]/g, ' ')                  // snake_case, kebab-case
+            .toLowerCase()
+            .split(/\s+/)
+            .filter(w => w.length > 0);
+        
+        if (words.length === 0) return 0;
+        
+        const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+        
+        if (queryWords.length === 0) return 0;
+        
+        let matchedWords = 0;
+        let totalScore = 0;
+        
+        for (const qWord of queryWords) {
+            let bestWordScore = 0;
+            
+            for (const word of words) {
+                let wordScore = 0;
+                
+                if (word === qWord) {
+                    wordScore = 100;  // Exact word match
+                } else if (word.startsWith(qWord)) {
+                    wordScore = 80 - (word.length - qWord.length);  // Prefix match
+                } else if (word.includes(qWord)) {
+                    wordScore = 50;  // Contains
+                } else {
+                    // Levenshtein for short words
+                    const dist = levenshteinDistance(word, qWord);
+                    const maxLen = Math.max(word.length, qWord.length);
+                    if (dist <= 2 && dist < maxLen * 0.4) {
+                        wordScore = 30 - (dist * 10);  // Typo tolerance
+                    }
+                }
+                
+                bestWordScore = Math.max(bestWordScore, wordScore);
+            }
+            
+            if (bestWordScore > 0) {
+                matchedWords++;
+                totalScore += bestWordScore;
+            }
+        }
+        
+        // Require all query words to match for multi-word queries
+        if (queryWords.length > 1 && matchedWords < queryWords.length) {
+            return 0;
+        }
+        
+        // Average score with bonus for matching all words
+        const avgScore = totalScore / queryWords.length;
+        const allWordsBonus = (matchedWords === queryWords.length) ? 10 : 0;
+        
+        return Math.min(100, avgScore + allWordsBonus);
+    }
+
+    /**
+     * Calculate fuzzy match score using multiple strategies
+     * @param {string} text - Text to match against
+     * @param {string} query - Search query
+     * @returns {object} {score: number, matchType: string}
+     */
+    function fuzzyScore(text, query) {
+        if (!text || !query) return { score: 0, matchType: 'none' };
+        
+        const lowerText = text.toLowerCase();
+        const lowerQuery = query.toLowerCase().trim();
+        
+        if (lowerQuery.length === 0) return { score: 0, matchType: 'none' };
+        
+        // 1. Exact match (100 points)
+        if (lowerText === lowerQuery) {
+            return { score: 100, matchType: 'exact' };
+        }
+        
+        // 2. Starts with (90 points, minus length difference penalty)
+        if (lowerText.startsWith(lowerQuery)) {
+            const lengthPenalty = Math.min(10, (lowerText.length - lowerQuery.length) / 2);
+            return { score: 90 - lengthPenalty, matchType: 'prefix' };
+        }
+        
+        // 3. Word starts with query (85 points) - "eagle" matches "Eagle Creek"
+        const words = lowerText.split(/\s+/);
+        for (const word of words) {
+            if (word.startsWith(lowerQuery)) {
+                const lengthPenalty = Math.min(5, (word.length - lowerQuery.length) / 2);
+                return { score: 85 - lengthPenalty, matchType: 'word-prefix' };
+            }
+        }
+        
+        // 4. Typo tolerance on individual words (check early for better UX)
+        // "bsaecamp" should find "basecamp" with good score
+        const typoResult = checkTypoMatch(words, lowerQuery);
+        if (typoResult.score > 0) {
+            return typoResult;
+        }
+        
+        // 5. Word boundary match for multi-word queries (up to 80 points)
+        const wbScore = wordBoundaryScore(lowerText, lowerQuery);
+        if (wbScore > 50) {
+            return { score: Math.min(80, wbScore), matchType: 'word-boundary' };
+        }
+        
+        // 6. Initials match (70 points)
+        if (matchesInitials(lowerText, lowerQuery)) {
+            return { score: 70, matchType: 'initials' };
+        }
+        
+        // 7. Contains (55 points, minus position penalty)
+        const containsIdx = lowerText.indexOf(lowerQuery);
+        if (containsIdx !== -1) {
+            const positionPenalty = Math.min(15, containsIdx / 2);
+            return { score: 55 - positionPenalty, matchType: 'contains' };
+        }
+        
+        // 8. Subsequence match (characters in order) with quality score
+        const subseqResult = subsequenceMatch(lowerText, lowerQuery);
+        if (subseqResult.matched) {
+            const score = 25 + (subseqResult.quality * 20);  // 25-45 points
+            return { score: score, matchType: 'subsequence' };
+        }
+        
+        // 9. Word boundary with lower threshold (15-35 points)
+        if (wbScore > 15) {
+            return { score: wbScore, matchType: 'partial-word' };
+        }
+        
+        return { score: 0, matchType: 'none' };
+    }
+
+    /**
+     * Check for typo matches against words in text
+     * @param {Array} words - Words in text
+     * @param {string} query - Search query
+     * @returns {object} {score: number, matchType: string}
+     */
+    function checkTypoMatch(words, query) {
+        // Only check typos for reasonable length queries
+        if (query.length < 3 || query.length > 15) {
+            return { score: 0, matchType: 'none' };
+        }
+        
+        let bestScore = 0;
+        
+        for (const word of words) {
+            // Skip very short words
+            if (word.length < 3) continue;
+            
+            const dist = levenshteinDistance(word, query);
+            const maxLen = Math.max(word.length, query.length);
+            const minLen = Math.min(word.length, query.length);
+            
+            // Calculate allowed distance based on word length
+            // Longer words can have more typos
+            let maxAllowedDist;
+            if (minLen <= 4) {
+                maxAllowedDist = 1;
+            } else if (minLen <= 6) {
+                maxAllowedDist = 2;
+            } else {
+                maxAllowedDist = 3;
+            }
+            
+            // Check if it's a reasonable typo match
+            if (dist <= maxAllowedDist && dist < maxLen * 0.4) {
+                // Score based on similarity ratio
+                const similarity = 1 - (dist / maxLen);
+                const score = Math.round(35 + (similarity * 40));  // 35-75 points
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                }
+            }
+        }
+        
+        if (bestScore > 0) {
+            return { score: bestScore, matchType: 'typo' };
+        }
+        
+        return { score: 0, matchType: 'none' };
+    }
+
+    /**
+     * Calculate haversine distance in kilometers
+     * @param {number} lat1 - First latitude
+     * @param {number} lon1 - First longitude  
+     * @param {number} lat2 - Second latitude
+     * @param {number} lon2 - Second longitude
+     * @returns {number} Distance in kilometers
+     */
+    function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth radius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    /**
+     * Check if query is a subsequence of text (characters in order)
+     * Returns quality score based on how compact the match is
+     * @param {string} text - Text to search in
+     * @param {string} query - Query pattern
+     * @returns {object} {matched: boolean, quality: number 0-1}
+     */
+    function subsequenceMatch(text, query) {
+        if (query.length > text.length) {
+            return { matched: false, quality: 0 };
+        }
+        
+        let queryIdx = 0;
+        let firstMatchIdx = -1;
+        let lastMatchIdx = -1;
+        
+        for (let i = 0; i < text.length && queryIdx < query.length; i++) {
+            if (text[i] === query[queryIdx]) {
+                if (firstMatchIdx === -1) firstMatchIdx = i;
+                lastMatchIdx = i;
+                queryIdx++;
+            }
+        }
+        
+        if (queryIdx !== query.length) {
+            return { matched: false, quality: 0 };
+        }
+        
+        // Quality = how compact the match is (query length / span)
+        const span = lastMatchIdx - firstMatchIdx + 1;
+        const quality = query.length / span;
+        
+        // Bonus for starting at word boundary
+        const startsAtBoundary = firstMatchIdx === 0 || 
+            /\s/.test(text[firstMatchIdx - 1]) ||
+            /[A-Z]/.test(text[firstMatchIdx]);
+        
+        const finalQuality = startsAtBoundary ? Math.min(1, quality + 0.2) : quality;
+        
+        return { matched: true, quality: finalQuality };
+    }
+
+    /**
+     * Calculate match score for an item using enhanced fuzzy matching
+     * @param {object} item - Item to score
+     * @param {string} query - Search query
+     * @param {Array} fields - Fields to search in
+     * @returns {number} Match score (0-100)
      */
     function calculateMatchScore(item, query, fields) {
         let maxScore = 0;
+        let bestMatchType = 'none';
         
         for (const field of fields) {
             const value = item[field];
             if (!value) continue;
             
-            const lowerValue = String(value).toLowerCase();
+            const result = fuzzyScore(String(value), query);
             
-            // Exact match
-            if (lowerValue === query) {
-                maxScore = Math.max(maxScore, 100);
-            }
-            // Starts with
-            else if (lowerValue.startsWith(query)) {
-                maxScore = Math.max(maxScore, 80);
-            }
-            // Word starts with
-            else if (lowerValue.split(/\s+/).some(word => word.startsWith(query))) {
-                maxScore = Math.max(maxScore, 60);
-            }
-            // Contains
-            else if (lowerValue.includes(query)) {
-                maxScore = Math.max(maxScore, 40);
-            }
-            // Fuzzy match (characters in order)
-            else if (fuzzyMatch(lowerValue, query)) {
-                maxScore = Math.max(maxScore, 20);
+            if (result.score > maxScore) {
+                maxScore = result.score;
+                bestMatchType = result.matchType;
             }
         }
+        
+        // Store match type for potential UI use
+        item._matchType = bestMatchType;
         
         return maxScore;
     }
 
     /**
-     * Simple fuzzy matching (characters appear in order)
+     * Legacy fuzzy match function (kept for compatibility)
+     * @deprecated Use fuzzyScore instead
      */
     function fuzzyMatch(str, pattern) {
-        let patternIdx = 0;
-        for (let i = 0; i < str.length && patternIdx < pattern.length; i++) {
-            if (str[i] === pattern[patternIdx]) {
-                patternIdx++;
-            }
-        }
-        return patternIdx === pattern.length;
+        const result = subsequenceMatch(str.toLowerCase(), pattern.toLowerCase());
+        return result.matched;
     }
 
     /**
@@ -633,17 +1447,23 @@ const SearchModule = (function() {
                     <div class="global-search__group-header">
                         ${category?.icon || '📋'} ${category?.name || categoryId}
                     </div>
-                    ${items.map(item => `
-                        <div class="global-search__item ${item.index === selectedIndex ? 'global-search__item--selected' : ''}"
-                             data-index="${item.index}">
+                    ${items.map(item => {
+                        const isFav = isFavorite(item.id);
+                        return `
+                        <div class="global-search__item ${item.index === selectedIndex ? 'global-search__item--selected' : ''} ${isFav ? 'global-search__item--favorited' : ''}"
+                             data-index="${item.index}" data-item-id="${escapeHtml(item.id)}">
                             <span class="global-search__item-icon" style="color:${item.color || '#fff'}">${item.icon}</span>
                             <div class="global-search__item-content">
-                                <div class="global-search__item-title">${highlightMatch(item.title, query)}</div>
+                                <div class="global-search__item-title">${highlightMatch(item.title, query)}${isFav ? ' <span class="global-search__fav-badge">★</span>' : ''}</div>
                                 <div class="global-search__item-subtitle">${item.subtitle}</div>
                             </div>
-                            <kbd class="global-search__item-action">↵</kbd>
+                            <div class="global-search__item-actions">
+                                <button class="global-search__item-fav" data-fav-index="${item.index}" title="${isFav ? 'Remove from favorites (Ctrl+D)' : 'Add to favorites (Ctrl+D)'}">${isFav ? '★' : '☆'}</button>
+                                <kbd class="global-search__item-action">↵</kbd>
+                            </div>
                         </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             `;
         }
@@ -652,7 +1472,10 @@ const SearchModule = (function() {
         
         // Bind click events
         resultsEl.querySelectorAll('.global-search__item').forEach(el => {
-            el.addEventListener('click', () => {
+            el.addEventListener('click', (e) => {
+                // Don't activate if clicking fav button
+                if (e.target.classList.contains('global-search__item-fav')) return;
+                
                 selectedIndex = parseInt(el.dataset.index);
                 activateSelected();
             });
@@ -660,6 +1483,18 @@ const SearchModule = (function() {
             el.addEventListener('mouseenter', () => {
                 selectedIndex = parseInt(el.dataset.index);
                 updateSelection();
+            });
+        });
+        
+        // Bind favorite button events
+        resultsEl.querySelectorAll('.global-search__item-fav').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = parseInt(btn.dataset.favIndex);
+                if (results[idx]) {
+                    toggleFavorite(results[idx]);
+                    renderResults();
+                }
             });
         });
         
@@ -673,26 +1508,90 @@ const SearchModule = (function() {
     function renderRecentSearches() {
         const recentEl = searchContainer.querySelector('#search-recent');
         
-        if (query || recentSearches.length === 0) {
+        if (query) {
             recentEl.innerHTML = '';
             return;
         }
         
-        recentEl.innerHTML = `
-            <div class="global-search__recent-header">
-                Recent Searches
-                <button class="global-search__recent-clear" id="clear-recent">Clear</button>
-            </div>
-            <div class="global-search__recent-list">
-                ${recentSearches.map(search => `
-                    <button class="global-search__recent-item" data-query="${escapeHtml(search)}">
-                        🕐 ${escapeHtml(search)}
-                    </button>
-                `).join('')}
-            </div>
-        `;
+        // Build combined favorites + recent searches UI
+        let html = '';
         
-        // Bind events
+        // Favorites section (always shown if favorites exist)
+        if (favorites.length > 0) {
+            html += `
+                <div class="global-search__favorites-section">
+                    <div class="global-search__recent-header">
+                        ⭐ Favorites
+                        <button class="global-search__recent-clear" id="clear-favorites">Clear All</button>
+                    </div>
+                    <div class="global-search__favorites-list">
+                        ${favorites.slice(0, 8).map((fav, idx) => `
+                            <div class="global-search__favorite-item" data-favorite-id="${escapeHtml(fav.id)}" data-favorite-index="${idx}">
+                                <span class="global-search__favorite-icon" style="color:${fav.color || '#fff'}">${fav.icon || '⭐'}</span>
+                                <div class="global-search__favorite-content">
+                                    <div class="global-search__favorite-title">${escapeHtml(fav.title)}</div>
+                                    <div class="global-search__favorite-subtitle">${escapeHtml(fav.subtitle || fav.category)}</div>
+                                </div>
+                                <button class="global-search__favorite-remove" data-remove-id="${escapeHtml(fav.id)}" title="Remove from favorites">×</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Recent searches section
+        if (recentSearches.length > 0) {
+            html += `
+                <div class="global-search__recent-section">
+                    <div class="global-search__recent-header">
+                        🕐 Recent Searches
+                        <button class="global-search__recent-clear" id="clear-recent">Clear</button>
+                    </div>
+                    <div class="global-search__recent-list">
+                        ${recentSearches.map(search => `
+                            <button class="global-search__recent-item" data-query="${escapeHtml(search)}">
+                                ${escapeHtml(search)}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        recentEl.innerHTML = html;
+        
+        // Bind events for favorites
+        recentEl.querySelector('#clear-favorites')?.addEventListener('click', () => {
+            if (confirm('Clear all favorites?')) {
+                favorites = [];
+                saveFavorites();
+                renderRecentSearches();
+            }
+        });
+        
+        recentEl.querySelectorAll('.global-search__favorite-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                // Don't trigger if clicking remove button
+                if (e.target.classList.contains('global-search__favorite-remove')) return;
+                
+                const idx = parseInt(item.dataset.favoriteIndex);
+                if (favorites[idx]) {
+                    activateFavorite(favorites[idx]);
+                }
+            });
+        });
+        
+        recentEl.querySelectorAll('.global-search__favorite-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.dataset.removeId;
+                removeFavorite(id);
+                renderRecentSearches();
+            });
+        });
+        
+        // Bind events for recent searches
         recentEl.querySelector('#clear-recent')?.addEventListener('click', clearRecentSearches);
         
         recentEl.querySelectorAll('.global-search__recent-item').forEach(btn => {
@@ -702,6 +1601,616 @@ const SearchModule = (function() {
                 performSearch();
             });
         });
+    }
+
+    /**
+     * Activate a favorite item
+     */
+    function activateFavorite(favorite) {
+        // Reconstruct result object from favorite
+        const result = {
+            id: favorite.id,
+            category: favorite.category,
+            title: favorite.title,
+            subtitle: favorite.subtitle,
+            icon: favorite.icon,
+            color: favorite.color,
+            data: favorite.data
+        };
+        
+        // Use the same activation logic as regular results
+        switch (result.category) {
+            case 'action':
+                executeAction(result.data);
+                break;
+            case 'celestial':
+                navigateToCelestial(result.data);
+                break;
+            case 'landmark':
+                navigateToLandmark(result.data);
+                break;
+            case 'waypoint':
+                navigateToWaypoint(result.data);
+                break;
+            case 'route':
+                navigateToRoute(result.data);
+                break;
+            case 'team':
+                navigateToTeamMember(result.data);
+                break;
+            case 'frequency':
+                showFrequencyDetails(result.data);
+                break;
+            case 'help':
+                showHelpTopic(result.data);
+                break;
+            case 'settings':
+                executeSetting(result.data);
+                break;
+        }
+        
+        close();
+    }
+
+    // ==================== CONTEXTUAL SUGGESTIONS ====================
+
+    /**
+     * Gather and render all contextual suggestions when search is empty
+     */
+    function renderSuggestions() {
+        if (query) {
+            // Clear suggestions when typing
+            clearSuggestionContainers();
+            suggestionsMode = false;
+            return;
+        }
+        
+        suggestionsMode = true;
+        suggestions = [];
+        
+        // Gather all suggestions
+        const celestialSuggestions = getCelestialSuggestions();
+        const navigationSuggestions = getNavigationSuggestions();
+        const alertSuggestions = getAlertSuggestions();
+        const recentActionSuggestions = getRecentActionSuggestions();
+        
+        // Combine suggestions (limit total)
+        suggestions = [
+            ...alertSuggestions.slice(0, 2),
+            ...celestialSuggestions.slice(0, 3),
+            ...navigationSuggestions.slice(0, 2),
+            ...recentActionSuggestions.slice(0, 3)
+        ];
+        
+        // Render suggestions
+        renderSuggestionsUI();
+        renderQuickActions();
+        renderRecentSearches();
+        
+        // Reset selection
+        selectedIndex = 0;
+        if (suggestions.length > 0) {
+            updateSuggestionSelection();
+        }
+    }
+
+    /**
+     * Clear suggestion containers
+     */
+    function clearSuggestionContainers() {
+        const suggestionsEl = searchContainer.querySelector('#search-suggestions');
+        const quickActionsEl = searchContainer.querySelector('#search-quick-actions');
+        if (suggestionsEl) suggestionsEl.innerHTML = '';
+        if (quickActionsEl) quickActionsEl.innerHTML = '';
+    }
+
+    /**
+     * Get visible celestial body suggestions
+     */
+    function getCelestialSuggestions() {
+        const suggestions = [];
+        
+        if (typeof CelestialModule === 'undefined') return suggestions;
+        
+        try {
+            const now = new Date();
+            const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : { lat: 37.4215, lon: -119.1892 };
+            
+            // Check a few bright stars
+            const starsToCheck = ['Sirius', 'Vega', 'Arcturus', 'Capella', 'Polaris', 'Betelgeuse'];
+            
+            for (const starName of starsToCheck) {
+                try {
+                    const pos = CelestialModule.getStarPosition(starName, now);
+                    if (pos && !pos.error) {
+                        const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                        if (altAz.altitude > 15) { // Only suggest if well above horizon
+                            const starInfo = NAVIGATION_STARS.find(s => s.name === starName);
+                            suggestions.push({
+                                id: 'suggest-star-' + starName,
+                                type: 'celestial',
+                                title: starName,
+                                subtitle: `Now visible • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`,
+                                icon: starInfo && starInfo.magnitude < 1 ? '⭐' : '✦',
+                                color: '#fbbf24',
+                                data: { ...starInfo, type: 'star', altitude: altAz.altitude },
+                                score: 50 + altAz.altitude // Higher altitude = more visible
+                            });
+                        }
+                    }
+                } catch (e) { }
+            }
+            
+            // Check planets
+            const planetsToCheck = ['venus', 'jupiter', 'mars', 'saturn'];
+            for (const planet of planetsToCheck) {
+                try {
+                    const pos = CelestialModule.getPlanetPosition(planet, now);
+                    if (pos && !pos.error) {
+                        const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                        if (altAz.altitude > 10) {
+                            const planetName = planet.charAt(0).toUpperCase() + planet.slice(1);
+                            const planetInfo = PLANETS.find(p => p.name === planetName);
+                            suggestions.push({
+                                id: 'suggest-planet-' + planet,
+                                type: 'celestial',
+                                title: planetName,
+                                subtitle: `Planet visible • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`,
+                                icon: '🪐',
+                                color: '#fbbf24',
+                                data: { ...planetInfo, type: 'planet', altitude: altAz.altitude },
+                                score: 60 + altAz.altitude
+                            });
+                        }
+                    }
+                } catch (e) { }
+            }
+            
+            // Check Moon
+            try {
+                const moonPos = CelestialModule.getMoonPosition(now);
+                if (moonPos && !moonPos.error) {
+                    const altAz = CelestialModule.calculateAltAz(moonPos.GHA, moonPos.dec, mapState.lat, mapState.lon);
+                    if (altAz.altitude > 5) {
+                        suggestions.push({
+                            id: 'suggest-moon',
+                            type: 'celestial',
+                            title: 'Moon',
+                            subtitle: `Now visible • Alt ${altAz.altitude.toFixed(0)}° Az ${altAz.azimuth.toFixed(0)}°`,
+                            icon: '🌙',
+                            color: '#a5b4fc',
+                            data: { name: 'Moon', type: 'moon', altitude: altAz.altitude },
+                            score: 70 + altAz.altitude
+                        });
+                    }
+                }
+            } catch (e) { }
+            
+            // Sort by visibility score and return top items
+            suggestions.sort((a, b) => b.score - a.score);
+            
+        } catch (e) {
+            console.warn('Error getting celestial suggestions:', e);
+        }
+        
+        return suggestions;
+    }
+
+    /**
+     * Get active navigation suggestions
+     */
+    function getNavigationSuggestions() {
+        const suggestions = [];
+        
+        // Check for active route navigation
+        if (typeof NavigationModule !== 'undefined') {
+            try {
+                const navState = NavigationModule.getState ? NavigationModule.getState() : null;
+                if (navState && navState.active && navState.route) {
+                    const route = navState.route;
+                    const progress = navState.progress || 0;
+                    const remaining = navState.remainingDistance || '?';
+                    
+                    suggestions.push({
+                        id: 'suggest-nav-active',
+                        type: 'navigation',
+                        title: `Continue: ${route.name || 'Active Route'}`,
+                        subtitle: `${Math.round(progress * 100)}% complete • ${remaining} remaining`,
+                        icon: '🧭',
+                        color: '#3b82f6',
+                        data: { action: 'continueNavigation', route },
+                        score: 100 // High priority
+                    });
+                }
+            } catch (e) { }
+        }
+        
+        // Check for active hike
+        if (typeof HikingModule !== 'undefined') {
+            try {
+                const hikeState = HikingModule.getState ? HikingModule.getState() : null;
+                if (hikeState && hikeState.active) {
+                    const duration = hikeState.duration || '0:00';
+                    const distance = hikeState.distance || '0.0';
+                    
+                    suggestions.push({
+                        id: 'suggest-hike-active',
+                        type: 'navigation',
+                        title: 'Active Hike',
+                        subtitle: `${duration} elapsed • ${distance} mi traveled`,
+                        icon: '🥾',
+                        color: '#22c55e',
+                        data: { action: 'viewHike' },
+                        score: 95
+                    });
+                }
+            } catch (e) { }
+        }
+        
+        // Check for GPS-denied mode suggestion
+        if (typeof GPSModule !== 'undefined') {
+            try {
+                const gpsState = GPSModule.getState ? GPSModule.getState() : null;
+                if (gpsState && (!gpsState.available || gpsState.accuracy > 100)) {
+                    suggestions.push({
+                        id: 'suggest-resection',
+                        type: 'action',
+                        title: 'GPS signal weak',
+                        subtitle: 'Use rangefinder resection to fix position',
+                        icon: '📐',
+                        color: '#f59e0b',
+                        data: { action: 'rangefinderResection' },
+                        score: 85
+                    });
+                }
+            } catch (e) { }
+        }
+        
+        return suggestions;
+    }
+
+    /**
+     * Get alert suggestions (weather, emergencies, etc.)
+     */
+    function getAlertSuggestions() {
+        const suggestions = [];
+        
+        // Check for weather alerts
+        if (typeof WeatherModule !== 'undefined') {
+            try {
+                const weatherState = WeatherModule.getState ? WeatherModule.getState() : null;
+                if (weatherState && weatherState.alerts && weatherState.alerts.length > 0) {
+                    const alert = weatherState.alerts[0];
+                    suggestions.push({
+                        id: 'suggest-weather-alert',
+                        type: 'alert',
+                        title: `⚠️ ${alert.event || 'Weather Alert'}`,
+                        subtitle: alert.headline || 'Tap to view details',
+                        icon: '🌤️',
+                        color: '#ef4444',
+                        data: { action: 'viewWeatherAlert', alert },
+                        score: 110 // Highest priority
+                    });
+                }
+            } catch (e) { }
+        }
+        
+        // Check for low battery warning (if available)
+        if (typeof navigator !== 'undefined' && navigator.getBattery) {
+            try {
+                // Note: This is async, so we'd need to cache the result
+                // For now, skip this to avoid complexity
+            } catch (e) { }
+        }
+        
+        // Check for offline status
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            suggestions.push({
+                id: 'suggest-offline',
+                type: 'alert',
+                title: '📵 Offline Mode',
+                subtitle: 'No internet connection - using cached data',
+                icon: '📵',
+                color: '#f59e0b',
+                data: { action: 'viewOfflineStatus' },
+                score: 80
+            });
+        }
+        
+        return suggestions;
+    }
+
+    /**
+     * Get recent action suggestions
+     */
+    function getRecentActionSuggestions() {
+        return recentActions.slice(0, 5).map((action, index) => ({
+            id: 'suggest-recent-' + action.id,
+            type: 'recent-action',
+            title: action.name,
+            subtitle: `Used ${formatTimeAgo(action.usedAt)}`,
+            icon: action.icon,
+            color: '#6b7280',
+            data: action,
+            score: 40 - index * 5 // More recent = higher score
+        }));
+    }
+
+    /**
+     * Format relative time
+     */
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) return 'recently';
+        
+        const now = Date.now();
+        const diff = now - timestamp;
+        
+        if (diff < 60000) return 'just now';
+        if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)} hours ago`;
+        return `${Math.floor(diff / 86400000)} days ago`;
+    }
+
+    /**
+     * Render suggestions UI
+     */
+    function renderSuggestionsUI() {
+        const suggestionsEl = searchContainer.querySelector('#search-suggestions');
+        
+        if (suggestions.length === 0) {
+            suggestionsEl.innerHTML = '';
+            return;
+        }
+        
+        // Group suggestions by type
+        const alertItems = suggestions.filter(s => s.type === 'alert');
+        const celestialItems = suggestions.filter(s => s.type === 'celestial');
+        const navItems = suggestions.filter(s => s.type === 'navigation' || s.type === 'action');
+        const recentItems = suggestions.filter(s => s.type === 'recent-action');
+        
+        let html = '';
+        let itemIndex = 0;
+        
+        // Alerts section
+        if (alertItems.length > 0) {
+            html += `<div class="global-search__suggestion-group">
+                <div class="global-search__group-header">⚠️ Alerts</div>
+                ${alertItems.map(item => renderSuggestionItem(item, itemIndex++)).join('')}
+            </div>`;
+        }
+        
+        // Celestial section
+        if (celestialItems.length > 0) {
+            html += `<div class="global-search__suggestion-group">
+                <div class="global-search__group-header">⭐ Now Visible</div>
+                ${celestialItems.map(item => renderSuggestionItem(item, itemIndex++)).join('')}
+            </div>`;
+        }
+        
+        // Navigation section
+        if (navItems.length > 0) {
+            html += `<div class="global-search__suggestion-group">
+                <div class="global-search__group-header">🧭 Navigation</div>
+                ${navItems.map(item => renderSuggestionItem(item, itemIndex++)).join('')}
+            </div>`;
+        }
+        
+        // Recent actions section
+        if (recentItems.length > 0) {
+            html += `<div class="global-search__suggestion-group">
+                <div class="global-search__group-header">🕐 Recent</div>
+                ${recentItems.map(item => renderSuggestionItem(item, itemIndex++)).join('')}
+            </div>`;
+        }
+        
+        suggestionsEl.innerHTML = html;
+        
+        // Bind click events
+        suggestionsEl.querySelectorAll('.global-search__item').forEach(el => {
+            el.addEventListener('click', () => {
+                selectedIndex = parseInt(el.dataset.index);
+                activateSuggestion();
+            });
+            
+            el.addEventListener('mouseenter', () => {
+                selectedIndex = parseInt(el.dataset.index);
+                updateSuggestionSelection();
+            });
+        });
+    }
+
+    /**
+     * Render a single suggestion item
+     */
+    function renderSuggestionItem(item, index) {
+        return `
+            <div class="global-search__item ${index === selectedIndex ? 'global-search__item--selected' : ''}"
+                 data-index="${index}" data-suggestion-id="${item.id}">
+                <span class="global-search__item-icon" style="color:${item.color || '#fff'}">${item.icon}</span>
+                <div class="global-search__item-content">
+                    <div class="global-search__item-title">${escapeHtml(item.title)}</div>
+                    <div class="global-search__item-subtitle">${escapeHtml(item.subtitle)}</div>
+                </div>
+                <kbd class="global-search__item-action">↵</kbd>
+            </div>
+        `;
+    }
+
+    /**
+     * Render quick action buttons
+     */
+    function renderQuickActions() {
+        const quickActionsEl = searchContainer.querySelector('#search-quick-actions');
+        
+        // Define quick action buttons
+        const quickActions = [
+            { id: 'add-waypoint', name: 'Add Waypoint', icon: '📍', action: 'addWaypoint' },
+            { id: 'measure-distance', name: 'Measure', icon: '📏', action: 'measureDistance' },
+            { id: 'take-bearing', name: 'Compass', icon: '🧭', action: 'takeBearing' },
+            { id: 'star-chart', name: 'Stars', icon: '⭐', action: 'starChart' }
+        ];
+        
+        quickActionsEl.innerHTML = `
+            <div class="global-search__quick-actions-grid">
+                ${quickActions.map(qa => `
+                    <button class="global-search__quick-action-btn" data-action="${qa.action}" title="${qa.name}">
+                        <span class="global-search__quick-action-icon">${qa.icon}</span>
+                        <span class="global-search__quick-action-label">${qa.name}</span>
+                    </button>
+                `).join('')}
+            </div>
+        `;
+        
+        // Bind click events
+        quickActionsEl.querySelectorAll('.global-search__quick-action-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const actionId = btn.dataset.action;
+                const action = ACTION_COMMANDS.find(a => a.action === actionId);
+                if (action) {
+                    executeAction(action);
+                    close();
+                }
+            });
+        });
+    }
+
+    /**
+     * Update suggestion selection highlighting
+     */
+    function updateSuggestionSelection() {
+        const items = searchContainer.querySelectorAll('#search-suggestions .global-search__item');
+        items.forEach((item) => {
+            item.classList.toggle('global-search__item--selected', parseInt(item.dataset.index) === selectedIndex);
+        });
+        
+        // Scroll into view
+        const selected = searchContainer.querySelector('#search-suggestions .global-search__item--selected');
+        if (selected) {
+            selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+
+    /**
+     * Activate the selected suggestion
+     */
+    function activateSuggestion() {
+        if (suggestions.length === 0 || selectedIndex >= suggestions.length) return;
+        
+        const suggestion = suggestions[selectedIndex];
+        
+        // Handle based on suggestion type
+        switch (suggestion.type) {
+            case 'celestial':
+                navigateToCelestial(suggestion.data);
+                break;
+                
+            case 'navigation':
+            case 'action':
+                if (suggestion.data.action) {
+                    const action = ACTION_COMMANDS.find(a => a.action === suggestion.data.action);
+                    if (action) {
+                        executeAction(action);
+                    } else {
+                        // Handle special navigation actions
+                        handleSpecialAction(suggestion.data.action, suggestion.data);
+                    }
+                }
+                break;
+                
+            case 'alert':
+                handleAlertAction(suggestion.data);
+                break;
+                
+            case 'recent-action':
+                executeAction(suggestion.data);
+                break;
+        }
+        
+        close();
+    }
+
+    /**
+     * Handle special navigation/alert actions
+     */
+    function handleSpecialAction(action, data) {
+        switch (action) {
+            case 'continueNavigation':
+                State.UI.setActivePanel('navigation');
+                Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'navigation' });
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Resuming navigation', 'info', 2000);
+                }
+                break;
+                
+            case 'viewHike':
+                State.UI.setActivePanel('navigation');
+                Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'navigation' });
+                break;
+                
+            case 'viewOfflineStatus':
+                State.UI.setActivePanel('offline');
+                Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'offline' });
+                break;
+        }
+    }
+
+    /**
+     * Handle alert-specific actions
+     */
+    function handleAlertAction(data) {
+        if (data.action === 'viewWeatherAlert') {
+            State.UI.setActivePanel('weather');
+            Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'weather' });
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`Weather Alert: ${data.alert?.event || 'Active'}`, 'warning', 3000);
+            }
+        }
+    }
+
+    /**
+     * Track action usage for recent actions
+     */
+    function trackActionUsage(action) {
+        // Remove if already exists
+        recentActions = recentActions.filter(a => a.id !== action.id);
+        
+        // Add to front with timestamp
+        recentActions.unshift({
+            ...action,
+            usedAt: Date.now()
+        });
+        
+        // Limit to 10 recent actions
+        recentActions = recentActions.slice(0, 10);
+        
+        // Persist to localStorage
+        saveRecentActions();
+    }
+
+    /**
+     * Save recent actions to localStorage
+     */
+    function saveRecentActions() {
+        try {
+            localStorage.setItem('griddown_recent_actions', JSON.stringify(recentActions));
+        } catch (e) {
+            console.warn('Failed to save recent actions:', e);
+        }
+    }
+
+    /**
+     * Load recent actions from localStorage
+     */
+    function loadRecentActions() {
+        try {
+            const saved = localStorage.getItem('griddown_recent_actions');
+            if (saved) {
+                recentActions = JSON.parse(saved);
+            }
+        } catch (e) {
+            console.warn('Failed to load recent actions:', e);
+            recentActions = [];
+        }
     }
 
     /**
@@ -728,18 +2237,36 @@ const SearchModule = (function() {
      * Select next result
      */
     function selectNext() {
-        if (results.length === 0) return;
-        selectedIndex = (selectedIndex + 1) % results.length;
-        updateSelection();
+        if (results.length === 0 && !suggestionsMode) return;
+        
+        const itemCount = suggestionsMode ? suggestions.length : results.length;
+        if (itemCount === 0) return;
+        
+        selectedIndex = (selectedIndex + 1) % itemCount;
+        
+        if (suggestionsMode) {
+            updateSuggestionSelection();
+        } else {
+            updateSelection();
+        }
     }
 
     /**
      * Select previous result
      */
     function selectPrevious() {
-        if (results.length === 0) return;
-        selectedIndex = (selectedIndex - 1 + results.length) % results.length;
-        updateSelection();
+        if (results.length === 0 && !suggestionsMode) return;
+        
+        const itemCount = suggestionsMode ? suggestions.length : results.length;
+        if (itemCount === 0) return;
+        
+        selectedIndex = (selectedIndex - 1 + itemCount) % itemCount;
+        
+        if (suggestionsMode) {
+            updateSuggestionSelection();
+        } else {
+            updateSelection();
+        }
     }
 
     /**
@@ -767,6 +2294,12 @@ const SearchModule = (function() {
      * Activate the selected result
      */
     function activateSelected() {
+        // If in suggestions mode, use suggestion activation
+        if (suggestionsMode && suggestions.length > 0) {
+            activateSuggestion();
+            return;
+        }
+        
         if (results.length === 0 || selectedIndex >= results.length) return;
         
         const result = results[selectedIndex];
@@ -776,6 +2309,18 @@ const SearchModule = (function() {
         
         // Handle based on category
         switch (result.category) {
+            case 'action':
+                executeAction(result.data);
+                break;
+                
+            case 'celestial':
+                navigateToCelestial(result.data);
+                break;
+                
+            case 'landmark':
+                navigateToLandmark(result.data);
+                break;
+                
             case 'waypoint':
                 navigateToWaypoint(result.data);
                 break;
@@ -794,6 +2339,14 @@ const SearchModule = (function() {
                 
             case 'location':
                 navigateToCoordinates(result.data);
+                break;
+                
+            case 'help':
+                showHelpTopic(result.data);
+                break;
+                
+            case 'settings':
+                executeSetting(result.data);
                 break;
         }
         
@@ -826,6 +2379,880 @@ const SearchModule = (function() {
         
         // Emit event
         Events.emit('search:navigate', { type: 'waypoint', data: waypoint });
+    }
+
+    /**
+     * Navigate to a landmark and show action options
+     */
+    function navigateToLandmark(landmark) {
+        // Center map on landmark
+        if (typeof MapModule !== 'undefined' && MapModule.setCenter) {
+            MapModule.setCenter(landmark.lat, landmark.lon, 14);
+        }
+        
+        // Show landmark action modal
+        showLandmarkActionModal(landmark);
+        
+        // Emit event
+        Events.emit('search:navigate', { type: 'landmark', data: landmark });
+    }
+
+    /**
+     * Show action modal for a landmark
+     */
+    function showLandmarkActionModal(landmark) {
+        const typeInfo = landmark.typeInfo || { icon: '🏔️', label: 'Landmark' };
+        const elevationStr = landmark.elevation ? `${landmark.elevation.toLocaleString()}m` : '';
+        
+        // Create modal content
+        const modalHtml = `
+            <div class="landmark-action-modal">
+                <div class="landmark-action-modal__header">
+                    <span class="landmark-action-modal__icon">${typeInfo.icon}</span>
+                    <div class="landmark-action-modal__info">
+                        <h3 class="landmark-action-modal__name">${escapeHtml(landmark.name)}</h3>
+                        <div class="landmark-action-modal__details">
+                            ${elevationStr ? `<span>${elevationStr}</span>` : ''}
+                            ${landmark.source ? `<span>• ${escapeHtml(landmark.source)}</span>` : ''}
+                        </div>
+                        <div class="landmark-action-modal__coords">
+                            ${landmark.lat.toFixed(5)}°, ${landmark.lon.toFixed(5)}°
+                        </div>
+                    </div>
+                </div>
+                <div class="landmark-action-modal__actions">
+                    <button class="landmark-action-btn" data-action="show-map">
+                        <span class="landmark-action-btn__icon">🗺️</span>
+                        <span class="landmark-action-btn__label">Show on Map</span>
+                    </button>
+                    <button class="landmark-action-btn" data-action="add-resection">
+                        <span class="landmark-action-btn__icon">📐</span>
+                        <span class="landmark-action-btn__label">Add to Resection</span>
+                    </button>
+                    <button class="landmark-action-btn" data-action="save-waypoint">
+                        <span class="landmark-action-btn__icon">📍</span>
+                        <span class="landmark-action-btn__label">Save as Waypoint</span>
+                    </button>
+                    <button class="landmark-action-btn" data-action="copy-coords">
+                        <span class="landmark-action-btn__icon">📋</span>
+                        <span class="landmark-action-btn__label">Copy Coordinates</span>
+                    </button>
+                </div>
+                <div class="landmark-action-modal__legal">
+                    Data source: ${escapeHtml(landmark.source || 'Unknown')} (Public Domain)
+                </div>
+            </div>
+        `;
+        
+        // Show modal using ModalsModule or create simple overlay
+        if (typeof ModalsModule !== 'undefined' && ModalsModule.showCustomModal) {
+            const modal = ModalsModule.showCustomModal(modalHtml, {
+                title: 'Landmark',
+                width: '320px'
+            });
+            
+            // Bind action buttons
+            modal.querySelectorAll('.landmark-action-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    handleLandmarkAction(btn.dataset.action, landmark);
+                    ModalsModule.closeModal();
+                });
+            });
+        } else {
+            // Fallback: just show on map and toast
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`${typeInfo.icon} ${landmark.name} • ${elevationStr}`, 'info', 4000);
+            }
+        }
+    }
+
+    /**
+     * Handle landmark action button clicks
+     */
+    function handleLandmarkAction(action, landmark) {
+        switch (action) {
+            case 'show-map':
+                // Already centered, just ensure map is visible
+                if (typeof MapModule !== 'undefined') {
+                    // Add a temporary marker
+                    MapModule.addTemporaryMarker?.(landmark.lat, landmark.lon, {
+                        title: landmark.name,
+                        icon: landmark.typeInfo?.icon || '🏔️'
+                    });
+                }
+                break;
+                
+            case 'add-resection':
+                if (typeof LandmarkModule !== 'undefined') {
+                    const added = LandmarkModule.addToResection(landmark.id);
+                    if (added) {
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast(`Added ${landmark.name} to resection`, 'success');
+                        }
+                        // Open celestial panel with rangefinder section
+                        State.UI.setActivePanel('celestial');
+                        Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'celestial' });
+                        
+                        // Scroll to resection widget after a brief delay
+                        setTimeout(() => {
+                            const resectionEl = document.getElementById('resection-widget');
+                            if (resectionEl) {
+                                resectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        }, 300);
+                    }
+                } else {
+                    // Direct add to RangefinderModule if available
+                    if (typeof RangefinderModule !== 'undefined') {
+                        RangefinderModule.addLandmark({
+                            id: landmark.id,
+                            name: landmark.name,
+                            position: { lat: landmark.lat, lon: landmark.lon },
+                            elevation: landmark.elevation,
+                            source: 'landmark_pack',
+                            icon: landmark.typeInfo?.icon || '🏔️'
+                        });
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast(`Added ${landmark.name} to resection`, 'success');
+                        }
+                    }
+                }
+                break;
+                
+            case 'save-waypoint':
+                if (typeof LandmarkModule !== 'undefined') {
+                    const wp = LandmarkModule.saveAsWaypoint(landmark.id);
+                    if (wp) {
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast(`Saved ${landmark.name} as waypoint`, 'success');
+                        }
+                        // Open waypoints panel
+                        State.UI.setActivePanel('waypoints');
+                        Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'waypoints' });
+                    }
+                } else {
+                    // Direct add to waypoints
+                    const newWaypoint = {
+                        id: `wp_${Date.now()}`,
+                        name: landmark.name,
+                        lat: landmark.lat,
+                        lon: landmark.lon,
+                        type: 'custom',
+                        elevation: landmark.elevation,
+                        notes: `From ${landmark.source}`,
+                        icon: landmark.typeInfo?.icon || '🏔️',
+                        createdAt: new Date().toISOString()
+                    };
+                    
+                    if (typeof State !== 'undefined' && State.Waypoints) {
+                        State.Waypoints.add(newWaypoint);
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast(`Saved ${landmark.name} as waypoint`, 'success');
+                        }
+                    }
+                }
+                break;
+                
+            case 'copy-coords':
+                const coordStr = `${landmark.lat.toFixed(6)}, ${landmark.lon.toFixed(6)}`;
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(coordStr).then(() => {
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast('Coordinates copied!', 'success');
+                        }
+                    });
+                }
+                break;
+        }
+    }
+
+    /**
+     * Show help topic content
+     */
+    function showHelpTopic(topic) {
+        const modalHtml = `
+            <div class="help-topic-modal">
+                <div class="help-topic-modal__header">
+                    <span class="help-topic-modal__icon">${topic.icon}</span>
+                    <h3 class="help-topic-modal__title">${escapeHtml(topic.name)}</h3>
+                </div>
+                <div class="help-topic-modal__content">
+                    <p class="help-topic-modal__description">${escapeHtml(topic.description)}</p>
+                    <div class="help-topic-modal__body">
+                        ${escapeHtml(topic.content)}
+                    </div>
+                </div>
+                <div class="help-topic-modal__keywords">
+                    ${topic.keywords.map(kw => `<span class="help-topic-modal__tag">${escapeHtml(kw)}</span>`).join('')}
+                </div>
+            </div>
+        `;
+        
+        if (typeof ModalsModule !== 'undefined' && ModalsModule.showCustomModal) {
+            ModalsModule.showCustomModal(modalHtml, {
+                title: 'Help',
+                width: '400px'
+            });
+        } else if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`${topic.icon} ${topic.name}: ${topic.description}`, 'info', 5000);
+        }
+        
+        Events.emit('search:help', { topic });
+    }
+
+    /**
+     * Execute a setting action
+     */
+    function executeSetting(setting) {
+        // Track as recent action
+        trackActionUsage({
+            id: setting.id,
+            name: setting.name,
+            icon: setting.icon,
+            action: setting.action
+        });
+        
+        // Handle panel navigation
+        if (setting.panel) {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.add('open');
+            State.UI.setActivePanel(setting.panel);
+            Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: setting.panel });
+            return;
+        }
+        
+        // Handle setting actions
+        switch (setting.action) {
+            case 'toggleNightMode':
+                if (typeof NightModeModule !== 'undefined') {
+                    NightModeModule.toggle();
+                    const isEnabled = document.body.classList.contains('night-mode');
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(`Night mode ${isEnabled ? 'enabled' : 'disabled'}`, 'success');
+                    }
+                }
+                break;
+                
+            case 'toggleUnits':
+                // Toggle between metric and imperial
+                const currentUnits = localStorage.getItem('griddown_units') || 'metric';
+                const newUnits = currentUnits === 'metric' ? 'imperial' : 'metric';
+                localStorage.setItem('griddown_units', newUnits);
+                Events.emit('settings:units', { units: newUnits });
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Units: ${newUnits}`, 'success');
+                }
+                break;
+                
+            case 'cycleCoordFormat':
+                const formats = ['decimal', 'dms', 'ddm'];
+                const currentFormat = localStorage.getItem('griddown_coord_format') || 'decimal';
+                const currentIdx = formats.indexOf(currentFormat);
+                const newFormat = formats[(currentIdx + 1) % formats.length];
+                localStorage.setItem('griddown_coord_format', newFormat);
+                Events.emit('settings:coordFormat', { format: newFormat });
+                if (typeof ModalsModule !== 'undefined') {
+                    const formatNames = { decimal: 'Decimal Degrees', dms: 'DMS (° \' ")', ddm: 'Degrees Decimal Minutes' };
+                    ModalsModule.showToast(`Coordinates: ${formatNames[newFormat]}`, 'success');
+                }
+                break;
+                
+            case 'changeMapLayer':
+                // Open layers panel
+                State.UI.setActivePanel('layers');
+                Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'layers' });
+                break;
+                
+            case 'openOfflineMaps':
+                State.UI.setActivePanel('offline');
+                Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'offline' });
+                break;
+                
+            case 'toggleGpsAccuracy':
+                const showAccuracy = localStorage.getItem('griddown_show_gps_accuracy') !== 'false';
+                localStorage.setItem('griddown_show_gps_accuracy', !showAccuracy);
+                Events.emit('settings:gpsAccuracy', { show: !showAccuracy });
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`GPS accuracy circle ${!showAccuracy ? 'shown' : 'hidden'}`, 'success');
+                }
+                break;
+                
+            case 'toggleTrackPosition':
+                const tracking = localStorage.getItem('griddown_track_position') !== 'false';
+                localStorage.setItem('griddown_track_position', !tracking);
+                Events.emit('settings:trackPosition', { enabled: !tracking });
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Position tracking ${!tracking ? 'enabled' : 'disabled'}`, 'success');
+                }
+                break;
+                
+            case 'toggleSounds':
+                const soundsOn = localStorage.getItem('griddown_sounds') !== 'false';
+                localStorage.setItem('griddown_sounds', !soundsOn);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Sounds ${!soundsOn ? 'enabled' : 'disabled'}`, 'success');
+                }
+                break;
+                
+            case 'clearAllData':
+                if (confirm('Are you sure you want to delete all data? This cannot be undone.')) {
+                    localStorage.clear();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('All data cleared. Reloading...', 'warning', 2000);
+                    }
+                    setTimeout(() => window.location.reload(), 2000);
+                }
+                break;
+                
+            case 'exportAllData':
+                exportAllData();
+                break;
+                
+            case 'showAbout':
+                const version = typeof APP_VERSION !== 'undefined' ? APP_VERSION : '6.43.0';
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`GridDown v${version}`, 'info', 3000);
+                }
+                break;
+                
+            case 'showPrivacy':
+                // Could open privacy policy modal or link
+                window.open('PRIVACY.md', '_blank');
+                break;
+                
+            default:
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`${setting.icon} ${setting.name}`, 'info');
+                }
+        }
+        
+        Events.emit('search:setting', { setting });
+    }
+
+    /**
+     * Export all user data as JSON
+     */
+    function exportAllData() {
+        try {
+            const data = {
+                exportDate: new Date().toISOString(),
+                version: typeof APP_VERSION !== 'undefined' ? APP_VERSION : '6.43.0',
+                waypoints: State.get('waypoints') || [],
+                routes: State.get('routes') || [],
+                team: State.get('team') || [],
+                frequencies: State.get('frequencies') || [],
+                settings: {
+                    units: localStorage.getItem('griddown_units'),
+                    coordFormat: localStorage.getItem('griddown_coord_format'),
+                    theme: localStorage.getItem('griddown_theme')
+                }
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `griddown-backup-${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Data exported successfully', 'success');
+            }
+        } catch (e) {
+            console.error('Export failed:', e);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Export failed', 'error');
+            }
+        }
+    }
+
+    // ==================== FAVORITES SYSTEM ====================
+
+    /**
+     * Add item to favorites
+     * @param {object} item - Item to favorite (must have id, category, title)
+     */
+    function addFavorite(item) {
+        if (!item || !item.id) return false;
+        
+        // Check if already favorited
+        if (favorites.some(f => f.id === item.id)) {
+            return false;
+        }
+        
+        const favorite = {
+            id: item.id,
+            category: item.category,
+            title: item.title,
+            subtitle: item.subtitle,
+            icon: item.icon,
+            color: item.color,
+            data: item.data,
+            favoritedAt: Date.now()
+        };
+        
+        favorites.unshift(favorite);
+        
+        // Limit favorites
+        if (favorites.length > 20) {
+            favorites = favorites.slice(0, 20);
+        }
+        
+        saveFavorites();
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`★ Added to favorites`, 'success', 1500);
+        }
+        
+        return true;
+    }
+
+    /**
+     * Remove item from favorites
+     * @param {string} itemId - ID of item to remove
+     */
+    function removeFavorite(itemId) {
+        const index = favorites.findIndex(f => f.id === itemId);
+        if (index === -1) return false;
+        
+        favorites.splice(index, 1);
+        saveFavorites();
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(`Removed from favorites`, 'info', 1500);
+        }
+        
+        return true;
+    }
+
+    /**
+     * Check if item is favorited
+     * @param {string} itemId - ID to check
+     */
+    function isFavorite(itemId) {
+        return favorites.some(f => f.id === itemId);
+    }
+
+    /**
+     * Toggle favorite status
+     * @param {object} item - Item to toggle
+     */
+    function toggleFavorite(item) {
+        if (isFavorite(item.id)) {
+            return removeFavorite(item.id);
+        } else {
+            return addFavorite(item);
+        }
+    }
+
+    /**
+     * Get all favorites
+     */
+    function getFavorites() {
+        return [...favorites];
+    }
+
+    /**
+     * Save favorites to localStorage
+     */
+    function saveFavorites() {
+        try {
+            localStorage.setItem('griddown_search_favorites', JSON.stringify(favorites));
+        } catch (e) {
+            console.warn('Failed to save favorites:', e);
+        }
+    }
+
+    /**
+     * Load favorites from localStorage
+     */
+    function loadFavorites() {
+        try {
+            const saved = localStorage.getItem('griddown_search_favorites');
+            if (saved) {
+                favorites = JSON.parse(saved);
+            }
+        } catch (e) {
+            console.warn('Failed to load favorites:', e);
+            favorites = [];
+        }
+    }
+
+    /**
+     * Execute an action command
+     */
+    function executeAction(action) {
+        // Track action usage for suggestions
+        trackActionUsage(action);
+        
+        // Open sidebar if there's a target panel
+        if (action.panel) {
+            const sidebar = document.getElementById('sidebar');
+            if (sidebar) sidebar.classList.add('open');
+            State.UI.setActivePanel(action.panel);
+            Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: action.panel });
+        }
+        
+        // Execute the specific action
+        switch (action.action) {
+            case 'addWaypoint':
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.openWaypointModal();
+                }
+                break;
+                
+            case 'addWaypointHere':
+                if (typeof MapModule !== 'undefined') {
+                    const mapState = MapModule.getMapState();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.openWaypointModal(null, {
+                            lat: mapState.lat,
+                            lon: mapState.lon
+                        });
+                    }
+                }
+                break;
+                
+            case 'newRoute':
+                if (typeof RouteBuilderModule !== 'undefined') {
+                    RouteBuilderModule.startBuilding();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Route building started. Click on map to add points.', 'info', 3000);
+                    }
+                }
+                break;
+                
+            case 'startNavigation':
+                // Just open navigation panel - user selects route
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Select a route to begin navigation', 'info', 2000);
+                }
+                break;
+                
+            case 'stopNavigation':
+                if (typeof NavigationModule !== 'undefined') {
+                    NavigationModule.stopNavigation();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Navigation stopped', 'info', 2000);
+                    }
+                    if (typeof MapModule !== 'undefined') {
+                        MapModule.render();
+                    }
+                }
+                break;
+                
+            case 'measureDistance':
+                if (typeof MeasureModule !== 'undefined') {
+                    MeasureModule.toggle();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Click on map to measure distances', 'info', 3000);
+                    }
+                }
+                break;
+                
+            case 'takeBearing':
+                // Open GPS panel for compass
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('View compass bearing in GPS panel', 'info', 2000);
+                }
+                break;
+                
+            case 'findPosition':
+                if (typeof GPSModule !== 'undefined') {
+                    GPSModule.requestPosition();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Acquiring GPS position...', 'info', 2000);
+                    }
+                }
+                break;
+                
+            case 'rangefinderResection':
+                // Scroll to resection widget in navigation panel
+                setTimeout(() => {
+                    const widget = document.getElementById('resection-widget');
+                    if (widget) {
+                        widget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                }, 300);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Add landmarks and enter distances to calculate position', 'info', 3000);
+                }
+                break;
+                
+            case 'starChart':
+                // Switch to observe tab in celestial panel
+                setTimeout(() => {
+                    if (typeof PanelsModule !== 'undefined') {
+                        PanelsModule.render();
+                    }
+                }, 100);
+                break;
+                
+            case 'starId':
+                // Start star ID mode
+                setTimeout(() => {
+                    const startBtn = document.getElementById('star-id-start');
+                    if (startBtn) startBtn.click();
+                }, 300);
+                break;
+                
+            case 'cameraSextant':
+                // Start camera sextant
+                setTimeout(() => {
+                    const sextantBtn = document.getElementById('camera-sextant-start');
+                    if (sextantBtn) sextantBtn.click();
+                }, 300);
+                break;
+                
+            case 'startObservation':
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Select a celestial body to observe', 'info', 2000);
+                }
+                break;
+                
+            case 'downloadMaps':
+                // Open offline panel
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Select a region to download for offline use', 'info', 3000);
+                }
+                break;
+                
+            case 'changeMapLayer':
+                // This would ideally open a layer selector modal
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Use map controls to change layers', 'info', 2000);
+                }
+                break;
+                
+            case 'checkWeather':
+                if (typeof WeatherModule !== 'undefined') {
+                    WeatherModule.refresh();
+                }
+                break;
+                
+            case 'satelliteWeather':
+                // Switch to satellite weather section
+                setTimeout(() => {
+                    const satSection = document.querySelector('[data-weather-tab="satellite"]');
+                    if (satSection) satSection.click();
+                }, 300);
+                break;
+                
+            case 'commPlan':
+                // Already opened radio panel
+                break;
+                
+            case 'emergencySOS':
+                if (typeof SOSModule !== 'undefined' && SOSModule.open) {
+                    SOSModule.open();
+                }
+                break;
+                
+            case 'startHike':
+                if (typeof HikingModule !== 'undefined') {
+                    // Open hike config modal via navigation panel
+                    setTimeout(() => {
+                        const startBtn = document.getElementById('start-hike-btn');
+                        if (startBtn) startBtn.click();
+                    }, 300);
+                }
+                break;
+                
+            case 'stopHike':
+                if (typeof HikingModule !== 'undefined') {
+                    const summary = HikingModule.stopHike();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Hike stopped', 'success', 2000);
+                    }
+                }
+                break;
+                
+            case 'centerOnPosition':
+                if (typeof GPSModule !== 'undefined' && typeof MapModule !== 'undefined') {
+                    const pos = GPSModule.getPosition();
+                    if (pos && pos.lat && pos.lon) {
+                        MapModule.setCenter(pos.lat, pos.lon);
+                        MapModule.render();
+                    } else {
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast('No GPS position available', 'warning', 2000);
+                        }
+                    }
+                }
+                break;
+                
+            case 'resetBearing':
+                if (typeof MapModule !== 'undefined' && MapModule.resetBearing) {
+                    MapModule.resetBearing();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Map reset to north', 'success', 1500);
+                    }
+                }
+                break;
+                
+            case 'toggleNightMode':
+                if (typeof NightModeModule !== 'undefined') {
+                    NightModeModule.toggle();
+                    const isNight = NightModeModule.isActive();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(isNight ? 'Night mode enabled' : 'Night mode disabled', 'success', 1500);
+                    }
+                } else {
+                    document.body.classList.toggle('night-mode');
+                }
+                break;
+                
+            case 'showKeyboardShortcuts':
+                showKeyboardShortcutsModal();
+                break;
+                
+            case 'openWizard':
+                if (typeof SituationWizard !== 'undefined') {
+                    SituationWizard.open();
+                }
+                break;
+                
+            case 'openWizardLost':
+                if (typeof SituationWizard !== 'undefined') {
+                    SituationWizard.open();
+                    setTimeout(() => SituationWizard.navigateTo('lost'), 100);
+                }
+                break;
+                
+            case 'openWizardEmergency':
+                if (typeof SituationWizard !== 'undefined') {
+                    SituationWizard.open();
+                    setTimeout(() => SituationWizard.navigateTo('emergency'), 100);
+                }
+                break;
+                
+            default:
+                console.warn('Unknown action:', action.action);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast(`Action: ${action.name}`, 'info', 2000);
+                }
+        }
+        
+        // Emit event
+        Events.emit('search:action', { action: action.action, data: action });
+    }
+
+    /**
+     * Show keyboard shortcuts modal
+     */
+    function showKeyboardShortcutsModal() {
+        const shortcuts = [
+            { key: 'Ctrl+K', desc: 'Open search' },
+            { key: 'Esc', desc: 'Close search / Cancel' },
+            { key: '↑/↓', desc: 'Navigate results' },
+            { key: 'Enter', desc: 'Select result' },
+            { key: 'Tab', desc: 'Next category' },
+            { key: 'Shift+Tab', desc: 'Previous category' },
+            { key: '+/-', desc: 'Zoom in/out' },
+            { key: 'N', desc: 'Reset map north' },
+            { key: 'L', desc: 'Toggle layers' },
+            { key: 'G', desc: 'Go to GPS position' },
+            { key: 'M', desc: 'Toggle measurement' }
+        ];
+        
+        const modal = document.createElement('div');
+        modal.id = 'shortcuts-modal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px';
+        modal.innerHTML = `
+            <div style="background:var(--color-bg-elevated, #1f2937);border-radius:16px;max-width:400px;width:100%;max-height:80vh;overflow:hidden">
+                <div style="padding:16px;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;justify-content:space-between;align-items:center">
+                    <div style="font-size:16px;font-weight:600">⌨️ Keyboard Shortcuts</div>
+                    <button id="shortcuts-close" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:18px">✕</button>
+                </div>
+                <div style="padding:16px;max-height:60vh;overflow-y:auto">
+                    ${shortcuts.map(s => `
+                        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05)">
+                            <kbd style="background:rgba(255,255,255,0.1);padding:4px 8px;border-radius:4px;font-family:monospace;font-size:12px">${s.key}</kbd>
+                            <span style="color:rgba(255,255,255,0.7);font-size:13px">${s.desc}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const closeBtn = modal.querySelector('#shortcuts-close');
+        closeBtn.onclick = () => modal.remove();
+        modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+        
+        // Close on Esc
+        const handleEsc = (e) => {
+            if (e.key === 'Escape') {
+                modal.remove();
+                document.removeEventListener('keydown', handleEsc);
+            }
+        };
+        document.addEventListener('keydown', handleEsc);
+    }
+
+    /**
+     * Navigate to a celestial body
+     */
+    function navigateToCelestial(body) {
+        // Open celestial panel
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) sidebar.classList.add('open');
+        State.UI.setActivePanel('celestial');
+        Events.emit(Events.EVENTS.PANEL_CHANGE, { panel: 'celestial' });
+        
+        // Get position info for the body
+        let positionInfo = null;
+        const mapState = typeof MapModule !== 'undefined' ? MapModule.getMapState() : { lat: 37.4215, lon: -119.1892 };
+        
+        if (typeof CelestialModule !== 'undefined') {
+            try {
+                let pos = null;
+                
+                if (body.type === 'star') {
+                    pos = CelestialModule.getStarPosition(body.name, new Date());
+                } else if (body.type === 'planet') {
+                    pos = CelestialModule.getPlanetPosition(body.name.toLowerCase(), new Date());
+                } else if (body.type === 'sun') {
+                    pos = CelestialModule.getSunPosition(new Date());
+                } else if (body.type === 'moon') {
+                    pos = CelestialModule.getMoonPosition(new Date());
+                }
+                
+                if (pos && !pos.error) {
+                    const altAz = CelestialModule.calculateAltAz(pos.GHA, pos.dec, mapState.lat, mapState.lon);
+                    positionInfo = {
+                        altitude: altAz.altitude,
+                        azimuth: altAz.azimuth,
+                        visible: altAz.altitude > 0
+                    };
+                }
+            } catch (e) {
+                console.warn('Error getting celestial position:', e);
+            }
+        }
+        
+        // Show detailed toast with position
+        if (typeof ModalsModule !== 'undefined') {
+            let message = body.name;
+            if (positionInfo) {
+                if (positionInfo.visible) {
+                    message += ` - Alt ${positionInfo.altitude.toFixed(1)}°, Az ${positionInfo.azimuth.toFixed(1)}°`;
+                } else {
+                    message += ' - Currently below horizon';
+                }
+            }
+            ModalsModule.showToast(message, 'success', 3000);
+        }
+        
+        // If CelestialModule has a selectBody function, use it
+        if (typeof CelestialModule !== 'undefined' && CelestialModule.selectBody) {
+            CelestialModule.selectBody(body.name, body.type);
+        }
+        
+        // Emit event
+        Events.emit('search:celestial', { body: body, position: positionInfo });
     }
 
     /**
