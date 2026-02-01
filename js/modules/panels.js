@@ -3845,6 +3845,11 @@ const PanelsModule = (function() {
             ? MeshtasticModule.getMessages().slice(-10) 
             : [];
         
+        // Phase 1.5: Get queue status
+        const queueStatus = typeof MeshtasticModule !== 'undefined' 
+            ? MeshtasticModule.getQueueStatus() 
+            : { count: 0, isEmpty: true, meshStatus: 'unknown' };
+        
         container.innerHTML = `
             <div class="panel__header"><h2 class="panel__title">Team & Mesh</h2></div>
             
@@ -3883,6 +3888,9 @@ const PanelsModule = (function() {
                             <button class="btn btn--secondary" id="mesh-broadcast-btn" style="flex:1;font-size:12px;padding:8px">
                                 📍 Broadcast Position
                             </button>
+                            <button class="btn btn--secondary" id="mesh-config-btn" style="font-size:12px;padding:8px">
+                                ⚙️ Config
+                            </button>
                             <button class="btn btn--secondary" id="mesh-disconnect-btn" style="font-size:12px;padding:8px;color:#ef4444">
                                 Disconnect
                             </button>
@@ -3890,32 +3898,53 @@ const PanelsModule = (function() {
                     ` : ''}
                 </div>
                 
-                ${!isConnected && !isConnecting ? `
-                    <!-- Connect Buttons -->
-                    <div style="display:flex;gap:8px;margin-bottom:12px">
-                        <button class="btn btn--primary" id="mesh-connect-ble-btn" style="flex:1" ${!apiSupport.bluetooth ? 'disabled' : ''}>
-                            ${Icons.get('satellite')} Bluetooth
-                        </button>
-                        <button class="btn btn--secondary" id="mesh-connect-serial-btn" style="flex:1" ${!apiSupport.serial ? 'disabled' : ''}>
-                            🔌 Serial/USB
-                        </button>
-                    </div>
+                    ${!isConnected && !isConnecting ? `
+                    <!-- Device Selection Help -->
+                    ${renderDeviceConnectionHelp(apiSupport)}
                     
                     ${!hasApiSupport ? `
-                        <div style="padding:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;font-size:12px;color:#ef4444">
+                        <div style="padding:10px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;font-size:12px;color:#ef4444;margin-bottom:12px">
                             ⚠️ Web Bluetooth/Serial requires Chrome or Edge browser
                         </div>
                     ` : ''}
                     
                     <!-- User Settings -->
-                    <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px">
+                    <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:12px">
                         <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">YOUR NODE IDENTITY</div>
                         <div style="display:flex;gap:8px">
                             <input type="text" id="mesh-longname" placeholder="Your Name" value="${meshState.nodeName || 'GridDown User'}" style="flex:2;padding:8px;font-size:12px">
                             <input type="text" id="mesh-shortname" placeholder="ID" maxlength="4" value="${meshState.shortName || 'GDU'}" style="flex:1;padding:8px;font-size:12px;text-transform:uppercase">
                         </div>
                     </div>
+                    
+                    <!-- Phase 2: Scenario Selector -->
+                    ${renderScenarioSelector()}
+                    
+                    <!-- Channel URL Import -->
+                    <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:12px">
+                        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">IMPORT CHANNEL / JOIN TEAM</div>
+                        <div style="display:flex;gap:8px;margin-bottom:8px">
+                            <input type="text" id="mesh-channel-url" placeholder="meshtastic://... or paste URL" style="flex:1;padding:8px;font-size:11px">
+                            <button class="btn btn--secondary" id="mesh-import-channel-btn" style="padding:8px 12px;font-size:11px">
+                                📥 Import
+                            </button>
+                        </div>
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn--secondary" id="mesh-scan-qr-btn" style="flex:1;font-size:11px;padding:8px">
+                                📷 Scan QR
+                            </button>
+                            <button class="btn btn--secondary" id="mesh-show-team-qr-btn" style="flex:1;font-size:11px;padding:8px">
+                                📱 Share Team QR
+                            </button>
+                        </div>
+                    </div>
                 ` : ''}
+                
+                <!-- Phase 2: Mesh Health Widget (when connected) -->
+                ${isConnected ? renderMeshHealthWidget() : ''}
+                
+                <!-- Device Info (when connected) -->
+                ${isConnected ? renderConnectedDeviceInfo() : ''}
             </div>
             
             <div class="divider"></div>
@@ -3946,7 +3975,13 @@ const PanelsModule = (function() {
                     <div style="padding:20px;text-align:center;color:rgba(255,255,255,0.4);font-size:12px">
                         ${isConnected ? 'Waiting for team positions...' : 'Connect to Meshtastic to see team'}
                     </div>
-                ` : team.map(m => `
+                ` : team.map(m => {
+                    // Get signal quality info if available
+                    const signalColor = m.signalQuality ? getMeshSignalColor(m.signalQuality) : '#6b7280';
+                    const signalText = m.snr !== undefined || m.rssi !== undefined 
+                        ? `${m.snr !== undefined ? `SNR: ${m.snr.toFixed(1)}dB` : ''}${m.snr !== undefined && m.rssi !== undefined ? ' • ' : ''}${m.rssi !== undefined ? `RSSI: ${m.rssi}dBm` : ''}`
+                        : '';
+                    return `
                     <div class="card team-card ${m.status === 'active' ? 'team-card--active' : ''}" style="margin-bottom:8px;padding:10px" data-team-id="${m.id}">
                         <div style="display:flex;align-items:center;gap:10px">
                             <div style="width:36px;height:36px;border-radius:50%;background:${m.isMe ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.05)'};display:flex;align-items:center;justify-content:center;position:relative">
@@ -3954,12 +3989,22 @@ const PanelsModule = (function() {
                                 <div style="position:absolute;bottom:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:${m.status === 'active' ? '#22c55e' : m.status === 'stale' ? '#f59e0b' : '#6b7280'};border:2px solid var(--color-bg-secondary)"></div>
                             </div>
                             <div style="flex:1;min-width:0">
-                                <div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                                    ${m.name}${m.isMe ? ' (You)' : ''}
+                                <div style="display:flex;align-items:center;gap:6px">
+                                    <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                        ${m.name}${m.isMe ? ' (You)' : ''}
+                                    </span>
+                                    ${!m.isMe && signalText ? `
+                                        <span style="font-size:9px;padding:2px 5px;background:${signalColor}22;color:${signalColor};border-radius:4px;white-space:nowrap" title="${signalText}">
+                                            📶 ${m.signalQuality || 'N/A'}
+                                        </span>
+                                    ` : ''}
                                 </div>
                                 <div style="font-size:10px;color:rgba(255,255,255,0.4)">
                                     ${m.lastUpdate}${m.lat && m.lon ? ` • ${m.lat.toFixed(4)}°, ${m.lon.toFixed(4)}°` : ''}
                                 </div>
+                                ${!m.isMe && signalText ? `
+                                    <div style="font-size:9px;color:rgba(255,255,255,0.35);margin-top:2px">${signalText}</div>
+                                ` : ''}
                             </div>
                             ${!m.isMe && m.lat && m.lon ? `
                                 <button class="btn btn--secondary" data-goto-team="${m.id}" style="padding:6px 10px;font-size:10px" title="Go to location">
@@ -3968,7 +4013,7 @@ const PanelsModule = (function() {
                             ` : ''}
                         </div>
                     </div>
-                `).join('')}
+                `}).join('')}
             </div>
             
             <!-- Quick Actions -->
@@ -3986,31 +4031,68 @@ const PanelsModule = (function() {
             <!-- Mesh Messaging Section -->
             <div class="section-label" style="display:flex;justify-content:space-between;align-items:center">
                 <span>💬 Mesh Messages</span>
-                ${messages.length > 0 ? `<span style="font-size:10px;color:rgba(255,255,255,0.4)">${messages.length} messages</span>` : ''}
+                <div style="display:flex;gap:8px;align-items:center">
+                    ${queueStatus.count > 0 ? `
+                        <span style="font-size:10px;color:#f59e0b;background:rgba(245,158,11,0.2);padding:2px 6px;border-radius:4px" title="Messages waiting to send">
+                            🕐 ${queueStatus.count} queued
+                        </span>
+                    ` : ''}
+                    ${messages.length > 0 ? `<span style="font-size:10px;color:rgba(255,255,255,0.4)">${messages.length} messages</span>` : ''}
+                </div>
             </div>
+            
+            <!-- Queue Status Banner (if messages queued) -->
+            ${queueStatus.count > 0 ? `
+                <div style="padding:10px;margin-bottom:8px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.3);border-radius:8px">
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span style="font-size:16px">🕐</span>
+                            <div>
+                                <div style="font-size:12px;font-weight:600;color:#f59e0b">${queueStatus.count} Message${queueStatus.count > 1 ? 's' : ''} Queued</div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                    ${queueStatus.meshStatus === 'disconnected' 
+                                        ? 'Will send when connected' 
+                                        : 'Sending when mesh available...'}
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn--secondary" id="clear-queue-btn" style="padding:4px 10px;font-size:10px" title="Clear all queued messages">
+                            Clear
+                        </button>
+                    </div>
+                </div>
+            ` : ''}
             
             <div id="mesh-messages-container" style="max-height:150px;overflow-y:auto;margin-bottom:12px;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px">
                 ${messages.length === 0 ? `
                     <div style="padding:16px;text-align:center;color:rgba(255,255,255,0.3);font-size:11px">
                         ${isConnected ? 'No messages yet' : 'Connect to send/receive messages'}
                     </div>
-                ` : messages.map(msg => `
+                ` : messages.map(msg => {
+                    const status = MeshtasticModule.getMessageStatus(msg.id);
+                    const statusIcon = getMessageStatusIcon(status);
+                    const statusColor = getMessageStatusColor(status);
+                    return `
                     <div style="padding:6px 8px;margin-bottom:4px;background:${msg.isSent ? 'rgba(249,115,22,0.15)' : 'rgba(255,255,255,0.05)'};border-radius:6px;${msg.isSent ? 'margin-left:20px' : 'margin-right:20px'}">
-                        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:2px">
-                            ${msg.isSent ? 'You' : msg.fromName || 'Unknown'} • ${formatMeshTime(msg.timestamp)}
+                        <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:2px;display:flex;justify-content:space-between;align-items:center">
+                            <span>${msg.isSent ? 'You' : msg.fromName || 'Unknown'} • ${formatMeshTime(msg.timestamp)}</span>
+                            ${msg.isSent ? `<span style="color:${statusColor};font-size:9px" title="${status}">${statusIcon}</span>` : ''}
                         </div>
                         <div style="font-size:12px;word-break:break-word">${escapeHtml(msg.text)}</div>
                     </div>
-                `).join('')}
+                `}).join('')}
             </div>
             
-            <div style="display:flex;gap:8px;margin-bottom:16px">
-                <input type="text" id="mesh-message-input" placeholder="${isConnected ? 'Type a message...' : 'Connect to send messages'}" 
-                    style="flex:1;padding:10px;font-size:12px" ${!isConnected ? 'disabled' : ''}>
-                <button class="btn btn--primary" id="mesh-send-btn" style="padding:10px 16px" ${!isConnected ? 'disabled' : ''}>
-                    📤
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+                <input type="text" id="mesh-message-input" placeholder="${isConnected ? 'Type a message...' : 'Type to queue message...'}" 
+                    style="flex:1;padding:10px;font-size:12px">
+                <button class="btn ${isConnected ? 'btn--primary' : 'btn--secondary'}" id="mesh-send-btn" style="padding:10px 16px" title="${isConnected ? 'Send now' : 'Queue for later'}">
+                    ${isConnected ? '📤' : '🕐'}
                 </button>
             </div>
+            
+            <!-- Phase 2: Canned Messages Bar -->
+            ${renderCannedMessagesBar()}
             
             <div class="divider"></div>
             
@@ -4159,6 +4241,63 @@ const PanelsModule = (function() {
         
         // === MESHTASTIC EVENT HANDLERS ===
         
+        // Device type selection buttons
+        const deviceTypeButtons = container.querySelectorAll('.device-type-btn');
+        const helpMessage = container.querySelector('#device-help-message');
+        const helpIcon = container.querySelector('#device-help-icon');
+        const helpText = container.querySelector('#device-help-text');
+        const serialBtn = container.querySelector('#mesh-connect-serial-btn');
+        
+        deviceTypeButtons.forEach(btn => {
+            btn.onclick = () => {
+                // Update selected state
+                deviceTypeButtons.forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                
+                const supportsSerial = btn.dataset.serial === 'true';
+                const supportsBle = btn.dataset.ble === 'true';
+                const deviceName = btn.textContent.trim();
+                
+                // Update Serial button state
+                if (serialBtn) {
+                    if (!supportsSerial) {
+                        serialBtn.disabled = true;
+                        serialBtn.title = `${deviceName} does not support Serial/USB connection`;
+                        serialBtn.style.opacity = '0.5';
+                    } else {
+                        // Only enable if browser supports it
+                        const apiSupport = typeof MeshtasticModule !== 'undefined' 
+                            ? MeshtasticModule.checkApiSupport() 
+                            : { serial: false };
+                        serialBtn.disabled = !apiSupport.serial;
+                        serialBtn.title = apiSupport.serial ? 'Connect via Serial/USB' : 'Web Serial not supported in this browser';
+                        serialBtn.style.opacity = apiSupport.serial ? '1' : '0.5';
+                    }
+                }
+                
+                // Show help message
+                if (helpMessage && helpText) {
+                    if (!supportsSerial) {
+                        helpMessage.style.display = 'block';
+                        helpMessage.style.background = 'rgba(245,158,11,0.1)';
+                        helpMessage.style.borderColor = 'rgba(245,158,11,0.3)';
+                        helpIcon.textContent = '⚠️';
+                        helpIcon.parentElement.style.color = '#f59e0b';
+                        helpText.innerHTML = `<strong>${deviceName}</strong> only supports Bluetooth. The USB port is for charging only.`;
+                    } else if (supportsBle && supportsSerial) {
+                        helpMessage.style.display = 'block';
+                        helpMessage.style.background = 'rgba(59,130,246,0.1)';
+                        helpMessage.style.borderColor = 'rgba(59,130,246,0.2)';
+                        helpIcon.textContent = 'ℹ️';
+                        helpIcon.parentElement.style.color = '#3b82f6';
+                        helpText.innerHTML = `<strong>${deviceName}</strong> supports both Bluetooth and Serial/USB connections.`;
+                    } else {
+                        helpMessage.style.display = 'none';
+                    }
+                }
+            };
+        });
+        
         // Bluetooth connect
         const connectBleBtn = container.querySelector('#mesh-connect-ble-btn');
         if (connectBleBtn) {
@@ -4183,6 +4322,14 @@ const PanelsModule = (function() {
         const connectSerialBtn = container.querySelector('#mesh-connect-serial-btn');
         if (connectSerialBtn) {
             connectSerialBtn.onclick = async () => {
+                // Check if a BLE-only device is selected
+                const selectedDevice = container.querySelector('.device-type-btn.selected');
+                if (selectedDevice && selectedDevice.dataset.serial === 'false') {
+                    const deviceName = selectedDevice.textContent.trim();
+                    ModalsModule.showToast(`${deviceName} doesn't support Serial - use Bluetooth`, 'warning');
+                    return;
+                }
+                
                 try {
                     const longName = container.querySelector('#mesh-longname')?.value || 'GridDown User';
                     const shortName = container.querySelector('#mesh-shortname')?.value || 'GDU';
@@ -4217,6 +4364,35 @@ const PanelsModule = (function() {
             };
         }
         
+        // Device Config button (Phase 1)
+        const configBtn = container.querySelector('#mesh-config-btn');
+        if (configBtn) {
+            configBtn.onclick = () => {
+                openMeshConfigModal();
+            };
+        }
+        
+        // Channel URL Import button (Phase 1)
+        const importChannelBtn = container.querySelector('#mesh-import-channel-btn');
+        const channelUrlInput = container.querySelector('#mesh-channel-url');
+        if (importChannelBtn && channelUrlInput) {
+            importChannelBtn.onclick = async () => {
+                const url = channelUrlInput.value.trim();
+                if (!url) {
+                    ModalsModule.showToast('Please enter a channel URL', 'error');
+                    return;
+                }
+                try {
+                    const channel = await MeshtasticModule.importChannelFromUrl(url);
+                    ModalsModule.showToast(`Channel "${channel.name}" imported successfully`, 'success');
+                    channelUrlInput.value = '';
+                    renderTeam();
+                } catch (err) {
+                    ModalsModule.showToast('Invalid channel URL: ' + err.message, 'error');
+                }
+            };
+        }
+        
         // Check-in OK
         const checkinBtn = container.querySelector('#send-checkin-btn');
         if (checkinBtn) {
@@ -4239,20 +4415,95 @@ const PanelsModule = (function() {
             };
         }
         
-        // Send message
+        // Send message (supports queueing when disconnected)
         const sendMsgBtn = container.querySelector('#mesh-send-btn');
         const msgInput = container.querySelector('#mesh-message-input');
         if (sendMsgBtn && msgInput) {
             const sendMessage = async () => {
                 const text = msgInput.value.trim();
-                if (text && isConnected) {
-                    await MeshtasticModule.sendTextMessage(text);
-                    msgInput.value = '';
-                    renderTeam(); // Refresh to show sent message
+                if (text) {
+                    try {
+                        await MeshtasticModule.sendTextMessage(text);
+                        msgInput.value = '';
+                        
+                        // Show feedback based on connection state
+                        if (!isConnected) {
+                            ModalsModule.showToast('Message queued - will send when connected', 'info');
+                        }
+                        
+                        renderTeam(); // Refresh to show sent/queued message
+                    } catch (err) {
+                        ModalsModule.showToast('Failed to send: ' + err.message, 'error');
+                    }
                 }
             };
             sendMsgBtn.onclick = sendMessage;
             msgInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+        }
+        
+        // Clear queue button
+        const clearQueueBtn = container.querySelector('#clear-queue-btn');
+        if (clearQueueBtn) {
+            clearQueueBtn.onclick = () => {
+                if (typeof MeshtasticModule !== 'undefined') {
+                    const count = MeshtasticModule.clearOutboundQueue(true);
+                    ModalsModule.showToast(`Cleared ${count} queued message${count !== 1 ? 's' : ''}`, 'info');
+                    renderTeam();
+                }
+            };
+        }
+        
+        // Phase 2: Scenario selector buttons
+        container.querySelectorAll('[data-scenario]').forEach(btn => {
+            btn.onclick = async () => {
+                const scenarioId = btn.dataset.scenario;
+                if (typeof MeshtasticModule !== 'undefined') {
+                    await MeshtasticModule.applyScenarioPreset(scenarioId);
+                    ModalsModule.showToast(`Applied ${scenarioId} preset`, 'success');
+                    renderTeam();
+                }
+            };
+        });
+        
+        // Phase 2: Canned message buttons
+        container.querySelectorAll('.canned-msg-btn').forEach(btn => {
+            btn.onclick = async () => {
+                const text = btn.dataset.cannedText;
+                if (text && typeof MeshtasticModule !== 'undefined') {
+                    try {
+                        await MeshtasticModule.sendTextMessage(text);
+                        ModalsModule.showToast(`Sent: ${text}`, 'success');
+                        renderTeam();
+                    } catch (e) {
+                        ModalsModule.showToast(`Queued: ${text}`, 'info');
+                        renderTeam();
+                    }
+                }
+            };
+        });
+        
+        // Phase 2: Team QR sharing button
+        const teamQRBtn = container.querySelector('#mesh-show-team-qr-btn');
+        if (teamQRBtn) {
+            teamQRBtn.onclick = () => openTeamQRModal();
+        }
+        
+        // Phase 2: Scan QR button
+        const scanQRBtn = container.querySelector('#mesh-scan-qr-btn');
+        if (scanQRBtn) {
+            scanQRBtn.onclick = () => {
+                // For now, prompt for URL input (camera scanning would require additional library)
+                const url = prompt('Paste Meshtastic channel URL or QR data:');
+                if (url && typeof MeshtasticModule !== 'undefined') {
+                    const result = MeshtasticModule.joinFromQR(url);
+                    if (result.success) {
+                        ModalsModule.showToast('Joined team channel!', 'success');
+                        renderTeam();
+                    } else {
+                        ModalsModule.showToast(`Failed: ${result.error}`, 'error');
+                    }
+                }
+            };
         }
         
         // Share waypoint
@@ -4367,6 +4618,877 @@ const PanelsModule = (function() {
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    /**
+     * Get color for mesh signal quality
+     */
+    function getMeshSignalColor(quality) {
+        switch (quality) {
+            case 'excellent': return '#22c55e'; // Green
+            case 'good': return '#84cc16';      // Lime
+            case 'fair': return '#f59e0b';      // Amber
+            case 'poor': return '#ef4444';      // Red
+            default: return '#6b7280';          // Gray
+        }
+    }
+    
+    /**
+     * Get icon for message delivery status
+     * Phase 1.5: Added QUEUED status support
+     */
+    function getMessageStatusIcon(status) {
+        switch (status) {
+            case 'queued': return '🕐';      // Clock - waiting in queue
+            case 'pending': return '○';       // Empty circle - about to send
+            case 'sent': return '✓';          // Single check - sent to mesh
+            case 'delivered': return '✓✓';    // Double check - delivered
+            case 'read': return '👁';          // Eye - read by recipient
+            case 'failed': return '✗';        // X - failed
+            default: return '';
+        }
+    }
+    
+    /**
+     * Get color for message delivery status
+     * Phase 1.5: Added QUEUED status support
+     */
+    function getMessageStatusColor(status) {
+        switch (status) {
+            case 'queued': return '#f59e0b';   // Amber - waiting
+            case 'pending': return '#6b7280';  // Gray - in progress
+            case 'sent': return '#22c55e';     // Green - sent
+            case 'delivered': return '#22c55e';// Green - delivered
+            case 'read': return '#3b82f6';     // Blue - read
+            case 'failed': return '#ef4444';   // Red - failed
+            default: return '#6b7280';
+        }
+    }
+    
+    // =========================================================================
+    // PHASE 2: QUICK SETUP & FIELD UX RENDERING
+    // =========================================================================
+    
+    /**
+     * Render scenario selector dropdown
+     */
+    function renderScenarioSelector() {
+        const scenarios = typeof MeshtasticModule !== 'undefined' 
+            ? MeshtasticModule.getScenarioPresets() 
+            : [];
+        const activeScenario = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getActiveScenario()
+            : { id: 'custom', name: 'Custom', icon: '⚙️' };
+        
+        return `
+            <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:12px">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">SCENARIO PRESET</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    ${scenarios.map(s => `
+                        <button class="btn ${s.id === activeScenario.id ? 'btn--primary' : 'btn--secondary'}" 
+                            data-scenario="${s.id}"
+                            style="padding:6px 10px;font-size:11px;flex:0 0 auto"
+                            title="${s.description}">
+                            ${s.icon} ${s.name}
+                        </button>
+                    `).join('')}
+                </div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:8px">
+                    ${activeScenario.icon} <strong>${activeScenario.name}</strong>: ${activeScenario.description || 'User-defined settings'}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render mesh health widget
+     */
+    function renderMeshHealthWidget() {
+        const health = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getMeshHealth()
+            : { status: 'unknown', score: 0, activeNodes: 0, totalNodes: 0 };
+        
+        const healthColor = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getMeshHealthColor(health.status)
+            : '#6b7280';
+        
+        const scenario = health.scenario || { icon: '⚙️', name: 'Custom' };
+        
+        return `
+            <div style="padding:14px;background:rgba(${health.status === 'excellent' ? '34,197,94' : health.status === 'good' ? '132,204,22' : health.status === 'fair' ? '245,158,11' : '107,114,128'},0.1);border:1px solid ${healthColor}44;border-radius:12px;margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">MESH HEALTH</div>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <span style="font-size:10px;padding:2px 6px;background:${scenario.color || '#22c55e'}22;color:${scenario.color || '#22c55e'};border-radius:4px">
+                            ${scenario.icon} ${scenario.name}
+                        </span>
+                    </div>
+                </div>
+                
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                    <div style="width:50px;height:50px;border-radius:50%;background:${healthColor}22;display:flex;align-items:center;justify-content:center;border:2px solid ${healthColor}">
+                        <span style="font-size:18px;font-weight:700;color:${healthColor}">${health.score}</span>
+                    </div>
+                    <div style="flex:1">
+                        <div style="font-size:14px;font-weight:600;color:${healthColor};text-transform:capitalize">
+                            ${health.status}
+                        </div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.5)">
+                            ${health.activeNodes} active node${health.activeNodes !== 1 ? 's' : ''} • ${health.recentNodes || 0} updated recently
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Signal Distribution -->
+                ${health.activeNodes > 0 ? `
+                    <div style="display:flex;gap:6px;margin-bottom:8px">
+                        ${health.signalDistribution.excellent > 0 ? `<span style="font-size:10px;padding:2px 6px;background:#22c55e22;color:#22c55e;border-radius:4px">📶 ${health.signalDistribution.excellent} excellent</span>` : ''}
+                        ${health.signalDistribution.good > 0 ? `<span style="font-size:10px;padding:2px 6px;background:#84cc1622;color:#84cc16;border-radius:4px">📶 ${health.signalDistribution.good} good</span>` : ''}
+                        ${health.signalDistribution.fair > 0 ? `<span style="font-size:10px;padding:2px 6px;background:#f59e0b22;color:#f59e0b;border-radius:4px">📶 ${health.signalDistribution.fair} fair</span>` : ''}
+                        ${health.signalDistribution.poor > 0 ? `<span style="font-size:10px;padding:2px 6px;background:#ef444422;color:#ef4444;border-radius:4px">📶 ${health.signalDistribution.poor} poor</span>` : ''}
+                    </div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4)">
+                        Avg: SNR ${health.averageSignal.snr}dB • RSSI ${health.averageSignal.rssi}dBm
+                    </div>
+                ` : `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">
+                        No other nodes detected yet
+                    </div>
+                `}
+                
+                <!-- Queue Status -->
+                ${health.queueStatus && health.queueStatus.count > 0 ? `
+                    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.1)">
+                        <span style="font-size:10px;color:#f59e0b">🕐 ${health.queueStatus.count} message${health.queueStatus.count !== 1 ? 's' : ''} queued</span>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    /**
+     * Render canned messages bar
+     */
+    function renderCannedMessagesBar() {
+        const messages = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getCannedMessages()
+            : [];
+        
+        if (messages.length === 0) return '';
+        
+        return `
+            <div style="margin-bottom:12px">
+                <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:6px">QUICK MESSAGES</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    ${messages.slice(0, 8).map(msg => `
+                        <button class="btn btn--secondary canned-msg-btn" 
+                            data-canned-id="${msg.id}"
+                            data-canned-text="${escapeHtml(msg.text)}"
+                            style="padding:6px 10px;font-size:11px"
+                            title="Send: ${msg.text}">
+                            ${msg.icon} ${msg.text.length > 10 ? msg.text.substring(0, 10) + '...' : msg.text}
+                        </button>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render device connection help with device selector
+     */
+    function renderDeviceConnectionHelp(apiSupport) {
+        // Get common devices for help text
+        const commonDevices = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getCommonDevices()
+            : [];
+        
+        // BLE-only devices that users commonly have
+        const bleOnlyDevices = ['WisMesh Pocket', 'WisMesh Tap', 'T-Echo'];
+        
+        return `
+            <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-bottom:12px">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">SELECT YOUR DEVICE</div>
+                
+                <!-- Device Type Buttons -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                    <button class="btn btn--secondary device-type-btn" data-device="wismesh_pocket" 
+                        data-ble="true" data-serial="false"
+                        style="padding:8px 12px;font-size:11px">
+                        📱 WisMesh Pocket
+                    </button>
+                    <button class="btn btn--secondary device-type-btn" data-device="t_echo" 
+                        data-ble="true" data-serial="false"
+                        style="padding:8px 12px;font-size:11px">
+                        📱 T-Echo
+                    </button>
+                    <button class="btn btn--secondary device-type-btn" data-device="t_beam" 
+                        data-ble="true" data-serial="true"
+                        style="padding:8px 12px;font-size:11px">
+                        📡 T-Beam
+                    </button>
+                    <button class="btn btn--secondary device-type-btn" data-device="heltec" 
+                        data-ble="true" data-serial="true"
+                        style="padding:8px 12px;font-size:11px">
+                        📡 Heltec
+                    </button>
+                    <button class="btn btn--secondary device-type-btn selected" data-device="other" 
+                        data-ble="true" data-serial="true"
+                        style="padding:8px 12px;font-size:11px">
+                        🔧 Other
+                    </button>
+                </div>
+                
+                <!-- Device-specific help message -->
+                <div id="device-help-message" style="padding:8px 10px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:6px;margin-bottom:12px;display:none">
+                    <div style="font-size:11px;color:#3b82f6">
+                        <span id="device-help-icon">ℹ️</span>
+                        <span id="device-help-text"></span>
+                    </div>
+                </div>
+                
+                <!-- Connect Buttons -->
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn--primary" id="mesh-connect-ble-btn" style="flex:1" ${!apiSupport.bluetooth ? 'disabled' : ''}>
+                        📶 Bluetooth
+                    </button>
+                    <button class="btn btn--secondary" id="mesh-connect-serial-btn" style="flex:1" ${!apiSupport.serial ? 'disabled' : ''}>
+                        🔌 Serial/USB
+                    </button>
+                </div>
+                
+                <!-- Quick reference -->
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">
+                    <div style="font-size:10px;color:rgba(255,255,255,0.35)">
+                        <strong>Bluetooth only:</strong> WisMesh Pocket/Tap, T-Echo, RAK Tracker<br>
+                        <strong>Both supported:</strong> T-Beam, Heltec, Station G2, WisBlock
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Render connected device info card
+     */
+    function renderConnectedDeviceInfo() {
+        const deviceCaps = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getConnectedDeviceCapabilities()
+            : null;
+        
+        if (!deviceCaps) return '';
+        
+        const config = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getDeviceConfig()
+            : {};
+        
+        const firmwareStatus = typeof MeshtasticModule !== 'undefined' && config.firmwareVersion
+            ? MeshtasticModule.checkFirmwareStatus(config.firmwareVersion)
+            : null;
+        
+        return `
+            <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-top:12px">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">CONNECTED DEVICE</div>
+                
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                    <div style="width:36px;height:36px;border-radius:8px;background:rgba(34,197,94,0.2);display:flex;align-items:center;justify-content:center">
+                        <span style="font-size:18px">${deviceCaps.portable ? '📱' : '🏠'}</span>
+                    </div>
+                    <div style="flex:1">
+                        <div style="font-size:13px;font-weight:600">${deviceCaps.displayName || 'Unknown Device'}</div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                            ${config.firmwareVersion ? `Firmware ${config.firmwareVersion}` : 'Firmware unknown'}
+                            ${firmwareStatus ? ` • <span style="color:${firmwareStatus.color}">${firmwareStatus.status === 'current' ? '✓ Up to date' : firmwareStatus.status === 'update_available' ? '↑ Update available' : '⚠ Outdated'}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Device Capabilities -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    ${deviceCaps.bluetooth ? '<span style="font-size:10px;padding:3px 6px;background:rgba(59,130,246,0.2);color:#3b82f6;border-radius:4px">📶 Bluetooth</span>' : ''}
+                    ${deviceCaps.serial ? '<span style="font-size:10px;padding:3px 6px;background:rgba(139,92,246,0.2);color:#8b5cf6;border-radius:4px">🔌 Serial</span>' : ''}
+                    ${deviceCaps.gps ? '<span style="font-size:10px;padding:3px 6px;background:rgba(34,197,94,0.2);color:#22c55e;border-radius:4px">📍 GPS</span>' : ''}
+                    ${deviceCaps.wifi ? '<span style="font-size:10px;padding:3px 6px;background:rgba(249,115,22,0.2);color:#f97316;border-radius:4px">📡 WiFi</span>' : ''}
+                    ${deviceCaps.screen ? '<span style="font-size:10px;padding:3px 6px;background:rgba(255,255,255,0.1);color:rgba(255,255,255,0.6);border-radius:4px">🖥️ Screen</span>' : ''}
+                </div>
+                
+                ${deviceCaps.notes ? `
+                    <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:8px;font-style:italic">
+                        ${deviceCaps.notes}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+    
+    /**
+     * Open Team QR Code Modal for sharing
+     */
+    function openTeamQRModal() {
+        const modalContainer = document.getElementById('modal-container');
+        
+        const qrData = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.generateTeamOnboardingQR()
+            : null;
+        
+        if (!qrData) {
+            ModalsModule.showToast('Unable to generate QR code', 'error');
+            return;
+        }
+        
+        const scenario = qrData.scenario || { icon: '⚙️', name: 'Custom' };
+        
+        modalContainer.innerHTML = `
+            <div class="modal-overlay" id="team-qr-modal">
+                <div class="modal" style="max-width:400px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">📱 Team Onboarding QR</h3>
+                        <button class="modal__close" id="close-team-qr-modal">&times;</button>
+                    </div>
+                    <div class="modal__content">
+                        <div style="text-align:center;margin-bottom:16px">
+                            <div style="padding:20px;background:white;border-radius:12px;display:inline-block;margin-bottom:12px">
+                                <div id="team-qr-code" style="width:200px;height:200px;display:flex;align-items:center;justify-content:center;color:#333">
+                                    <!-- QR code would be rendered here by a library -->
+                                    <div style="font-size:12px;text-align:center">
+                                        <div style="font-size:32px;margin-bottom:8px">📱</div>
+                                        QR Code Generation<br>
+                                        <small>Requires QR library</small>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div style="font-size:14px;font-weight:600;color:#f97316">
+                                ${qrData.channelName || 'GridDown Team'}
+                            </div>
+                            <div style="font-size:12px;color:rgba(255,255,255,0.5)">
+                                ${scenario.icon} ${scenario.name} Preset
+                            </div>
+                        </div>
+                        
+                        <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:12px">
+                            <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:4px">CHANNEL URL</div>
+                            <div style="font-size:10px;word-break:break-all;color:rgba(255,255,255,0.7);font-family:monospace">
+                                ${qrData.url}
+                            </div>
+                        </div>
+                        
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn--secondary" id="copy-team-url-btn" style="flex:1">
+                                📋 Copy URL
+                            </button>
+                            <button class="btn btn--primary" id="share-team-url-btn" style="flex:1">
+                                📤 Share
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Event handlers
+        document.getElementById('close-team-qr-modal').onclick = () => modalContainer.innerHTML = '';
+        document.getElementById('team-qr-modal').onclick = (e) => {
+            if (e.target.id === 'team-qr-modal') modalContainer.innerHTML = '';
+        };
+        
+        document.getElementById('copy-team-url-btn').onclick = () => {
+            navigator.clipboard.writeText(qrData.url).then(() => {
+                ModalsModule.showToast('URL copied to clipboard', 'success');
+            });
+        };
+        
+        document.getElementById('share-team-url-btn').onclick = async () => {
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: 'Join GridDown Team',
+                        text: `Join our mesh network: ${qrData.channelName || 'GridDown'}`,
+                        url: qrData.url
+                    });
+                } catch (e) {
+                    if (e.name !== 'AbortError') {
+                        ModalsModule.showToast('Share failed', 'error');
+                    }
+                }
+            } else {
+                navigator.clipboard.writeText(qrData.url).then(() => {
+                    ModalsModule.showToast('URL copied (sharing not supported)', 'info');
+                });
+            }
+        };
+    }
+    
+    /**
+     * Open First-Run Wizard Modal
+     */
+    function openMeshWizardModal() {
+        const modalContainer = document.getElementById('modal-container');
+        
+        const scenarios = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getScenarioPresets()
+            : [];
+        
+        const regionOptions = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getRegionOptions()
+            : [];
+        
+        const apiSupport = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.checkApiSupport()
+            : { bluetooth: false, serial: false };
+        
+        modalContainer.innerHTML = `
+            <div class="modal-overlay" id="mesh-wizard-modal">
+                <div class="modal" style="max-width:500px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">📡 Meshtastic Quick Setup</h3>
+                        <button class="modal__close" id="close-wizard-modal">&times;</button>
+                    </div>
+                    <div class="modal__content">
+                        <!-- Step indicator -->
+                        <div style="display:flex;justify-content:center;gap:8px;margin-bottom:20px">
+                            <div class="wizard-step active" data-step="1">1</div>
+                            <div class="wizard-step" data-step="2">2</div>
+                            <div class="wizard-step" data-step="3">3</div>
+                            <div class="wizard-step" data-step="4">4</div>
+                        </div>
+                        
+                        <!-- Step 1: Name -->
+                        <div id="wizard-step-1" class="wizard-panel">
+                            <div style="text-align:center;margin-bottom:20px">
+                                <span style="font-size:48px">👤</span>
+                                <h4 style="margin:12px 0 4px">Your Identity</h4>
+                                <p style="font-size:12px;color:rgba(255,255,255,0.5)">How you'll appear on the mesh network</p>
+                            </div>
+                            
+                            <div style="margin-bottom:16px">
+                                <label style="font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:4px">YOUR NAME</label>
+                                <input type="text" id="wizard-longname" placeholder="John Smith" style="width:100%;padding:12px;font-size:14px">
+                            </div>
+                            
+                            <div style="margin-bottom:20px">
+                                <label style="font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:4px">SHORT ID (4 chars max)</label>
+                                <input type="text" id="wizard-shortname" placeholder="JOHN" maxlength="4" style="width:100%;padding:12px;font-size:14px;text-transform:uppercase">
+                            </div>
+                            
+                            <button class="btn btn--primary btn--full" id="wizard-next-1">
+                                Continue →
+                            </button>
+                        </div>
+                        
+                        <!-- Step 2: Region -->
+                        <div id="wizard-step-2" class="wizard-panel" style="display:none">
+                            <div style="text-align:center;margin-bottom:20px">
+                                <span style="font-size:48px">🌍</span>
+                                <h4 style="margin:12px 0 4px">Select Region</h4>
+                                <p style="font-size:12px;color:rgba(255,255,255,0.5)">Required for legal radio operation</p>
+                            </div>
+                            
+                            <div style="margin-bottom:20px">
+                                <select id="wizard-region" style="width:100%;padding:12px;font-size:14px">
+                                    ${regionOptions.map(r => `
+                                        <option value="${r.value}" ${r.value === 1 ? 'selected' : ''}>${r.label}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn--secondary" id="wizard-back-2" style="flex:1">← Back</button>
+                                <button class="btn btn--primary" id="wizard-next-2" style="flex:2">Continue →</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Step 3: Pair Device -->
+                        <div id="wizard-step-3" class="wizard-panel" style="display:none">
+                            <div style="text-align:center;margin-bottom:20px">
+                                <span style="font-size:48px">📡</span>
+                                <h4 style="margin:12px 0 4px">Connect Device</h4>
+                                <p style="font-size:12px;color:rgba(255,255,255,0.5)">Pair your Meshtastic radio</p>
+                            </div>
+                            
+                            <div style="display:flex;gap:12px;margin-bottom:20px">
+                                <button class="btn btn--primary" id="wizard-connect-ble" style="flex:1;padding:20px" ${!apiSupport.bluetooth ? 'disabled' : ''}>
+                                    <div style="font-size:24px;margin-bottom:8px">📶</div>
+                                    Bluetooth
+                                </button>
+                                <button class="btn btn--secondary" id="wizard-connect-serial" style="flex:1;padding:20px" ${!apiSupport.serial ? 'disabled' : ''}>
+                                    <div style="font-size:24px;margin-bottom:8px">🔌</div>
+                                    USB/Serial
+                                </button>
+                            </div>
+                            
+                            <div id="wizard-connection-status" style="text-align:center;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:16px">
+                                <span style="color:rgba(255,255,255,0.5)">Not connected</span>
+                            </div>
+                            
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn--secondary" id="wizard-back-3" style="flex:1">← Back</button>
+                                <button class="btn btn--secondary" id="wizard-skip-3" style="flex:1">Skip for now</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Step 4: Scenario -->
+                        <div id="wizard-step-4" class="wizard-panel" style="display:none">
+                            <div style="text-align:center;margin-bottom:20px">
+                                <span style="font-size:48px">🎯</span>
+                                <h4 style="margin:12px 0 4px">Choose Scenario</h4>
+                                <p style="font-size:12px;color:rgba(255,255,255,0.5)">Optimized settings for your use case</p>
+                            </div>
+                            
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px">
+                                ${scenarios.filter(s => s.id !== 'custom').map(s => `
+                                    <button class="btn btn--secondary wizard-scenario-btn" data-scenario="${s.id}" style="padding:12px;text-align:left">
+                                        <div style="font-size:20px;margin-bottom:4px">${s.icon}</div>
+                                        <div style="font-size:12px;font-weight:600">${s.name}</div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">${s.description}</div>
+                                    </button>
+                                `).join('')}
+                            </div>
+                            
+                            <div style="display:flex;gap:8px">
+                                <button class="btn btn--secondary" id="wizard-back-4" style="flex:1">← Back</button>
+                                <button class="btn btn--primary" id="wizard-finish" style="flex:2">Complete Setup ✓</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Add wizard step styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .wizard-step { width:28px; height:28px; border-radius:50%; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:600; }
+            .wizard-step.active { background:#f97316; color:white; }
+            .wizard-step.complete { background:#22c55e; color:white; }
+            .wizard-scenario-btn.selected { border-color:#f97316; background:rgba(249,115,22,0.1); }
+        `;
+        document.head.appendChild(style);
+        
+        let currentStep = 1;
+        let selectedScenario = 'field_exercise';
+        
+        function showStep(step) {
+            document.querySelectorAll('.wizard-panel').forEach(p => p.style.display = 'none');
+            document.getElementById(`wizard-step-${step}`).style.display = 'block';
+            
+            document.querySelectorAll('.wizard-step').forEach((s, i) => {
+                s.classList.remove('active', 'complete');
+                if (i + 1 < step) s.classList.add('complete');
+                if (i + 1 === step) s.classList.add('active');
+            });
+            currentStep = step;
+        }
+        
+        // Event handlers
+        document.getElementById('close-wizard-modal').onclick = () => modalContainer.innerHTML = '';
+        document.getElementById('mesh-wizard-modal').onclick = (e) => {
+            if (e.target.id === 'mesh-wizard-modal') modalContainer.innerHTML = '';
+        };
+        
+        // Navigation
+        document.getElementById('wizard-next-1').onclick = () => {
+            const longName = document.getElementById('wizard-longname').value.trim();
+            const shortName = document.getElementById('wizard-shortname').value.trim().toUpperCase();
+            if (longName && typeof MeshtasticModule !== 'undefined') {
+                MeshtasticModule.setUserName(longName, shortName || longName.substring(0, 4).toUpperCase());
+            }
+            showStep(2);
+        };
+        
+        document.getElementById('wizard-back-2').onclick = () => showStep(1);
+        document.getElementById('wizard-next-2').onclick = () => {
+            const region = parseInt(document.getElementById('wizard-region').value);
+            if (typeof MeshtasticModule !== 'undefined') {
+                MeshtasticModule.setRegion(region);
+            }
+            showStep(3);
+        };
+        
+        document.getElementById('wizard-back-3').onclick = () => showStep(2);
+        document.getElementById('wizard-skip-3').onclick = () => showStep(4);
+        
+        document.getElementById('wizard-connect-ble').onclick = async () => {
+            const statusEl = document.getElementById('wizard-connection-status');
+            statusEl.innerHTML = '<span style="color:#f59e0b">Connecting...</span>';
+            try {
+                await MeshtasticModule.connectBluetooth();
+                statusEl.innerHTML = '<span style="color:#22c55e">✓ Connected!</span>';
+                setTimeout(() => showStep(4), 1000);
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color:#ef4444">Failed: ${e.message}</span>`;
+            }
+        };
+        
+        document.getElementById('wizard-connect-serial').onclick = async () => {
+            const statusEl = document.getElementById('wizard-connection-status');
+            statusEl.innerHTML = '<span style="color:#f59e0b">Connecting...</span>';
+            try {
+                await MeshtasticModule.connectSerial();
+                statusEl.innerHTML = '<span style="color:#22c55e">✓ Connected!</span>';
+                setTimeout(() => showStep(4), 1000);
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color:#ef4444">Failed: ${e.message}</span>`;
+            }
+        };
+        
+        document.getElementById('wizard-back-4').onclick = () => showStep(3);
+        
+        // Scenario selection
+        document.querySelectorAll('.wizard-scenario-btn').forEach(btn => {
+            btn.onclick = () => {
+                document.querySelectorAll('.wizard-scenario-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedScenario = btn.dataset.scenario;
+            };
+        });
+        
+        document.getElementById('wizard-finish').onclick = async () => {
+            if (typeof MeshtasticModule !== 'undefined') {
+                await MeshtasticModule.applyScenarioPreset(selectedScenario);
+                await MeshtasticModule.completeWizard();
+            }
+            modalContainer.innerHTML = '';
+            ModalsModule.showToast('Setup complete! You\'re ready to mesh.', 'success');
+            renderTeam();
+        };
+    }
+    
+    // =========================================================================
+    // PHASE 1: MESHTASTIC CONFIGURATION MODAL
+    // =========================================================================
+    
+    /**
+     * Open Meshtastic Device Configuration Modal
+     */
+    function openMeshConfigModal() {
+        const modalContainer = document.getElementById('modal-container');
+        
+        // Get current config
+        const config = typeof MeshtasticModule !== 'undefined' 
+            ? MeshtasticModule.getDeviceConfig() 
+            : {};
+        
+        // Get options
+        const regionOptions = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getRegionOptions()
+            : [];
+        
+        const modemOptions = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getModemPresetOptions()
+            : [];
+        
+        // Get firmware status
+        const firmwareStatus = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getMyFirmwareStatus()
+            : { status: 'unknown', message: 'Not connected' };
+        
+        // Get nodes for signal quality display
+        const nodes = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getNodes()
+            : [];
+        
+        modalContainer.innerHTML = `
+            <div class="modal-backdrop" id="modal-backdrop">
+                <div class="modal" style="max-width:500px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">⚙️ Meshtastic Configuration</h3>
+                        <button class="modal__close" id="modal-close">${Icons.get('close')}</button>
+                    </div>
+                    <div class="modal__body" style="max-height:70vh;overflow-y:auto">
+                        
+                        <!-- Firmware Status -->
+                        <div style="padding:12px;background:${firmwareStatus.status === 'current' ? 'rgba(34,197,94,0.1)' : firmwareStatus.status === 'outdated' ? 'rgba(239,68,68,0.1)' : 'rgba(249,115,22,0.1)'};border:1px solid ${firmwareStatus.color || 'rgba(255,255,255,0.1)'}44;border-radius:10px;margin-bottom:16px">
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span style="font-size:24px">${firmwareStatus.status === 'current' ? '✅' : firmwareStatus.status === 'outdated' ? '⚠️' : 'ℹ️'}</span>
+                                <div>
+                                    <div style="font-size:13px;font-weight:600;color:${firmwareStatus.color || 'inherit'}">
+                                        Firmware: ${config.firmwareVersion || 'Unknown'}
+                                    </div>
+                                    <div style="font-size:11px;color:rgba(255,255,255,0.5)">
+                                        ${firmwareStatus.message}
+                                    </div>
+                                </div>
+                            </div>
+                            ${config.hwModelName ? `
+                                <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:8px">
+                                    Hardware: ${config.hwModelName}
+                                    ${config.hasGPS ? ' • GPS' : ''}
+                                    ${config.hasWifi ? ' • WiFi' : ''}
+                                    ${config.hasBluetooth ? ' • BLE' : ''}
+                                </div>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- Radio Configuration -->
+                        <div class="section-label">📻 Radio Settings</div>
+                        
+                        <div class="form-group">
+                            <label>Region</label>
+                            <select id="mesh-config-region" style="width:100%;padding:10px;font-size:13px">
+                                ${regionOptions.map(opt => `
+                                    <option value="${opt.value}" ${config.region === opt.value ? 'selected' : ''}>
+                                        ${opt.label}
+                                    </option>
+                                `).join('')}
+                            </select>
+                            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">
+                                ⚠️ Must match your local regulations
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Modem Preset</label>
+                            <select id="mesh-config-modem" style="width:100%;padding:10px;font-size:13px">
+                                ${modemOptions.map(opt => `
+                                    <option value="${opt.value}" ${config.modemPreset === opt.value ? 'selected' : ''}>
+                                        ${opt.name} (${opt.range} range, ${opt.speed})
+                                    </option>
+                                `).join('')}
+                            </select>
+                            <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:4px">
+                                All devices in your mesh must use the same preset
+                            </div>
+                        </div>
+                        
+                        <div style="display:flex;gap:12px">
+                            <div class="form-group" style="flex:1">
+                                <label>TX Power (dBm)</label>
+                                <select id="mesh-config-txpower" style="width:100%;padding:10px;font-size:13px">
+                                    <option value="0" ${config.txPower === 0 ? 'selected' : ''}>Device Default</option>
+                                    ${[1, 2, 5, 7, 10, 12, 14, 17, 20, 22, 27, 30].map(p => `
+                                        <option value="${p}" ${config.txPower === p ? 'selected' : ''}>${p} dBm</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="form-group" style="flex:1">
+                                <label>Hop Limit</label>
+                                <select id="mesh-config-hoplimit" style="width:100%;padding:10px;font-size:13px">
+                                    ${[1, 2, 3, 4, 5, 6, 7].map(h => `
+                                        <option value="${h}" ${config.hopLimit === h ? 'selected' : ''}>${h} hops</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div style="padding:10px;background:rgba(59,130,246,0.1);border-radius:8px;font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:16px">
+                            💡 <strong>Hop Limit:</strong> Higher = longer range but more battery drain. 3 is recommended for most use cases.
+                        </div>
+                        
+                        <!-- Channel Management -->
+                        <div class="section-label" style="margin-top:16px">📡 Channel Export</div>
+                        
+                        <div style="display:flex;gap:8px;margin-bottom:16px">
+                            <button class="btn btn--secondary" id="mesh-export-channel-btn" style="flex:1;font-size:12px">
+                                📤 Export Channel URL
+                            </button>
+                            <button class="btn btn--secondary" id="mesh-show-qr-btn" style="flex:1;font-size:12px">
+                                📱 Show QR Code
+                            </button>
+                        </div>
+                        
+                        <!-- Node Signal Quality -->
+                        ${nodes.length > 0 ? `
+                            <div class="section-label" style="margin-top:16px">📶 Node Signal Quality</div>
+                            <div style="max-height:150px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px">
+                                ${nodes.filter(n => n.id !== MeshtasticModule.getConnectionState().nodeId).map(node => {
+                                    const signalColor = getMeshSignalColor(node.signalQuality);
+                                    return `
+                                        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px;background:rgba(255,255,255,0.03);border-radius:6px;margin-bottom:4px">
+                                            <div>
+                                                <div style="font-size:12px;font-weight:500">${node.name || node.shortName || 'Unknown'}</div>
+                                                <div style="font-size:10px;color:rgba(255,255,255,0.4)">
+                                                    ${node.hwModelName || ''} ${node.firmwareVersion ? `• v${node.firmwareVersion}` : ''}
+                                                </div>
+                                            </div>
+                                            <div style="text-align:right">
+                                                <div style="font-size:11px;font-weight:500;color:${signalColor}">
+                                                    ${node.signalQuality ? node.signalQuality.toUpperCase() : 'N/A'}
+                                                </div>
+                                                <div style="font-size:9px;color:rgba(255,255,255,0.4)">
+                                                    ${node.snr !== undefined ? `SNR: ${node.snr.toFixed(1)}dB` : ''}
+                                                    ${node.rssi !== undefined ? ` RSSI: ${node.rssi}dBm` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('') || '<div style="padding:12px;text-align:center;color:rgba(255,255,255,0.4);font-size:11px">No other nodes detected</div>'}
+                            </div>
+                        ` : ''}
+                        
+                    </div>
+                    <div class="modal__footer">
+                        <button class="btn btn--secondary" id="modal-cancel">Cancel</button>
+                        <button class="btn btn--primary" id="modal-save-config">Save Configuration</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const closeModal = () => { modalContainer.innerHTML = ''; };
+        
+        // Close handlers
+        document.getElementById('modal-close').onclick = closeModal;
+        document.getElementById('modal-cancel').onclick = closeModal;
+        document.getElementById('modal-backdrop').onclick = (e) => {
+            if (e.target.id === 'modal-backdrop') closeModal();
+        };
+        
+        // Save config
+        document.getElementById('modal-save-config').onclick = async () => {
+            try {
+                const region = parseInt(document.getElementById('mesh-config-region').value);
+                const modemPreset = parseInt(document.getElementById('mesh-config-modem').value);
+                const txPower = parseInt(document.getElementById('mesh-config-txpower').value);
+                const hopLimit = parseInt(document.getElementById('mesh-config-hoplimit').value);
+                
+                // Apply config
+                await MeshtasticModule.setRegion(region);
+                await MeshtasticModule.setModemPreset(modemPreset);
+                await MeshtasticModule.setTxPower(txPower);
+                await MeshtasticModule.setHopLimit(hopLimit);
+                
+                ModalsModule.showToast('Configuration saved', 'success');
+                closeModal();
+                renderTeam();
+            } catch (err) {
+                ModalsModule.showToast('Failed to save: ' + err.message, 'error');
+            }
+        };
+        
+        // Export channel URL
+        document.getElementById('mesh-export-channel-btn').onclick = () => {
+            const activeChannel = MeshtasticModule.getActiveChannel();
+            if (!activeChannel) {
+                ModalsModule.showToast('No active channel', 'error');
+                return;
+            }
+            const urls = MeshtasticModule.exportChannelAsUrl(activeChannel.id);
+            if (urls) {
+                navigator.clipboard.writeText(urls.web).then(() => {
+                    ModalsModule.showToast('Channel URL copied to clipboard', 'success');
+                }).catch(() => {
+                    // Fallback: show in prompt
+                    prompt('Channel URL:', urls.web);
+                });
+            }
+        };
+        
+        // Show QR code (placeholder - would need QR library)
+        document.getElementById('mesh-show-qr-btn').onclick = () => {
+            const activeChannel = MeshtasticModule.getActiveChannel();
+            if (!activeChannel) {
+                ModalsModule.showToast('No active channel', 'error');
+                return;
+            }
+            const urls = MeshtasticModule.exportChannelAsUrl(activeChannel.id);
+            if (urls) {
+                // For now, just copy the QR data
+                navigator.clipboard.writeText(urls.qrData).then(() => {
+                    ModalsModule.showToast('QR data copied. Use a QR generator to create code.', 'info');
+                });
+            }
+        };
     }
     
     // =========================================================================

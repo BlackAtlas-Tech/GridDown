@@ -52,12 +52,245 @@ const MeshtasticModule = (function() {
     
     // Message delivery status
     const DeliveryStatus = {
-        PENDING: 'pending',     // Queued for sending
+        QUEUED: 'queued',       // Queued offline, waiting for connectivity
+        PENDING: 'pending',     // Queued for sending (connected)
         SENT: 'sent',           // Sent to mesh (no ACK yet)
         DELIVERED: 'delivered', // ACK received from recipient
         READ: 'read',           // Read receipt received
         FAILED: 'failed'        // Send failed or timed out
     };
+    
+    // =========================================================================
+    // PHASE 1.5: STORE-AND-FORWARD QUEUE CONSTANTS
+    // =========================================================================
+    
+    const QUEUE_MAX_SIZE = 50;           // Maximum queued messages
+    const QUEUE_RETRY_INTERVAL = 5000;   // Check queue every 5 seconds when connected
+    const QUEUE_MAX_RETRIES = 5;         // Max retry attempts per message
+    const QUEUE_RETRY_BACKOFF = 2;       // Exponential backoff multiplier
+    const QUEUE_STORAGE_KEY = 'meshtastic_message_queue';
+    
+    // =========================================================================
+    // PHASE 1: DEVICE CONFIGURATION CONSTANTS
+    // =========================================================================
+    
+    // Meshtastic Region Codes (from meshtastic/config.proto)
+    const RegionCode = {
+        UNSET: 0,
+        US: 1,          // United States (915 MHz)
+        EU_433: 2,      // European Union 433 MHz
+        EU_868: 3,      // European Union 868 MHz
+        CN: 4,          // China
+        JP: 5,          // Japan
+        ANZ: 6,         // Australia/New Zealand
+        KR: 7,          // Korea
+        TW: 8,          // Taiwan
+        RU: 9,          // Russia
+        IN: 10,         // India
+        NZ_865: 11,     // New Zealand 865 MHz
+        TH: 12,         // Thailand
+        LORA_24: 13,    // 2.4 GHz (worldwide)
+        UA_433: 14,     // Ukraine 433 MHz
+        UA_868: 15,     // Ukraine 868 MHz
+        MY_433: 16,     // Malaysia 433 MHz
+        MY_919: 17,     // Malaysia 919 MHz
+        SG_923: 18,     // Singapore 923 MHz
+        PH_433: 19,     // Philippines 433 MHz
+        PH_868: 20,     // Philippines 868 MHz
+        PH_915: 21      // Philippines 915 MHz
+    };
+    
+    // Human-readable region names
+    const RegionNames = {
+        0: 'Unset',
+        1: 'US (915 MHz)',
+        2: 'EU 433 MHz',
+        3: 'EU 868 MHz',
+        4: 'China',
+        5: 'Japan',
+        6: 'ANZ (Australia/NZ)',
+        7: 'Korea',
+        8: 'Taiwan',
+        9: 'Russia',
+        10: 'India',
+        11: 'NZ 865 MHz',
+        12: 'Thailand',
+        13: 'LoRa 2.4 GHz',
+        14: 'Ukraine 433',
+        15: 'Ukraine 868',
+        16: 'Malaysia 433',
+        17: 'Malaysia 919',
+        18: 'Singapore 923',
+        19: 'Philippines 433',
+        20: 'Philippines 868',
+        21: 'Philippines 915'
+    };
+    
+    // Modem Presets (from meshtastic/config.proto)
+    const ModemPreset = {
+        LONG_FAST: 0,       // Long range, fast (default)
+        LONG_SLOW: 1,       // Long range, slow (best range)
+        VERY_LONG_SLOW: 2,  // Very long range, very slow
+        MEDIUM_SLOW: 3,     // Medium range, slow
+        MEDIUM_FAST: 4,     // Medium range, fast
+        SHORT_SLOW: 5,      // Short range, slow
+        SHORT_FAST: 6,      // Short range, fast (high throughput)
+        LONG_MODERATE: 7    // Long range, moderate speed
+    };
+    
+    // Human-readable modem preset names with details
+    const ModemPresetInfo = {
+        0: { name: 'Long Fast', range: 'Long', speed: 'Fast', description: 'Default - good balance' },
+        1: { name: 'Long Slow', range: 'Very Long', speed: 'Slow', description: 'Maximum range, slower messages' },
+        2: { name: 'Very Long Slow', range: 'Extreme', speed: 'Very Slow', description: 'Best range, slowest speed' },
+        3: { name: 'Medium Slow', range: 'Medium', speed: 'Slow', description: 'Balanced' },
+        4: { name: 'Medium Fast', range: 'Medium', speed: 'Fast', description: 'Faster messages, less range' },
+        5: { name: 'Short Slow', range: 'Short', speed: 'Slow', description: 'Dense areas' },
+        6: { name: 'Short Fast', range: 'Short', speed: 'Very Fast', description: 'High throughput, short range' },
+        7: { name: 'Long Moderate', range: 'Long', speed: 'Moderate', description: 'Long range with better speed' }
+    };
+    
+    // TX Power Levels (dBm) - device-dependent but common values
+    const TxPowerLevels = [1, 2, 5, 7, 10, 12, 14, 17, 20, 22, 27, 30];
+    
+    // Hop Limit range
+    const HOP_LIMIT_MIN = 1;
+    const HOP_LIMIT_MAX = 7;
+    const HOP_LIMIT_DEFAULT = 3;
+    
+    // Firmware version checking
+    const MIN_RECOMMENDED_FIRMWARE = '2.3.0';
+    const LATEST_STABLE_FIRMWARE = '2.5.6';
+    
+    // Signal quality thresholds
+    const SignalQuality = {
+        EXCELLENT: { snr: 10, rssi: -70 },
+        GOOD: { snr: 5, rssi: -85 },
+        FAIR: { snr: 0, rssi: -100 },
+        POOR: { snr: -5, rssi: -115 }
+    };
+    
+    // =========================================================================
+    // PHASE 2: QUICK SETUP & FIELD UX CONSTANTS
+    // =========================================================================
+    
+    // Scenario Presets - optimized settings for different use cases
+    const ScenarioPresets = {
+        SAR: {
+            id: 'sar',
+            name: 'Search & Rescue',
+            icon: '🔍',
+            description: 'Maximum range for wilderness SAR operations',
+            settings: {
+                modemPreset: ModemPreset.LONG_SLOW,
+                hopLimit: 5,
+                positionBroadcastSecs: 120,  // 2 min - frequent updates
+                isRouter: false
+            },
+            cannedMessages: ['Found subject', 'Need medical', 'Grid clear', 'Returning to CP', 'At assignment', 'Copy all'],
+            color: '#f59e0b'  // Amber
+        },
+        FIELD_EXERCISE: {
+            id: 'field_exercise',
+            name: 'Field Exercise',
+            icon: '🎯',
+            description: 'Training and practice scenarios',
+            settings: {
+                modemPreset: ModemPreset.LONG_FAST,
+                hopLimit: 4,
+                positionBroadcastSecs: 300,  // 5 min
+                isRouter: false
+            },
+            cannedMessages: ['In position', 'Moving', 'Checkpoint', 'Complete', 'Standing by', 'Roger'],
+            color: '#3b82f6'  // Blue
+        },
+        EVENT: {
+            id: 'event',
+            name: 'Event Coverage',
+            icon: '🎪',
+            description: 'Festivals, races, public events',
+            settings: {
+                modemPreset: ModemPreset.MEDIUM_FAST,
+                hopLimit: 3,
+                positionBroadcastSecs: 180,  // 3 min
+                isRouter: false
+            },
+            cannedMessages: ['All clear', 'Need assist', 'Break time', 'Shift change', 'Medical needed', 'Copy'],
+            color: '#8b5cf6'  // Purple
+        },
+        LOW_PROFILE: {
+            id: 'low_profile',
+            name: 'Low Profile',
+            icon: '🤫',
+            description: 'Minimal transmissions, battery saving',
+            settings: {
+                modemPreset: ModemPreset.LONG_MODERATE,
+                hopLimit: 2,
+                positionBroadcastSecs: 900,  // 15 min - minimal
+                isRouter: false
+            },
+            cannedMessages: ['OK', 'Moving', 'Hold', 'RTB', 'Copy'],
+            color: '#6b7280'  // Gray
+        },
+        EMERGENCY: {
+            id: 'emergency',
+            name: 'Emergency',
+            icon: '🚨',
+            description: 'Crisis response, max reliability',
+            settings: {
+                modemPreset: ModemPreset.VERY_LONG_SLOW,
+                hopLimit: 7,  // Maximum
+                positionBroadcastSecs: 60,   // 1 min - very frequent
+                isRouter: false
+            },
+            cannedMessages: ['SOS', 'Need evac', 'Injured', 'Safe', 'Send help', 'Location sent'],
+            color: '#ef4444'  // Red
+        },
+        CUSTOM: {
+            id: 'custom',
+            name: 'Custom',
+            icon: '⚙️',
+            description: 'User-defined settings',
+            settings: null,  // Uses current device settings
+            cannedMessages: ['OK', 'Copy', 'Moving', 'At rally', 'RTB', 'Need assist'],
+            color: '#22c55e'  // Green
+        }
+    };
+    
+    // Default canned messages (fallback)
+    const DefaultCannedMessages = [
+        { id: 'ok', text: 'OK', icon: '✓', shortcut: '1' },
+        { id: 'copy', text: 'Copy', icon: '📋', shortcut: '2' },
+        { id: 'moving', text: 'Moving', icon: '🚶', shortcut: '3' },
+        { id: 'at_rally', text: 'At rally point', icon: '📍', shortcut: '4' },
+        { id: 'rtb', text: 'RTB', icon: '🏠', shortcut: '5' },
+        { id: 'need_assist', text: 'Need assistance', icon: '🆘', shortcut: '6' },
+        { id: 'holding', text: 'Holding position', icon: '⏸️', shortcut: '7' },
+        { id: 'complete', text: 'Task complete', icon: '✅', shortcut: '8' }
+    ];
+    
+    // First-run wizard steps
+    const WizardSteps = {
+        WELCOME: 'welcome',
+        NAME: 'name',
+        REGION: 'region',
+        PAIR: 'pair',
+        SCENARIO: 'scenario',
+        COMPLETE: 'complete'
+    };
+    
+    // Mesh health thresholds
+    const MeshHealthThresholds = {
+        NODES_EXCELLENT: 5,    // 5+ nodes = excellent
+        NODES_GOOD: 3,         // 3-4 nodes = good
+        NODES_FAIR: 1,         // 1-2 nodes = fair
+        UPDATE_STALE: 300000,  // 5 minutes
+        UPDATE_OLD: 600000     // 10 minutes
+    };
+    
+    // =========================================================================
+    // TIMING CONSTANTS
+    // =========================================================================
     
     // Position update interval (ms)
     const POSITION_BROADCAST_INTERVAL = 60000; // 1 minute
@@ -122,8 +355,29 @@ const MeshtasticModule = (function() {
         longName: 'GridDown User',
         shortName: 'GDU',
         
+        // Phase 1: Device Configuration
+        deviceConfig: {
+            region: RegionCode.UNSET,
+            modemPreset: ModemPreset.LONG_FAST,
+            txPower: 0,           // 0 = use device default
+            hopLimit: HOP_LIMIT_DEFAULT,
+            isRouter: false,
+            positionBroadcastSecs: 900,   // 15 minutes default
+            gpsUpdateInterval: 30,         // seconds
+            // Firmware info
+            firmwareVersion: null,
+            hwModel: null,
+            hwModelName: null,
+            hasGPS: false,
+            hasBluetooth: true,
+            hasWifi: false,
+            numBands: 1,
+            // Config loaded flag
+            configLoaded: false
+        },
+        
         // Team tracking
-        nodes: new Map(), // nodeNum -> nodeInfo
+        nodes: new Map(), // nodeNum -> nodeInfo (now includes SNR/RSSI)
         messages: [],     // Message history (all channels)
         
         // Channel management
@@ -134,6 +388,19 @@ const MeshtasticModule = (function() {
         messageStates: new Map(),        // messageId -> { status, sentAt, ackAt, retries }
         channelReadState: new Map(),     // channelId -> { lastReadAt, lastReadMessageId }
         pendingAcks: new Map(),          // messageId -> { timeout, message }
+        
+        // Phase 1.5: Store-and-Forward Queue
+        outboundQueue: [],               // Messages waiting to be sent
+        queueProcessorInterval: null,    // Interval for processing queue
+        lastQueueProcessTime: 0,         // Timestamp of last queue process
+        meshConnectivityStatus: 'unknown', // 'connected', 'partial', 'disconnected', 'unknown'
+        
+        // Phase 2: Quick Setup & Field UX
+        activeScenario: 'custom',        // Current scenario preset ID
+        customCannedMessages: [],        // User-customized canned messages
+        wizardCompleted: false,          // Has user completed first-run wizard
+        meshHealthCache: null,           // Cached mesh health status
+        lastHealthUpdate: 0,             // Timestamp of last health calculation
         
         // PKI (Public Key Infrastructure) for DM encryption
         myKeyPair: null,                 // { publicKey, privateKey, createdAt }
@@ -307,6 +574,9 @@ const MeshtasticModule = (function() {
                 state.peerPublicKeys = new Map(Object.entries(savedPeerKeys));
             }
             
+            // Phase 1.5: Load outbound message queue
+            await loadOutboundQueue();
+            
             // Load DM conversations
             const savedDMs = await Storage.Settings.get('meshtastic_dm_conversations');
             if (savedDMs) {
@@ -325,6 +595,14 @@ const MeshtasticModule = (function() {
             const savedDeleted = await Storage.Settings.get('meshtastic_deleted');
             if (savedDeleted && Array.isArray(savedDeleted)) {
                 state.deletedMessageIds = new Set(savedDeleted);
+            }
+            
+            // Phase 2: Load wizard and scenario settings
+            const phase2Settings = await Storage.Settings.get('meshtastic_phase2');
+            if (phase2Settings) {
+                state.wizardCompleted = phase2Settings.wizardCompleted || false;
+                state.activeScenario = phase2Settings.activeScenario || 'custom';
+                state.customCannedMessages = phase2Settings.customCannedMessages || [];
             }
         } catch (e) {
             console.warn('Could not load Meshtastic settings:', e);
@@ -360,6 +638,13 @@ const MeshtasticModule = (function() {
             // Batch 3: Save preferences
             await Storage.Settings.set('meshtastic_preferences', {
                 readReceiptsEnabled: state.readReceiptsEnabled
+            });
+            
+            // Phase 2: Save wizard and scenario settings
+            await Storage.Settings.set('meshtastic_phase2', {
+                wizardCompleted: state.wizardCompleted,
+                activeScenario: state.activeScenario,
+                customCannedMessages: state.customCannedMessages
             });
         } catch (e) {
             console.warn('Could not save Meshtastic settings:', e);
@@ -470,6 +755,35 @@ const MeshtasticModule = (function() {
         setConnectionState(ConnectionState.CONNECTING);
         
         try {
+            // Use MeshtasticClient for real device communication if available
+            if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isReady && MeshtasticClient.isReady()) {
+                console.log('Using MeshtasticClient for real device communication');
+                
+                // Setup callbacks before connecting
+                setupMeshtasticClientCallbacks();
+                
+                // Connect via real client
+                const result = await MeshtasticClient.connectBLE();
+                
+                state.connectionType = 'bluetooth';
+                state.myNodeNum = result.nodeNum;
+                
+                // Sync device config from real device
+                if (result.config) {
+                    syncDeviceConfigFromClient(result.config);
+                }
+                
+                setConnectionState(ConnectionState.CONNECTED);
+                
+                // Start position broadcasting
+                startPositionBroadcast();
+                
+                return true;
+            }
+            
+            // Fallback: Use basic BLE connection (original implementation)
+            console.log('MeshtasticClient not available, using basic BLE');
+            
             // Request device
             const device = await navigator.bluetooth.requestDevice({
                 filters: [{ services: [MESHTASTIC_SERVICE_UUID] }],
@@ -537,6 +851,35 @@ const MeshtasticModule = (function() {
         setConnectionState(ConnectionState.CONNECTING);
         
         try {
+            // Use MeshtasticClient for real device communication if available
+            if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isReady && MeshtasticClient.isReady()) {
+                console.log('Using MeshtasticClient for real Serial communication');
+                
+                // Setup callbacks before connecting
+                setupMeshtasticClientCallbacks();
+                
+                // Connect via real client
+                const result = await MeshtasticClient.connectSerial();
+                
+                state.connectionType = 'serial';
+                state.myNodeNum = result.nodeNum;
+                
+                // Sync device config from real device
+                if (result.config) {
+                    syncDeviceConfigFromClient(result.config);
+                }
+                
+                setConnectionState(ConnectionState.CONNECTED);
+                
+                // Start position broadcasting
+                startPositionBroadcast();
+                
+                return true;
+            }
+            
+            // Fallback: Use basic serial connection (original implementation)
+            console.log('MeshtasticClient not available, using basic Serial');
+            
             // Request port
             const port = await navigator.serial.requestPort({
                 filters: [
@@ -586,20 +929,32 @@ const MeshtasticModule = (function() {
     async function disconnect() {
         stopPositionBroadcast();
         
+        // Use MeshtasticClient if it's managing the connection
+        if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isConnected && MeshtasticClient.isConnected()) {
+            await MeshtasticClient.disconnect();
+        }
+        
+        // Also handle legacy/fallback connections
         if (state.connectionType === 'bluetooth' && state.device?.gatt?.connected) {
             state.device.gatt.disconnect();
         }
         
         if (state.connectionType === 'serial') {
             if (state.reader) {
-                await state.reader.cancel();
-                state.reader.releaseLock();
+                try {
+                    await state.reader.cancel();
+                    state.reader.releaseLock();
+                } catch (e) { /* ignore */ }
             }
             if (state.writer) {
-                await state.writer.close();
+                try {
+                    await state.writer.close();
+                } catch (e) { /* ignore */ }
             }
             if (state.port) {
-                await state.port.close();
+                try {
+                    await state.port.close();
+                } catch (e) { /* ignore */ }
             }
         }
         
@@ -610,6 +965,193 @@ const MeshtasticModule = (function() {
         state.characteristic = null;
         
         setConnectionState(ConnectionState.DISCONNECTED);
+    }
+    
+    /**
+     * Setup callbacks to sync MeshtasticClient events with GridDown state
+     */
+    function setupMeshtasticClientCallbacks() {
+        if (typeof MeshtasticClient === 'undefined') return;
+        
+        // Config received from device
+        MeshtasticClient.setCallback('onConfigReceived', (config) => {
+            console.log('[Meshtastic] Real device config received:', config);
+            syncDeviceConfigFromClient(config);
+            Events.emit('meshtastic:config_loaded', state.deviceConfig);
+        });
+        
+        // Node updates from mesh
+        MeshtasticClient.setCallback('onNodeUpdate', (node) => {
+            handleNodeInfoFromClient(node);
+        });
+        
+        // Position updates from mesh
+        MeshtasticClient.setCallback('onPosition', (position) => {
+            handlePositionFromClient(position);
+        });
+        
+        // Messages from mesh
+        MeshtasticClient.setCallback('onMessage', (message) => {
+            handleMessageFromClient(message);
+        });
+        
+        // Disconnect event
+        MeshtasticClient.setCallback('onDisconnect', () => {
+            console.log('[Meshtastic] Device disconnected');
+            setConnectionState(ConnectionState.DISCONNECTED);
+            stopPositionBroadcast();
+        });
+    }
+    
+    /**
+     * Sync device config from MeshtasticClient to GridDown state
+     */
+    function syncDeviceConfigFromClient(config) {
+        if (!config) return;
+        
+        state.deviceConfig.region = config.region ?? state.deviceConfig.region;
+        state.deviceConfig.modemPreset = config.modemPreset ?? state.deviceConfig.modemPreset;
+        state.deviceConfig.txPower = config.txPower ?? state.deviceConfig.txPower;
+        state.deviceConfig.hopLimit = config.hopLimit ?? state.deviceConfig.hopLimit;
+        state.deviceConfig.firmwareVersion = config.firmwareVersion ?? state.deviceConfig.firmwareVersion;
+        state.deviceConfig.hwModel = config.hwModel ?? state.deviceConfig.hwModel;
+        state.deviceConfig.hwModelName = config.hwModelName || getHwModelName(config.hwModel);
+        state.deviceConfig.usePreset = config.usePreset ?? state.deviceConfig.usePreset;
+        state.deviceConfig.bandwidth = config.bandwidth ?? state.deviceConfig.bandwidth;
+        state.deviceConfig.spreadFactor = config.spreadFactor ?? state.deviceConfig.spreadFactor;
+        state.deviceConfig.codingRate = config.codingRate ?? state.deviceConfig.codingRate;
+        state.deviceConfig.txEnabled = config.txEnabled ?? state.deviceConfig.txEnabled;
+        state.deviceConfig.channelNum = config.channelNum ?? state.deviceConfig.channelNum;
+        state.deviceConfig.positionBroadcastSecs = config.positionBroadcastSecs ?? state.deviceConfig.positionBroadcastSecs;
+        state.deviceConfig.gpsUpdateInterval = config.gpsUpdateInterval ?? state.deviceConfig.gpsUpdateInterval;
+        state.deviceConfig.configLoaded = true;
+        
+        // Save to storage
+        saveDeviceConfig();
+        
+        console.log('[Meshtastic] Device config synced:', state.deviceConfig);
+    }
+    
+    /**
+     * Handle node info from MeshtasticClient
+     */
+    function handleNodeInfoFromClient(clientNode) {
+        const nodeId = clientNode.id || `!${clientNode.num?.toString(16) || 'unknown'}`;
+        
+        let node = state.nodes.get(nodeId);
+        if (!node) {
+            node = { id: nodeId };
+            state.nodes.set(nodeId, node);
+        }
+        
+        node.num = clientNode.num;
+        node.name = clientNode.longName || node.name;
+        node.shortName = clientNode.shortName || node.shortName;
+        node.hwModel = clientNode.hwModel;
+        node.hwModelName = getHwModelName(clientNode.hwModel);
+        node.firmwareVersion = clientNode.firmwareVersion;
+        node.lastSeen = clientNode.lastHeard ? clientNode.lastHeard.getTime() : Date.now();
+        node.status = 'active';
+        
+        // Signal quality
+        if (clientNode.snr !== undefined) {
+            node.snr = clientNode.snr;
+            node.lastSnr = clientNode.snr;
+        }
+        if (clientNode.rssi !== undefined) {
+            node.rssi = clientNode.rssi;
+            node.lastRssi = clientNode.rssi;
+        }
+        node.signalQuality = calculateSignalQuality(node.snr, node.rssi);
+        
+        // Battery/telemetry
+        node.batteryLevel = clientNode.batteryLevel;
+        node.voltage = clientNode.voltage;
+        
+        // Position if available
+        if (clientNode.latitude !== undefined) {
+            node.lat = clientNode.latitude;
+            node.lon = clientNode.longitude;
+            node.alt = clientNode.altitude;
+        }
+        
+        updateTeamMembers();
+        
+        if (state.onNodeUpdate) {
+            state.onNodeUpdate(node);
+        }
+        Events.emit('meshtastic:nodeinfo', { node });
+    }
+    
+    /**
+     * Handle position from MeshtasticClient
+     */
+    function handlePositionFromClient(position) {
+        const nodeId = position.node?.id || `!${position.from?.toString(16) || 'unknown'}`;
+        
+        let node = state.nodes.get(nodeId);
+        if (!node) {
+            node = { id: nodeId };
+            state.nodes.set(nodeId, node);
+        }
+        
+        node.lat = position.lat;
+        node.lon = position.lon;
+        node.alt = position.alt;
+        node.lastSeen = Date.now();
+        node.status = 'active';
+        
+        // Sync signal quality from position.node if available
+        if (position.node) {
+            if (position.node.snr !== undefined) {
+                node.snr = position.node.snr;
+                node.lastSnr = position.node.snr;
+            }
+            if (position.node.rssi !== undefined) {
+                node.rssi = position.node.rssi;
+                node.lastRssi = position.node.rssi;
+            }
+            node.signalQuality = calculateSignalQuality(node.snr, node.rssi);
+        }
+        
+        updateTeamMembers();
+        
+        if (state.onPositionUpdate) {
+            state.onPositionUpdate(node);
+        }
+        Events.emit('meshtastic:position', { node });
+    }
+    
+    /**
+     * Handle message from MeshtasticClient
+     */
+    function handleMessageFromClient(message) {
+        const msg = {
+            id: message.id || `msg_${Date.now()}`,
+            type: MessageType.TEXT,
+            from: message.from,
+            to: message.to,
+            channelIndex: message.channel || 0,
+            text: message.text,
+            timestamp: message.timestamp || Date.now(),
+            isSent: false,
+            deliveryStatus: DeliveryStatus.DELIVERED
+        };
+        
+        state.messages.push(msg);
+        
+        // Keep last 100 messages
+        if (state.messages.length > 100) {
+            state.messages = state.messages.slice(-100);
+        }
+        
+        // Save messages
+        saveMessages();
+        
+        if (state.onMessage) {
+            state.onMessage(msg);
+        }
+        Events.emit('meshtastic:message', { message: msg });
     }
     
     /**
@@ -629,6 +1171,21 @@ const MeshtasticModule = (function() {
     function setConnectionState(newState) {
         const oldState = state.connectionState;
         state.connectionState = newState;
+        
+        // Phase 1.5: Handle queue processor based on connection state
+        if (newState === ConnectionState.CONNECTED && oldState !== ConnectionState.CONNECTED) {
+            // Just connected - start queue processor to send pending messages
+            console.log('[Queue] Connection established, starting queue processor');
+            startQueueProcessor();
+            
+            // Update mesh connectivity status
+            checkMeshConnectivity();
+        } else if (newState !== ConnectionState.CONNECTED && oldState === ConnectionState.CONNECTED) {
+            // Disconnected - stop queue processor
+            console.log('[Queue] Connection lost, stopping queue processor');
+            stopQueueProcessor();
+            state.meshConnectivityStatus = 'disconnected';
+        }
         
         if (state.onConnectionChange) {
             state.onConnectionChange(newState, oldState);
@@ -925,6 +1482,18 @@ const MeshtasticModule = (function() {
         node.lastSeen = Date.now();
         node.status = 'active';
         
+        // Phase 1: Capture signal quality from packet (SNR/RSSI)
+        if (message.snr !== undefined) {
+            node.snr = message.snr;
+            node.lastSnr = message.snr;
+        }
+        if (message.rssi !== undefined) {
+            node.rssi = message.rssi;
+            node.lastRssi = message.rssi;
+        }
+        // Calculate signal quality rating
+        node.signalQuality = calculateSignalQuality(node.snr, node.rssi);
+        
         // Update team members in State
         updateTeamMembers();
         
@@ -950,8 +1519,28 @@ const MeshtasticModule = (function() {
         node.name = message.longName || node.name;
         node.shortName = message.shortName || node.shortName;
         node.hwModel = message.hwModel;
+        node.hwModelName = message.hwModelName || getHwModelName(message.hwModel);
         node.macAddr = message.macAddr;
         node.lastSeen = Date.now();
+        
+        // Phase 1: Capture firmware version and device capabilities
+        if (message.firmwareVersion) {
+            node.firmwareVersion = message.firmwareVersion;
+        }
+        if (message.hasGPS !== undefined) {
+            node.hasGPS = message.hasGPS;
+        }
+        
+        // Phase 1: Capture signal quality
+        if (message.snr !== undefined) {
+            node.snr = message.snr;
+            node.lastSnr = message.snr;
+        }
+        if (message.rssi !== undefined) {
+            node.rssi = message.rssi;
+            node.lastRssi = message.rssi;
+        }
+        node.signalQuality = calculateSignalQuality(node.snr, node.rssi);
         
         if (message.isMe) {
             state.myNodeNum = message.nodeNum;
@@ -965,6 +1554,1164 @@ const MeshtasticModule = (function() {
         }
         
         Events.emit('meshtastic:nodeinfo', { node });
+    }
+    
+    // =========================================================================
+    // PHASE 1: HELPER FUNCTIONS
+    // =========================================================================
+    
+    /**
+     * Calculate signal quality rating from SNR and RSSI
+     * @param {number} snr - Signal-to-Noise Ratio in dB
+     * @param {number} rssi - Received Signal Strength Indicator in dBm
+     * @returns {string} 'excellent', 'good', 'fair', 'poor', or 'unknown'
+     */
+    function calculateSignalQuality(snr, rssi) {
+        if (snr === undefined && rssi === undefined) {
+            return 'unknown';
+        }
+        
+        // Use SNR as primary indicator if available (more reliable for LoRa)
+        if (snr !== undefined) {
+            if (snr >= SignalQuality.EXCELLENT.snr) return 'excellent';
+            if (snr >= SignalQuality.GOOD.snr) return 'good';
+            if (snr >= SignalQuality.FAIR.snr) return 'fair';
+            return 'poor';
+        }
+        
+        // Fall back to RSSI
+        if (rssi !== undefined) {
+            if (rssi >= SignalQuality.EXCELLENT.rssi) return 'excellent';
+            if (rssi >= SignalQuality.GOOD.rssi) return 'good';
+            if (rssi >= SignalQuality.FAIR.rssi) return 'fair';
+            return 'poor';
+        }
+        
+        return 'unknown';
+    }
+    
+    /**
+     * Get signal quality icon based on rating
+     */
+    function getSignalQualityIcon(quality) {
+        switch (quality) {
+            case 'excellent': return '📶';
+            case 'good': return '📶';
+            case 'fair': return '📶';
+            case 'poor': return '📶';
+            default: return '❓';
+        }
+    }
+    
+    /**
+     * Get signal quality color
+     */
+    function getSignalQualityColor(quality) {
+        switch (quality) {
+            case 'excellent': return '#22c55e'; // Green
+            case 'good': return '#84cc16';      // Lime
+            case 'fair': return '#f59e0b';      // Amber
+            case 'poor': return '#ef4444';      // Red
+            default: return '#6b7280';          // Gray
+        }
+    }
+    
+    /**
+     * Format signal quality for display
+     */
+    function formatSignalQuality(node) {
+        const parts = [];
+        if (node.snr !== undefined) {
+            parts.push(`SNR: ${node.snr.toFixed(1)} dB`);
+        }
+        if (node.rssi !== undefined) {
+            parts.push(`RSSI: ${node.rssi} dBm`);
+        }
+        if (parts.length === 0) {
+            return 'No signal data';
+        }
+        return parts.join(' • ');
+    }
+    
+    /**
+     * Get hardware model name from model number
+     */
+    function getHwModelName(hwModel) {
+        const models = {
+            0: 'Unknown',
+            1: 'TLORA_V2',
+            2: 'TLORA_V1',
+            3: 'TLORA_V2_1_1P6',
+            4: 'TBEAM',
+            5: 'HELTEC_V2_0',
+            6: 'TBEAM_V0P7',
+            7: 'T_ECHO',
+            8: 'TLORA_V1_1P3',
+            9: 'RAK4631',
+            10: 'HELTEC_V2_1',
+            11: 'HELTEC_V1',
+            12: 'LILYGO_TBEAM_S3_CORE',
+            13: 'RAK11200',
+            14: 'NANO_G1',
+            15: 'TLORA_V2_1_1P8',
+            16: 'TLORA_T3_S3',
+            17: 'NANO_G1_EXPLORER',
+            18: 'NANO_G2_ULTRA',
+            19: 'LORA_TYPE',
+            20: 'WIPHONE',
+            21: 'WIO_WM1110',
+            22: 'RAK2560',
+            23: 'HELTEC_HRU_3601',
+            25: 'HELTEC_V3',
+            26: 'HELTEC_WSL_V3',
+            39: 'RAK_WISMESHTAP',
+            40: 'STATION_G1',
+            43: 'RAK_WISMESH_POCKET',
+            44: 'STATION_G2',
+            // Add more as needed
+            255: 'Custom Hardware'
+        };
+        return models[hwModel] || `Model ${hwModel}`;
+    }
+    
+    // =========================================================================
+    // DEVICE CAPABILITY DATABASE
+    // =========================================================================
+    
+    /**
+     * Device capabilities database
+     * Defines what each Meshtastic hardware model supports
+     */
+    const DeviceCapabilities = {
+        // RAK Devices
+        RAK4631: {
+            hwModel: 9,
+            name: 'RAK WisBlock',
+            displayName: 'RAK WisBlock 4631',
+            bluetooth: true,
+            serial: true,
+            gps: false,  // Optional module
+            wifi: false,
+            battery: true,
+            screen: false,  // Optional
+            portable: true,
+            notes: 'Modular system - capabilities depend on installed modules'
+        },
+        RAK11200: {
+            hwModel: 13,
+            name: 'RAK WisBlock ESP32',
+            displayName: 'RAK WisBlock 11200',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: true,
+            screen: false,
+            portable: true,
+            notes: 'ESP32-based WisBlock core'
+        },
+        RAK2560: {
+            hwModel: 22,
+            name: 'RAK Tracker',
+            displayName: 'RAK WisNode Tracker',
+            bluetooth: true,
+            serial: false,
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: false,
+            portable: true,
+            notes: 'Compact tracker with GPS'
+        },
+        RAK_WISMESHTAP: {
+            hwModel: 39,
+            name: 'WisMesh Tap',
+            displayName: 'RAK WisMesh Tap',
+            bluetooth: true,
+            serial: false,
+            gps: false,
+            wifi: false,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Compact touchscreen device - Bluetooth only'
+        },
+        RAK_WISMESH_POCKET: {
+            hwModel: 43,
+            name: 'WisMesh Pocket',
+            displayName: 'RAK WisMesh Pocket',
+            bluetooth: true,
+            serial: false,  // USB is charging only
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Consumer portable device - Bluetooth only (USB is for charging)'
+        },
+        
+        // LilyGo T-Beam
+        TBEAM: {
+            hwModel: 4,
+            name: 'T-Beam',
+            displayName: 'LilyGo T-Beam',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: true,
+            battery: true,
+            screen: false,  // Optional OLED
+            portable: true,
+            notes: 'Popular development board with GPS'
+        },
+        TBEAM_V0P7: {
+            hwModel: 6,
+            name: 'T-Beam v0.7',
+            displayName: 'LilyGo T-Beam v0.7',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: true,
+            battery: true,
+            screen: false,
+            portable: true,
+            notes: 'Older T-Beam revision'
+        },
+        LILYGO_TBEAM_S3_CORE: {
+            hwModel: 12,
+            name: 'T-Beam S3',
+            displayName: 'LilyGo T-Beam S3 Core',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: true,
+            battery: true,
+            screen: false,
+            portable: true,
+            notes: 'ESP32-S3 based T-Beam'
+        },
+        
+        // LilyGo T-Echo
+        T_ECHO: {
+            hwModel: 7,
+            name: 'T-Echo',
+            displayName: 'LilyGo T-Echo',
+            bluetooth: true,
+            serial: false,  // nRF52 - no native USB serial
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: true,  // E-ink
+            portable: true,
+            notes: 'E-ink display, nRF52 based - Bluetooth only'
+        },
+        
+        // LilyGo T-LoRa
+        TLORA_V2: {
+            hwModel: 1,
+            name: 'T-LoRa V2',
+            displayName: 'LilyGo T-LoRa V2',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: false,  // No built-in battery
+            screen: true,
+            portable: false,
+            notes: 'Development board with OLED'
+        },
+        TLORA_V1: {
+            hwModel: 2,
+            name: 'T-LoRa V1',
+            displayName: 'LilyGo T-LoRa V1',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: false,
+            screen: true,
+            portable: false,
+            notes: 'Original T-LoRa board'
+        },
+        TLORA_T3_S3: {
+            hwModel: 16,
+            name: 'T3 S3',
+            displayName: 'LilyGo T3 S3',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'ESP32-S3 with display'
+        },
+        
+        // Heltec
+        HELTEC_V1: {
+            hwModel: 11,
+            name: 'Heltec V1',
+            displayName: 'Heltec LoRa32 V1',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: false,
+            screen: true,
+            portable: false,
+            notes: 'Original Heltec board'
+        },
+        HELTEC_V2_0: {
+            hwModel: 5,
+            name: 'Heltec V2',
+            displayName: 'Heltec LoRa32 V2',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Popular development board'
+        },
+        HELTEC_V2_1: {
+            hwModel: 10,
+            name: 'Heltec V2.1',
+            displayName: 'Heltec LoRa32 V2.1',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Updated V2 with improvements'
+        },
+        HELTEC_V3: {
+            hwModel: 25,
+            name: 'Heltec V3',
+            displayName: 'Heltec LoRa32 V3',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Latest Heltec with ESP32-S3'
+        },
+        HELTEC_WSL_V3: {
+            hwModel: 26,
+            name: 'Heltec Wireless Stick Lite V3',
+            displayName: 'Heltec WSL V3',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: false,
+            screen: false,
+            portable: false,
+            notes: 'Compact stick form factor'
+        },
+        
+        // Station devices
+        STATION_G1: {
+            hwModel: 40,
+            name: 'Station G1',
+            displayName: 'Meshtastic Station G1',
+            bluetooth: true,
+            serial: true,
+            gps: false,
+            wifi: true,
+            battery: false,
+            screen: true,
+            portable: false,
+            notes: 'Base station device'
+        },
+        STATION_G2: {
+            hwModel: 44,
+            name: 'Station G2',
+            displayName: 'Meshtastic Station G2',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: true,
+            battery: false,
+            screen: true,
+            portable: false,
+            notes: 'Advanced base station with GPS'
+        },
+        
+        // Nano devices
+        NANO_G1: {
+            hwModel: 14,
+            name: 'Nano G1',
+            displayName: 'B&Q Nano G1',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Compact device with GPS'
+        },
+        NANO_G1_EXPLORER: {
+            hwModel: 17,
+            name: 'Nano G1 Explorer',
+            displayName: 'B&Q Nano G1 Explorer',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Enhanced Nano with more features'
+        },
+        NANO_G2_ULTRA: {
+            hwModel: 18,
+            name: 'Nano G2 Ultra',
+            displayName: 'B&Q Nano G2 Ultra',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: true,
+            portable: true,
+            notes: 'Latest Nano generation'
+        },
+        
+        // Seeed
+        WIO_WM1110: {
+            hwModel: 21,
+            name: 'Wio WM1110',
+            displayName: 'Seeed Wio WM1110',
+            bluetooth: true,
+            serial: true,
+            gps: true,
+            wifi: false,
+            battery: true,
+            screen: false,
+            portable: true,
+            notes: 'Seeed tracker module'
+        },
+        
+        // Default/Unknown
+        UNKNOWN: {
+            hwModel: 0,
+            name: 'Unknown',
+            displayName: 'Unknown Device',
+            bluetooth: true,
+            serial: true,  // Assume both available for unknown
+            gps: false,
+            wifi: false,
+            battery: false,
+            screen: false,
+            portable: false,
+            notes: 'Unknown device - capabilities uncertain'
+        }
+    };
+    
+    /**
+     * Get device capabilities by hardware model number
+     */
+    function getDeviceCapabilities(hwModel) {
+        // Find by hwModel number
+        for (const [key, device] of Object.entries(DeviceCapabilities)) {
+            if (device.hwModel === hwModel) {
+                return { ...device, id: key };
+            }
+        }
+        // Return unknown with the model number
+        return { 
+            ...DeviceCapabilities.UNKNOWN, 
+            id: 'UNKNOWN',
+            hwModel: hwModel,
+            displayName: `Unknown Device (Model ${hwModel})`
+        };
+    }
+    
+    /**
+     * Get device capabilities for the currently connected device
+     */
+    function getConnectedDeviceCapabilities() {
+        const hwModel = state.deviceConfig.hwModel;
+        if (hwModel === null || hwModel === undefined) {
+            return null;
+        }
+        return getDeviceCapabilities(hwModel);
+    }
+    
+    /**
+     * Check if current device supports serial connection
+     */
+    function deviceSupportsSerial() {
+        const caps = getConnectedDeviceCapabilities();
+        return caps ? caps.serial : true; // Assume true if unknown
+    }
+    
+    /**
+     * Check if current device supports Bluetooth connection
+     */
+    function deviceSupportsBluetooth() {
+        const caps = getConnectedDeviceCapabilities();
+        return caps ? caps.bluetooth : true; // Assume true if unknown
+    }
+    
+    /**
+     * Get connection recommendation for a device type
+     */
+    function getConnectionRecommendation(hwModel) {
+        const caps = hwModel !== undefined 
+            ? getDeviceCapabilities(hwModel) 
+            : getConnectedDeviceCapabilities();
+        
+        if (!caps) {
+            return {
+                recommended: 'bluetooth',
+                reason: 'Bluetooth is recommended for most devices',
+                serialSupported: true,
+                bluetoothSupported: true
+            };
+        }
+        
+        if (caps.bluetooth && !caps.serial) {
+            return {
+                recommended: 'bluetooth',
+                reason: `${caps.displayName} only supports Bluetooth (USB is for charging)`,
+                serialSupported: false,
+                bluetoothSupported: true,
+                deviceName: caps.displayName,
+                notes: caps.notes
+            };
+        }
+        
+        if (caps.serial && !caps.bluetooth) {
+            return {
+                recommended: 'serial',
+                reason: `${caps.displayName} only supports Serial/USB connection`,
+                serialSupported: true,
+                bluetoothSupported: false,
+                deviceName: caps.displayName,
+                notes: caps.notes
+            };
+        }
+        
+        // Both supported - recommend based on use case
+        if (caps.portable) {
+            return {
+                recommended: 'bluetooth',
+                reason: `${caps.displayName} supports both - Bluetooth recommended for portable use`,
+                serialSupported: true,
+                bluetoothSupported: true,
+                deviceName: caps.displayName,
+                notes: caps.notes
+            };
+        }
+        
+        return {
+            recommended: 'serial',
+            reason: `${caps.displayName} supports both - Serial recommended for base stations`,
+            serialSupported: true,
+            bluetoothSupported: true,
+            deviceName: caps.displayName,
+            notes: caps.notes
+        };
+    }
+    
+    /**
+     * Get common device presets for connection help
+     */
+    function getCommonDevices() {
+        return [
+            { name: 'WisMesh Pocket', bluetooth: true, serial: false, icon: '📱' },
+            { name: 'WisMesh Tap', bluetooth: true, serial: false, icon: '📱' },
+            { name: 'T-Echo', bluetooth: true, serial: false, icon: '📱' },
+            { name: 'T-Beam', bluetooth: true, serial: true, icon: '📡' },
+            { name: 'Heltec V3', bluetooth: true, serial: true, icon: '📡' },
+            { name: 'RAK WisBlock', bluetooth: true, serial: true, icon: '🔧' },
+            { name: 'Station G2', bluetooth: true, serial: true, icon: '🏠' }
+        ];
+    }
+    
+    /**
+     * Detect device from Bluetooth device name
+     * Returns likely device type based on name patterns
+     */
+    function detectDeviceFromName(deviceName) {
+        if (!deviceName) return null;
+        
+        const lower = deviceName.toLowerCase();
+        
+        // RAK devices
+        if (lower.includes('wismesh') || lower.includes('rak')) {
+            if (lower.includes('pocket')) {
+                return getDeviceCapabilities(43); // RAK_WISMESH_POCKET
+            }
+            if (lower.includes('tap')) {
+                return getDeviceCapabilities(39); // RAK_WISMESHTAP
+            }
+            return getDeviceCapabilities(9); // RAK4631 as default RAK
+        }
+        
+        // LilyGo devices
+        if (lower.includes('tbeam') || lower.includes('t-beam')) {
+            return getDeviceCapabilities(4); // TBEAM
+        }
+        if (lower.includes('techo') || lower.includes('t-echo')) {
+            return getDeviceCapabilities(7); // T_ECHO
+        }
+        if (lower.includes('tlora') || lower.includes('t-lora')) {
+            return getDeviceCapabilities(1); // TLORA_V2
+        }
+        
+        // Heltec
+        if (lower.includes('heltec')) {
+            return getDeviceCapabilities(25); // HELTEC_V3 as default
+        }
+        
+        // Station
+        if (lower.includes('station')) {
+            return getDeviceCapabilities(44); // STATION_G2
+        }
+        
+        // Nano
+        if (lower.includes('nano')) {
+            return getDeviceCapabilities(18); // NANO_G2_ULTRA
+        }
+        
+        // Generic Meshtastic
+        if (lower.includes('meshtastic')) {
+            // Can't determine specific device
+            return null;
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Compare firmware versions
+     * @returns {number} -1 if a < b, 0 if equal, 1 if a > b
+     */
+    function compareFirmwareVersions(a, b) {
+        if (!a || !b) return 0;
+        
+        const partsA = a.replace(/[^\d.]/g, '').split('.').map(Number);
+        const partsB = b.replace(/[^\d.]/g, '').split('.').map(Number);
+        
+        for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
+            const numA = partsA[i] || 0;
+            const numB = partsB[i] || 0;
+            if (numA < numB) return -1;
+            if (numA > numB) return 1;
+        }
+        return 0;
+    }
+    
+    /**
+     * Check if firmware version needs update
+     */
+    function checkFirmwareStatus(version) {
+        if (!version) {
+            return { status: 'unknown', message: 'Firmware version unknown' };
+        }
+        
+        const cmpRecommended = compareFirmwareVersions(version, MIN_RECOMMENDED_FIRMWARE);
+        const cmpLatest = compareFirmwareVersions(version, LATEST_STABLE_FIRMWARE);
+        
+        if (cmpRecommended < 0) {
+            return {
+                status: 'outdated',
+                message: `Firmware ${version} is outdated. Minimum recommended: ${MIN_RECOMMENDED_FIRMWARE}`,
+                color: '#ef4444'
+            };
+        } else if (cmpLatest < 0) {
+            return {
+                status: 'update_available',
+                message: `Update available: ${LATEST_STABLE_FIRMWARE} (current: ${version})`,
+                color: '#f59e0b'
+            };
+        } else {
+            return {
+                status: 'current',
+                message: `Firmware ${version} is up to date`,
+                color: '#22c55e'
+            };
+        }
+    }
+    
+    // =========================================================================
+    // PHASE 1: CHANNEL URL IMPORT/EXPORT
+    // =========================================================================
+    
+    /**
+     * Parse a Meshtastic channel URL
+     * Format: meshtastic://channel?<base64_encoded_channel_set>
+     * or: https://meshtastic.org/e/#<base64_encoded_channel_set>
+     * 
+     * @param {string} url - The channel URL to parse
+     * @returns {object|null} Parsed channel data or null if invalid
+     */
+    function parseChannelUrl(url) {
+        if (!url || typeof url !== 'string') {
+            return null;
+        }
+        
+        try {
+            let base64Data = null;
+            
+            // Handle meshtastic:// scheme
+            if (url.startsWith('meshtastic://')) {
+                const match = url.match(/meshtastic:\/\/[^?]*\?(.+)/);
+                if (match) {
+                    base64Data = match[1];
+                }
+            }
+            // Handle web URL format
+            else if (url.includes('meshtastic.org/e/#')) {
+                const match = url.match(/meshtastic\.org\/e\/#(.+)/);
+                if (match) {
+                    base64Data = match[1];
+                }
+            }
+            // Handle raw base64
+            else if (/^[A-Za-z0-9+/=_-]+$/.test(url)) {
+                base64Data = url;
+            }
+            
+            if (!base64Data) {
+                console.warn('Could not extract channel data from URL');
+                return null;
+            }
+            
+            // URL-safe base64 to standard base64
+            base64Data = base64Data.replace(/-/g, '+').replace(/_/g, '/');
+            
+            // Decode base64
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            // Parse protobuf-like structure (simplified)
+            // In a full implementation, this would use actual protobuf parsing
+            // For now, we extract what we can from the binary data
+            const channelData = parseChannelProtobuf(bytes);
+            
+            return channelData;
+        } catch (e) {
+            console.error('Error parsing channel URL:', e);
+            return null;
+        }
+    }
+    
+    /**
+     * Parse channel data from protobuf bytes (simplified)
+     * Real implementation would use protobuf.js
+     */
+    function parseChannelProtobuf(bytes) {
+        // This is a simplified parser for demonstration
+        // In production, use proper protobuf parsing
+        
+        // The ChannelSet protobuf contains:
+        // - repeated Channel settings
+        // - LoRaConfig lora_config
+        
+        // For now, return a placeholder that can be used
+        // The actual parsing would require protobuf definitions
+        
+        return {
+            raw: bytes,
+            // Try to extract PSK if present (field 1 in Channel)
+            psk: extractPsk(bytes),
+            // Estimated settings
+            isValid: bytes.length > 10,
+            byteLength: bytes.length
+        };
+    }
+    
+    /**
+     * Extract PSK from channel bytes (simplified)
+     */
+    function extractPsk(bytes) {
+        // PSK is typically a 32-byte key
+        // In protobuf, it's encoded with field tag + length prefix
+        // This is a simplified extraction
+        if (bytes.length >= 34) {
+            const pskBytes = bytes.slice(2, 34);
+            return Array.from(pskBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        return null;
+    }
+    
+    /**
+     * Generate a channel URL from channel settings
+     * @param {object} channel - Channel settings object
+     * @returns {string} Meshtastic channel URL
+     */
+    function generateChannelUrl(channel) {
+        if (!channel) {
+            return null;
+        }
+        
+        try {
+            // Build channel protobuf (simplified)
+            const channelBytes = buildChannelProtobuf(channel);
+            
+            // Convert to URL-safe base64
+            let base64 = btoa(String.fromCharCode.apply(null, channelBytes));
+            base64 = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            
+            // Return both URL formats
+            return {
+                meshtastic: `meshtastic://channel?${base64}`,
+                web: `https://meshtastic.org/e/#${base64}`,
+                qrData: base64
+            };
+        } catch (e) {
+            console.error('Error generating channel URL:', e);
+            return null;
+        }
+    }
+    
+    /**
+     * Build channel protobuf bytes (simplified)
+     */
+    function buildChannelProtobuf(channel) {
+        // This is a simplified builder
+        // Real implementation would use protobuf.js
+        
+        const bytes = [];
+        
+        // Channel name (field 2, string)
+        if (channel.name) {
+            bytes.push(0x12); // field 2, wire type 2 (length-delimited)
+            const nameBytes = new TextEncoder().encode(channel.name);
+            bytes.push(nameBytes.length);
+            bytes.push(...nameBytes);
+        }
+        
+        // PSK (field 1, bytes) - if not default
+        if (channel.psk) {
+            bytes.push(0x0a); // field 1, wire type 2
+            const pskBytes = hexToBytes(channel.psk);
+            bytes.push(pskBytes.length);
+            bytes.push(...pskBytes);
+        }
+        
+        return new Uint8Array(bytes);
+    }
+    
+    /**
+     * Convert hex string to byte array
+     */
+    function hexToBytes(hex) {
+        const bytes = [];
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes.push(parseInt(hex.substr(i, 2), 16));
+        }
+        return bytes;
+    }
+    
+    /**
+     * Import a channel from URL
+     */
+    async function importChannelFromUrl(url) {
+        const channelData = parseChannelUrl(url);
+        
+        if (!channelData || !channelData.isValid) {
+            throw new Error('Invalid channel URL');
+        }
+        
+        // Create channel in GridDown
+        const channel = {
+            id: `imported_${Date.now()}`,
+            index: state.channels.length,
+            name: channelData.name || `Imported ${state.channels.length}`,
+            psk: channelData.psk,
+            isDefault: false,
+            isPrivate: true,
+            importedAt: Date.now(),
+            sourceUrl: url
+        };
+        
+        // Add to channels
+        state.channels.push(channel);
+        
+        // Save settings
+        await saveSettings();
+        
+        // Notify listeners
+        if (state.onChannelChange) {
+            state.onChannelChange(channel);
+        }
+        
+        Events.emit('meshtastic:channel_imported', { channel });
+        
+        return channel;
+    }
+    
+    /**
+     * Export channel as URL
+     */
+    function exportChannelAsUrl(channelId) {
+        const channel = state.channels.find(c => c.id === channelId);
+        if (!channel) {
+            return null;
+        }
+        
+        return generateChannelUrl(channel);
+    }
+    
+    // =========================================================================
+    // PHASE 1: DEVICE CONFIGURATION FUNCTIONS
+    // =========================================================================
+    
+    /**
+     * Get current device configuration
+     */
+    function getDeviceConfig() {
+        // If connected via MeshtasticClient, sync config first
+        if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isConnected && MeshtasticClient.isConnected()) {
+            const clientConfig = MeshtasticClient.getConfig();
+            if (clientConfig) {
+                syncDeviceConfigFromClient(clientConfig);
+            }
+        }
+        return { ...state.deviceConfig };
+    }
+    
+    /**
+     * Set device region
+     * @param {number} region - Region code from RegionCode enum
+     */
+    async function setRegion(region) {
+        if (!Object.values(RegionCode).includes(region)) {
+            throw new Error(`Invalid region code: ${region}`);
+        }
+        
+        state.deviceConfig.region = region;
+        
+        // If connected, send to device
+        if (state.connectionState === ConnectionState.CONNECTED) {
+            await sendConfigToDevice({ region });
+        }
+        
+        await saveDeviceConfig();
+        Events.emit('meshtastic:config_changed', { region });
+        
+        return state.deviceConfig;
+    }
+    
+    /**
+     * Set modem preset
+     * @param {number} preset - Modem preset from ModemPreset enum
+     */
+    async function setModemPreset(preset) {
+        if (!Object.values(ModemPreset).includes(preset)) {
+            throw new Error(`Invalid modem preset: ${preset}`);
+        }
+        
+        state.deviceConfig.modemPreset = preset;
+        
+        if (state.connectionState === ConnectionState.CONNECTED) {
+            await sendConfigToDevice({ modemPreset: preset });
+        }
+        
+        await saveDeviceConfig();
+        Events.emit('meshtastic:config_changed', { modemPreset: preset });
+        
+        return state.deviceConfig;
+    }
+    
+    /**
+     * Set TX power
+     * @param {number} power - Transmit power in dBm (0 = device default)
+     */
+    async function setTxPower(power) {
+        if (power !== 0 && !TxPowerLevels.includes(power)) {
+            // Allow any value between min and max for flexibility
+            if (power < 1 || power > 30) {
+                throw new Error(`Invalid TX power: ${power}. Must be 0 (default) or 1-30 dBm`);
+            }
+        }
+        
+        state.deviceConfig.txPower = power;
+        
+        if (state.connectionState === ConnectionState.CONNECTED) {
+            await sendConfigToDevice({ txPower: power });
+        }
+        
+        await saveDeviceConfig();
+        Events.emit('meshtastic:config_changed', { txPower: power });
+        
+        return state.deviceConfig;
+    }
+    
+    /**
+     * Set hop limit
+     * @param {number} hopLimit - Number of hops (1-7)
+     */
+    async function setHopLimit(hopLimit) {
+        if (hopLimit < HOP_LIMIT_MIN || hopLimit > HOP_LIMIT_MAX) {
+            throw new Error(`Invalid hop limit: ${hopLimit}. Must be ${HOP_LIMIT_MIN}-${HOP_LIMIT_MAX}`);
+        }
+        
+        state.deviceConfig.hopLimit = hopLimit;
+        
+        if (state.connectionState === ConnectionState.CONNECTED) {
+            await sendConfigToDevice({ hopLimit });
+        }
+        
+        await saveDeviceConfig();
+        Events.emit('meshtastic:config_changed', { hopLimit });
+        
+        return state.deviceConfig;
+    }
+    
+    /**
+     * Send configuration to connected device
+     * Uses MeshtasticClient for real device communication when available
+     */
+    async function sendConfigToDevice(config) {
+        // Use MeshtasticClient for real device communication if available
+        if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isConnected && MeshtasticClient.isConnected()) {
+            console.log('[Meshtastic] Sending real config to device:', config);
+            
+            try {
+                if (config.region !== undefined) {
+                    await MeshtasticClient.setRegion(config.region);
+                }
+                if (config.modemPreset !== undefined) {
+                    await MeshtasticClient.setModemPreset(config.modemPreset);
+                }
+                if (config.txPower !== undefined) {
+                    await MeshtasticClient.setTxPower(config.txPower);
+                }
+                if (config.hopLimit !== undefined) {
+                    await MeshtasticClient.setHopLimit(config.hopLimit);
+                }
+                
+                console.log('[Meshtastic] Config sent successfully');
+                return true;
+            } catch (error) {
+                console.error('[Meshtastic] Failed to send config:', error);
+                throw error;
+            }
+        }
+        
+        // Fallback: Log that config would be sent (for offline/simulation mode)
+        console.log('[Meshtastic] Config queued (will send when connected):', config);
+        return true;
+    }
+    
+    /**
+     * Request device config from connected device
+     * Uses MeshtasticClient for real device communication when available
+     */
+    async function requestDeviceConfig() {
+        if (state.connectionState !== ConnectionState.CONNECTED) {
+            throw new Error('Not connected to device');
+        }
+        
+        // Use MeshtasticClient for real config request
+        if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isConnected && MeshtasticClient.isConnected()) {
+            console.log('[Meshtastic] Requesting real device config...');
+            
+            try {
+                await MeshtasticClient.requestConfig();
+                
+                // Config will be received via callback and synced
+                // Give it a moment to arrive
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                const clientConfig = MeshtasticClient.getConfig();
+                if (clientConfig) {
+                    syncDeviceConfigFromClient(clientConfig);
+                }
+                
+                state.deviceConfig.configLoaded = true;
+                Events.emit('meshtastic:config_loaded', state.deviceConfig);
+                return state.deviceConfig;
+            } catch (error) {
+                console.error('[Meshtastic] Failed to request config:', error);
+                throw error;
+            }
+        }
+        
+        // Fallback: Return cached config
+        console.log('[Meshtastic] Using cached config (MeshtasticClient not available)');
+        state.deviceConfig.configLoaded = true;
+        Events.emit('meshtastic:config_loaded', state.deviceConfig);
+        return state.deviceConfig;
+    }
+    
+    /**
+     * Save device config to storage
+     */
+    async function saveDeviceConfig() {
+        try {
+            await Storage.Settings.set('meshtastic_device_config', state.deviceConfig);
+        } catch (e) {
+            console.warn('Could not save device config:', e);
+        }
+    }
+    
+    /**
+     * Load device config from storage
+     */
+    async function loadDeviceConfig() {
+        try {
+            const saved = await Storage.Settings.get('meshtastic_device_config');
+            if (saved) {
+                state.deviceConfig = { ...state.deviceConfig, ...saved };
+            }
+        } catch (e) {
+            console.warn('Could not load device config:', e);
+        }
+    }
+    
+    /**
+     * Get firmware status for a node
+     */
+    function getNodeFirmwareStatus(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node || !node.firmwareVersion) {
+            return { status: 'unknown', message: 'No firmware info' };
+        }
+        return checkFirmwareStatus(node.firmwareVersion);
+    }
+    
+    /**
+     * Get my device's firmware status
+     */
+    function getMyFirmwareStatus() {
+        return checkFirmwareStatus(state.deviceConfig.firmwareVersion);
+    }
+    
+    /**
+     * Get all region options for UI
+     */
+    function getRegionOptions() {
+        return Object.entries(RegionCode).map(([key, value]) => ({
+            value,
+            label: RegionNames[value] || key,
+            key
+        }));
+    }
+    
+    /**
+     * Get all modem preset options for UI
+     */
+    function getModemPresetOptions() {
+        return Object.entries(ModemPreset).map(([key, value]) => ({
+            value,
+            label: ModemPresetInfo[value]?.name || key,
+            ...ModemPresetInfo[value]
+        }));
     }
     
     /**
@@ -1070,8 +2817,9 @@ const MeshtasticModule = (function() {
      * @param {string} text - Message content
      * @param {string|null} to - Recipient node ID (null for channel broadcast)
      * @param {string|null} channelId - Channel to send on (defaults to active channel)
+     * @param {boolean} forceQueue - Force message to queue even if connected
      */
-    async function sendTextMessage(text, to = null, channelId = null) {
+    async function sendTextMessage(text, to = null, channelId = null, forceQueue = false) {
         if (!text || text.length === 0) return;
         
         // Truncate if needed
@@ -1096,16 +2844,42 @@ const MeshtasticModule = (function() {
             encrypted: channel?.isPrivate || false
         };
         
-        // Set initial delivery status
+        // Store locally first (so it appears in UI immediately)
+        addMessageToHistory(message, true);
+        
+        // Check if we should queue the message
+        const isConnected = checkMeshConnectivity();
+        const shouldQueue = forceQueue || !isConnected || state.meshConnectivityStatus === 'disconnected';
+        
+        if (shouldQueue) {
+            // Queue the message for later delivery
+            console.log(`[Queue] Connectivity: ${state.meshConnectivityStatus}, queuing message`);
+            
+            state.messageStates.set(messageId, {
+                status: DeliveryStatus.QUEUED,
+                sentAt: null,
+                ackAt: null,
+                retries: 0,
+                queuedAt: Date.now()
+            });
+            
+            const queued = addToOutboundQueue(message);
+            if (!queued) {
+                // Queue is full
+                updateMessageStatus(messageId, DeliveryStatus.FAILED);
+                throw new Error('Message queue is full');
+            }
+            
+            return message;
+        }
+        
+        // Set initial delivery status as pending (about to send)
         state.messageStates.set(messageId, {
             status: DeliveryStatus.PENDING,
             sentAt: Date.now(),
             ackAt: null,
             retries: 0
         });
-        
-        // Store locally
-        addMessageToHistory(message, true);
         
         try {
             // Send to mesh
@@ -1119,8 +2893,18 @@ const MeshtasticModule = (function() {
             
         } catch (e) {
             console.error('Failed to send message:', e);
-            updateMessageStatus(messageId, DeliveryStatus.FAILED);
-            throw e;
+            
+            // On failure, queue for retry instead of marking as failed immediately
+            console.log('[Queue] Send failed, queuing for retry');
+            const queued = addToOutboundQueue(message);
+            
+            if (!queued) {
+                // Queue full - mark as failed
+                updateMessageStatus(messageId, DeliveryStatus.FAILED);
+                throw e;
+            }
+            
+            // Message is now queued - don't throw error to caller
         }
         
         return message;
@@ -1277,6 +3061,736 @@ const MeshtasticModule = (function() {
      */
     function generateMessageId() {
         return `${state.myNodeId || 'local'}-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    }
+    
+    // =========================================================================
+    // PHASE 1.5: STORE-AND-FORWARD QUEUE
+    // =========================================================================
+    
+    /**
+     * Load outbound queue from storage
+     */
+    async function loadOutboundQueue() {
+        try {
+            const savedQueue = await Storage.Settings.get(QUEUE_STORAGE_KEY);
+            if (savedQueue && Array.isArray(savedQueue)) {
+                state.outboundQueue = savedQueue;
+                console.log(`[Queue] Loaded ${savedQueue.length} queued messages`);
+                
+                // Update message states for queued messages
+                savedQueue.forEach(queuedMsg => {
+                    if (queuedMsg.id) {
+                        state.messageStates.set(queuedMsg.id, {
+                            status: DeliveryStatus.QUEUED,
+                            sentAt: null,
+                            ackAt: null,
+                            retries: queuedMsg.retries || 0,
+                            queuedAt: queuedMsg.queuedAt || Date.now()
+                        });
+                    }
+                });
+                
+                // Emit queue status event
+                Events.emit('meshtastic:queue_loaded', { count: savedQueue.length });
+            }
+        } catch (e) {
+            console.error('[Queue] Failed to load queue:', e);
+        }
+    }
+    
+    /**
+     * Save outbound queue to storage
+     */
+    async function saveOutboundQueue() {
+        try {
+            await Storage.Settings.set(QUEUE_STORAGE_KEY, state.outboundQueue);
+        } catch (e) {
+            console.error('[Queue] Failed to save queue:', e);
+        }
+    }
+    
+    /**
+     * Check mesh connectivity status
+     * Returns true if we can likely send messages
+     */
+    function checkMeshConnectivity() {
+        // Not connected to device at all
+        if (state.connectionState !== ConnectionState.CONNECTED) {
+            state.meshConnectivityStatus = 'disconnected';
+            return false;
+        }
+        
+        // Check if MeshtasticClient is available and connected
+        if (typeof MeshtasticClient !== 'undefined' && 
+            MeshtasticClient.isConnected && 
+            !MeshtasticClient.isConnected()) {
+            state.meshConnectivityStatus = 'disconnected';
+            return false;
+        }
+        
+        // Check if we have any nodes in the mesh (besides ourselves)
+        const otherNodes = Array.from(state.nodes.values()).filter(n => {
+            // Exclude our own node
+            if (n.id === state.myNodeId || n.num === state.myNodeNum) return false;
+            // Check if node was seen recently (within 30 minutes)
+            const thirtyMinutesAgo = Date.now() - (30 * 60 * 1000);
+            return n.lastSeen && n.lastSeen > thirtyMinutesAgo;
+        });
+        
+        if (otherNodes.length === 0) {
+            state.meshConnectivityStatus = 'partial';
+            // Still allow sending - messages may be relayed later
+            return true;
+        }
+        
+        state.meshConnectivityStatus = 'connected';
+        return true;
+    }
+    
+    /**
+     * Add message to outbound queue
+     * @param {Object} message - Message to queue
+     * @returns {boolean} - True if added, false if queue full
+     */
+    function addToOutboundQueue(message) {
+        if (state.outboundQueue.length >= QUEUE_MAX_SIZE) {
+            console.warn('[Queue] Queue full, cannot add message');
+            Events.emit('meshtastic:queue_full', { queueSize: state.outboundQueue.length });
+            return false;
+        }
+        
+        const queuedMessage = {
+            ...message,
+            queuedAt: Date.now(),
+            retries: 0,
+            nextRetryAt: Date.now()
+        };
+        
+        state.outboundQueue.push(queuedMessage);
+        
+        // Update message status
+        state.messageStates.set(message.id, {
+            status: DeliveryStatus.QUEUED,
+            sentAt: null,
+            ackAt: null,
+            retries: 0,
+            queuedAt: queuedMessage.queuedAt
+        });
+        
+        // Save queue
+        saveOutboundQueue();
+        
+        console.log(`[Queue] Message ${message.id} queued (${state.outboundQueue.length} in queue)`);
+        
+        // Emit events
+        Events.emit('meshtastic:message_queued', { 
+            messageId: message.id, 
+            queueSize: state.outboundQueue.length 
+        });
+        Events.emit('meshtastic:message_status', { 
+            messageId: message.id, 
+            status: DeliveryStatus.QUEUED 
+        });
+        
+        return true;
+    }
+    
+    /**
+     * Remove message from outbound queue
+     * @param {string} messageId - ID of message to remove
+     */
+    function removeFromOutboundQueue(messageId) {
+        const index = state.outboundQueue.findIndex(m => m.id === messageId);
+        if (index !== -1) {
+            state.outboundQueue.splice(index, 1);
+            saveOutboundQueue();
+            console.log(`[Queue] Message ${messageId} removed from queue`);
+        }
+    }
+    
+    /**
+     * Process the outbound queue - try to send queued messages
+     * Called periodically when connected
+     */
+    async function processOutboundQueue() {
+        // Don't process if not connected
+        if (!checkMeshConnectivity() && state.meshConnectivityStatus === 'disconnected') {
+            return;
+        }
+        
+        // Don't process if queue is empty
+        if (state.outboundQueue.length === 0) {
+            return;
+        }
+        
+        const now = Date.now();
+        state.lastQueueProcessTime = now;
+        
+        console.log(`[Queue] Processing ${state.outboundQueue.length} queued messages`);
+        
+        // Process messages that are ready for retry
+        const messagesToProcess = state.outboundQueue.filter(msg => {
+            return msg.nextRetryAt <= now && msg.retries < QUEUE_MAX_RETRIES;
+        });
+        
+        for (const queuedMsg of messagesToProcess) {
+            try {
+                // Update status to pending
+                updateMessageStatus(queuedMsg.id, DeliveryStatus.PENDING);
+                
+                // Try to send
+                await sendToDevice(queuedMsg);
+                
+                // Success - update status and remove from queue
+                updateMessageStatus(queuedMsg.id, DeliveryStatus.SENT);
+                removeFromOutboundQueue(queuedMsg.id);
+                
+                // Set up ACK timeout
+                setupAckTimeout(queuedMsg.id, queuedMsg);
+                
+                console.log(`[Queue] Successfully sent queued message ${queuedMsg.id}`);
+                Events.emit('meshtastic:queue_message_sent', { messageId: queuedMsg.id });
+                
+                // Small delay between messages to avoid flooding
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+            } catch (e) {
+                console.error(`[Queue] Failed to send message ${queuedMsg.id}:`, e);
+                
+                // Increment retry count
+                queuedMsg.retries++;
+                
+                if (queuedMsg.retries >= QUEUE_MAX_RETRIES) {
+                    // Max retries reached - mark as failed and remove
+                    updateMessageStatus(queuedMsg.id, DeliveryStatus.FAILED);
+                    removeFromOutboundQueue(queuedMsg.id);
+                    Events.emit('meshtastic:queue_message_failed', { 
+                        messageId: queuedMsg.id,
+                        reason: 'max_retries'
+                    });
+                } else {
+                    // Schedule next retry with exponential backoff
+                    const backoffMs = QUEUE_RETRY_INTERVAL * Math.pow(QUEUE_RETRY_BACKOFF, queuedMsg.retries);
+                    queuedMsg.nextRetryAt = now + backoffMs;
+                    
+                    // Keep as queued
+                    updateMessageStatus(queuedMsg.id, DeliveryStatus.QUEUED);
+                    
+                    console.log(`[Queue] Message ${queuedMsg.id} retry ${queuedMsg.retries}/${QUEUE_MAX_RETRIES} in ${backoffMs}ms`);
+                }
+                
+                // Save updated queue
+                saveOutboundQueue();
+            }
+        }
+        
+        // Check for messages that have exceeded max retries
+        const failedMessages = state.outboundQueue.filter(msg => msg.retries >= QUEUE_MAX_RETRIES);
+        failedMessages.forEach(msg => {
+            updateMessageStatus(msg.id, DeliveryStatus.FAILED);
+            removeFromOutboundQueue(msg.id);
+        });
+    }
+    
+    /**
+     * Start the queue processor interval
+     */
+    function startQueueProcessor() {
+        if (state.queueProcessorInterval) {
+            return; // Already running
+        }
+        
+        console.log('[Queue] Starting queue processor');
+        
+        // Process immediately on start
+        processOutboundQueue();
+        
+        // Then process periodically
+        state.queueProcessorInterval = setInterval(() => {
+            processOutboundQueue();
+        }, QUEUE_RETRY_INTERVAL);
+        
+        // Also track with EventManager for cleanup
+        if (meshEvents) {
+            meshEvents.setInterval(processOutboundQueue, QUEUE_RETRY_INTERVAL);
+        }
+    }
+    
+    /**
+     * Stop the queue processor interval
+     */
+    function stopQueueProcessor() {
+        if (state.queueProcessorInterval) {
+            clearInterval(state.queueProcessorInterval);
+            state.queueProcessorInterval = null;
+            console.log('[Queue] Stopped queue processor');
+        }
+    }
+    
+    /**
+     * Get queue status and statistics
+     */
+    function getQueueStatus() {
+        const queue = state.outboundQueue;
+        const now = Date.now();
+        
+        return {
+            count: queue.length,
+            maxSize: QUEUE_MAX_SIZE,
+            isEmpty: queue.length === 0,
+            isFull: queue.length >= QUEUE_MAX_SIZE,
+            meshStatus: state.meshConnectivityStatus,
+            messages: queue.map(msg => ({
+                id: msg.id,
+                text: msg.text?.substring(0, 50) + (msg.text?.length > 50 ? '...' : ''),
+                queuedAt: msg.queuedAt,
+                waitTime: now - msg.queuedAt,
+                retries: msg.retries,
+                nextRetryAt: msg.nextRetryAt,
+                status: state.messageStates.get(msg.id)?.status || DeliveryStatus.QUEUED
+            })),
+            stats: {
+                totalQueued: queue.length,
+                pendingRetry: queue.filter(m => m.retries > 0).length,
+                oldestMessage: queue.length > 0 ? Math.min(...queue.map(m => m.queuedAt)) : null,
+                averageWaitTime: queue.length > 0 
+                    ? queue.reduce((sum, m) => sum + (now - m.queuedAt), 0) / queue.length 
+                    : 0
+            }
+        };
+    }
+    
+    /**
+     * Clear all queued messages
+     * @param {boolean} markAsFailed - Whether to mark messages as failed
+     */
+    function clearOutboundQueue(markAsFailed = false) {
+        if (markAsFailed) {
+            state.outboundQueue.forEach(msg => {
+                updateMessageStatus(msg.id, DeliveryStatus.FAILED);
+            });
+        }
+        
+        const count = state.outboundQueue.length;
+        state.outboundQueue = [];
+        saveOutboundQueue();
+        
+        console.log(`[Queue] Cleared ${count} queued messages`);
+        Events.emit('meshtastic:queue_cleared', { count, markedFailed: markAsFailed });
+        
+        return count;
+    }
+    
+    /**
+     * Retry a specific queued message immediately
+     * @param {string} messageId - ID of message to retry
+     */
+    async function retryQueuedMessage(messageId) {
+        const queuedMsg = state.outboundQueue.find(m => m.id === messageId);
+        if (!queuedMsg) {
+            console.warn('[Queue] Message not found in queue:', messageId);
+            return false;
+        }
+        
+        // Reset retry timing for immediate send
+        queuedMsg.nextRetryAt = 0;
+        
+        // Process queue (will pick up this message)
+        await processOutboundQueue();
+        
+        return true;
+    }
+    
+    /**
+     * Cancel a queued message
+     * @param {string} messageId - ID of message to cancel
+     */
+    function cancelQueuedMessage(messageId) {
+        const index = state.outboundQueue.findIndex(m => m.id === messageId);
+        if (index === -1) {
+            return false;
+        }
+        
+        // Remove from queue
+        state.outboundQueue.splice(index, 1);
+        saveOutboundQueue();
+        
+        // Update status
+        updateMessageStatus(messageId, DeliveryStatus.FAILED);
+        
+        console.log(`[Queue] Cancelled message ${messageId}`);
+        Events.emit('meshtastic:queue_message_cancelled', { messageId });
+        
+        return true;
+    }
+    
+    // =========================================================================
+    // PHASE 2: QUICK SETUP & FIELD UX
+    // =========================================================================
+    
+    /**
+     * Get all scenario presets
+     */
+    function getScenarioPresets() {
+        return Object.values(ScenarioPresets);
+    }
+    
+    /**
+     * Get a specific scenario preset by ID
+     */
+    function getScenarioPreset(scenarioId) {
+        return ScenarioPresets[scenarioId.toUpperCase()] || ScenarioPresets.CUSTOM;
+    }
+    
+    /**
+     * Get the active scenario
+     */
+    function getActiveScenario() {
+        return getScenarioPreset(state.activeScenario);
+    }
+    
+    /**
+     * Apply a scenario preset to the device
+     * @param {string} scenarioId - ID of the scenario to apply
+     * @param {boolean} applyToDevice - Whether to send settings to device
+     */
+    async function applyScenarioPreset(scenarioId, applyToDevice = true) {
+        const scenario = getScenarioPreset(scenarioId);
+        if (!scenario) {
+            console.error('[Phase2] Scenario not found:', scenarioId);
+            return false;
+        }
+        
+        console.log(`[Phase2] Applying scenario: ${scenario.name}`);
+        state.activeScenario = scenario.id;
+        
+        // Apply settings if not custom and device connected
+        if (scenario.settings && applyToDevice && state.connectionState === ConnectionState.CONNECTED) {
+            try {
+                // Apply modem preset
+                if (scenario.settings.modemPreset !== undefined) {
+                    await setModemPreset(scenario.settings.modemPreset);
+                }
+                
+                // Apply hop limit
+                if (scenario.settings.hopLimit !== undefined) {
+                    await setHopLimit(scenario.settings.hopLimit);
+                }
+                
+                // Update local config for position broadcast
+                if (scenario.settings.positionBroadcastSecs !== undefined) {
+                    state.deviceConfig.positionBroadcastSecs = scenario.settings.positionBroadcastSecs;
+                }
+                
+                console.log(`[Phase2] Scenario ${scenario.name} applied to device`);
+            } catch (e) {
+                console.error('[Phase2] Failed to apply scenario settings:', e);
+            }
+        }
+        
+        // Save scenario selection
+        await saveSettings();
+        
+        // Emit event
+        Events.emit('meshtastic:scenario_changed', { scenario });
+        
+        return true;
+    }
+    
+    /**
+     * Get canned messages for the active scenario
+     */
+    function getCannedMessages() {
+        // Check for custom messages first
+        if (state.customCannedMessages && state.customCannedMessages.length > 0) {
+            return state.customCannedMessages;
+        }
+        
+        // Get from active scenario
+        const scenario = getActiveScenario();
+        if (scenario && scenario.cannedMessages) {
+            return scenario.cannedMessages.map((text, index) => ({
+                id: `canned_${index}`,
+                text: text,
+                icon: getCannedMessageIcon(text),
+                shortcut: String(index + 1)
+            }));
+        }
+        
+        return DefaultCannedMessages;
+    }
+    
+    /**
+     * Get icon for a canned message based on content
+     */
+    function getCannedMessageIcon(text) {
+        const lower = text.toLowerCase();
+        if (lower.includes('ok') || lower.includes('copy') || lower.includes('roger')) return '✓';
+        if (lower.includes('moving') || lower.includes('en route')) return '🚶';
+        if (lower.includes('rally') || lower.includes('position') || lower.includes('checkpoint')) return '📍';
+        if (lower.includes('rtb') || lower.includes('return')) return '🏠';
+        if (lower.includes('help') || lower.includes('assist') || lower.includes('sos') || lower.includes('emergency')) return '🆘';
+        if (lower.includes('hold') || lower.includes('wait') || lower.includes('standing')) return '⏸️';
+        if (lower.includes('complete') || lower.includes('done') || lower.includes('clear')) return '✅';
+        if (lower.includes('medical') || lower.includes('injured')) return '🏥';
+        if (lower.includes('found') || lower.includes('located')) return '🔍';
+        if (lower.includes('safe') || lower.includes('secure')) return '🛡️';
+        return '💬';
+    }
+    
+    /**
+     * Set custom canned messages
+     */
+    function setCustomCannedMessages(messages) {
+        state.customCannedMessages = messages.map((text, index) => ({
+            id: `custom_${index}`,
+            text: text,
+            icon: getCannedMessageIcon(text),
+            shortcut: String(index + 1)
+        }));
+        saveSettings();
+        Events.emit('meshtastic:canned_messages_updated', { messages: state.customCannedMessages });
+    }
+    
+    /**
+     * Send a canned message
+     */
+    async function sendCannedMessage(messageId) {
+        const messages = getCannedMessages();
+        const msg = messages.find(m => m.id === messageId);
+        if (msg) {
+            return await sendTextMessage(msg.text);
+        }
+        return null;
+    }
+    
+    /**
+     * Send a canned message by shortcut number (1-8)
+     */
+    async function sendCannedByShortcut(shortcut) {
+        const messages = getCannedMessages();
+        const msg = messages.find(m => m.shortcut === String(shortcut));
+        if (msg) {
+            return await sendTextMessage(msg.text);
+        }
+        return null;
+    }
+    
+    /**
+     * Calculate mesh health status
+     */
+    function getMeshHealth() {
+        const now = Date.now();
+        
+        // Use cached value if recent
+        if (state.meshHealthCache && (now - state.lastHealthUpdate) < 10000) {
+            return state.meshHealthCache;
+        }
+        
+        const nodes = Array.from(state.nodes.values());
+        const activeNodes = nodes.filter(n => {
+            if (n.id === state.myNodeId || n.num === state.myNodeNum) return false;
+            return n.lastSeen && (now - n.lastSeen) < MeshHealthThresholds.UPDATE_STALE;
+        });
+        
+        const recentNodes = nodes.filter(n => {
+            if (n.id === state.myNodeId || n.num === state.myNodeNum) return false;
+            return n.lastSeen && (now - n.lastSeen) < 60000; // Within 1 minute
+        });
+        
+        // Calculate signal quality distribution
+        let excellentCount = 0, goodCount = 0, fairCount = 0, poorCount = 0;
+        activeNodes.forEach(n => {
+            const quality = calculateSignalQuality(n.snr, n.rssi);
+            switch (quality) {
+                case 'excellent': excellentCount++; break;
+                case 'good': goodCount++; break;
+                case 'fair': fairCount++; break;
+                default: poorCount++; break;
+            }
+        });
+        
+        // Determine overall health
+        let overallHealth = 'unknown';
+        let healthScore = 0;
+        
+        if (state.connectionState !== ConnectionState.CONNECTED) {
+            overallHealth = 'disconnected';
+            healthScore = 0;
+        } else if (activeNodes.length >= MeshHealthThresholds.NODES_EXCELLENT) {
+            overallHealth = excellentCount >= 2 ? 'excellent' : 'good';
+            healthScore = 90 + Math.min(10, activeNodes.length * 2);
+        } else if (activeNodes.length >= MeshHealthThresholds.NODES_GOOD) {
+            overallHealth = 'good';
+            healthScore = 70 + activeNodes.length * 5;
+        } else if (activeNodes.length >= MeshHealthThresholds.NODES_FAIR) {
+            overallHealth = 'fair';
+            healthScore = 40 + activeNodes.length * 15;
+        } else {
+            overallHealth = 'poor';
+            healthScore = activeNodes.length > 0 ? 20 : 10;
+        }
+        
+        // Calculate average signal quality
+        let avgSnr = 0, avgRssi = 0;
+        if (activeNodes.length > 0) {
+            avgSnr = activeNodes.reduce((sum, n) => sum + (n.snr || 0), 0) / activeNodes.length;
+            avgRssi = activeNodes.reduce((sum, n) => sum + (n.rssi || -100), 0) / activeNodes.length;
+        }
+        
+        const health = {
+            status: overallHealth,
+            score: Math.min(100, Math.round(healthScore)),
+            totalNodes: nodes.length,
+            activeNodes: activeNodes.length,
+            recentNodes: recentNodes.length,
+            signalDistribution: {
+                excellent: excellentCount,
+                good: goodCount,
+                fair: fairCount,
+                poor: poorCount
+            },
+            averageSignal: {
+                snr: Math.round(avgSnr * 10) / 10,
+                rssi: Math.round(avgRssi)
+            },
+            queueStatus: getQueueStatus(),
+            lastUpdate: now,
+            isConnected: state.connectionState === ConnectionState.CONNECTED,
+            scenario: getActiveScenario()
+        };
+        
+        // Cache the result
+        state.meshHealthCache = health;
+        state.lastHealthUpdate = now;
+        
+        return health;
+    }
+    
+    /**
+     * Get mesh health color
+     */
+    function getMeshHealthColor(status) {
+        switch (status) {
+            case 'excellent': return '#22c55e';  // Green
+            case 'good': return '#84cc16';       // Lime
+            case 'fair': return '#f59e0b';       // Amber
+            case 'poor': return '#ef4444';       // Red
+            case 'disconnected': return '#6b7280'; // Gray
+            default: return '#6b7280';
+        }
+    }
+    
+    /**
+     * Check if first-run wizard has been completed
+     */
+    function isWizardCompleted() {
+        return state.wizardCompleted;
+    }
+    
+    /**
+     * Mark wizard as completed
+     */
+    async function completeWizard() {
+        state.wizardCompleted = true;
+        await saveSettings();
+        Events.emit('meshtastic:wizard_completed');
+    }
+    
+    /**
+     * Reset wizard status (for testing)
+     */
+    async function resetWizard() {
+        state.wizardCompleted = false;
+        await saveSettings();
+    }
+    
+    /**
+     * Generate channel QR code data for team onboarding
+     * Returns data that can be encoded into a QR code
+     */
+    function generateTeamOnboardingQR() {
+        const channel = getActiveChannel();
+        const scenario = getActiveScenario();
+        
+        // Build Meshtastic-compatible channel URL
+        let url = `https://meshtastic.org/e/#`;
+        
+        // Encode channel settings
+        const channelConfig = {
+            name: channel?.name || 'GridDown',
+            psk: channel?.psk || '',  // Base64 encoded PSK
+            uplink: false,
+            downlink: false
+        };
+        
+        // Add scenario info as comment
+        const teamInfo = {
+            team: state.longName || 'Team',
+            scenario: scenario.id,
+            timestamp: Date.now()
+        };
+        
+        return {
+            url: url + btoa(JSON.stringify(channelConfig)),
+            channelName: channel?.name,
+            scenario: scenario,
+            teamInfo: teamInfo,
+            rawConfig: channelConfig
+        };
+    }
+    
+    /**
+     * Parse team onboarding QR code and join
+     */
+    async function joinFromQR(qrData) {
+        try {
+            // Parse the QR data
+            let config;
+            if (qrData.startsWith('https://meshtastic.org/e/#')) {
+                const encoded = qrData.replace('https://meshtastic.org/e/#', '');
+                config = JSON.parse(atob(encoded));
+            } else if (qrData.startsWith('{')) {
+                config = JSON.parse(qrData);
+            } else {
+                throw new Error('Invalid QR code format');
+            }
+            
+            // Create channel from config
+            const channel = {
+                id: `imported_${Date.now()}`,
+                index: state.channels.length,
+                name: config.name || 'Imported',
+                psk: config.psk || null,
+                isDefault: false,
+                isPrivate: !!config.psk
+            };
+            
+            // Add the channel
+            state.channels.push(channel);
+            setActiveChannel(channel.id);
+            
+            // Apply scenario if present
+            if (config.scenario) {
+                await applyScenarioPreset(config.scenario, false);
+            }
+            
+            await saveSettings();
+            
+            Events.emit('meshtastic:team_joined', { channel, config });
+            
+            return { success: true, channel };
+        } catch (e) {
+            console.error('[Phase2] Failed to join from QR:', e);
+            return { success: false, error: e.message };
+        }
+    }
+    
+    /**
+     * Get wizard steps
+     */
+    function getWizardSteps() {
+        return Object.values(WizardSteps);
     }
     
     // =========================================================================
@@ -3344,6 +5858,45 @@ const MeshtasticModule = (function() {
         getActiveChannelMessages,
         getMessageStatus,
         
+        // Phase 1.5: Store-and-Forward Queue
+        getQueueStatus,
+        clearOutboundQueue,
+        retryQueuedMessage,
+        cancelQueuedMessage,
+        processOutboundQueue,
+        checkMeshConnectivity,
+        
+        // Phase 2: Quick Setup & Field UX
+        getScenarioPresets,
+        getScenarioPreset,
+        getActiveScenario,
+        applyScenarioPreset,
+        getCannedMessages,
+        setCustomCannedMessages,
+        sendCannedMessage,
+        sendCannedByShortcut,
+        getMeshHealth,
+        getMeshHealthColor,
+        isWizardCompleted,
+        completeWizard,
+        resetWizard,
+        generateTeamOnboardingQR,
+        joinFromQR,
+        getWizardSteps,
+        ScenarioPresets,
+        DefaultCannedMessages,
+        WizardSteps,
+        
+        // Device Detection & Capabilities
+        getDeviceCapabilities,
+        getConnectedDeviceCapabilities,
+        deviceSupportsSerial,
+        deviceSupportsBluetooth,
+        getConnectionRecommendation,
+        getCommonDevices,
+        detectDeviceFromName,
+        DeviceCapabilities,
+        
         // Channels
         getChannels,
         getChannel,
@@ -3419,10 +5972,50 @@ const MeshtasticModule = (function() {
         // Data access
         getNodes,
         
+        // =========================================================
+        // PHASE 1: Device Configuration
+        // =========================================================
+        getDeviceConfig,
+        setRegion,
+        setModemPreset,
+        setTxPower,
+        setHopLimit,
+        requestDeviceConfig,
+        getRegionOptions,
+        getModemPresetOptions,
+        
+        // Phase 1: Channel URL Import/Export
+        parseChannelUrl,
+        generateChannelUrl,
+        importChannelFromUrl,
+        exportChannelAsUrl,
+        
+        // Phase 1: Signal Quality
+        calculateSignalQuality,
+        getSignalQualityIcon,
+        getSignalQualityColor,
+        formatSignalQuality,
+        
+        // Phase 1: Firmware
+        checkFirmwareStatus,
+        getNodeFirmwareStatus,
+        getMyFirmwareStatus,
+        getHwModelName,
+        
         // Constants
         ConnectionState,
         MessageType,
-        DeliveryStatus
+        DeliveryStatus,
+        RegionCode,
+        RegionNames,
+        ModemPreset,
+        ModemPresetInfo,
+        SignalQuality,
+        TxPowerLevels,
+        HOP_LIMIT_MIN,
+        HOP_LIMIT_MAX,
+        MIN_RECOMMENDED_FIRMWARE,
+        LATEST_STABLE_FIRMWARE
     };
 })();
 
