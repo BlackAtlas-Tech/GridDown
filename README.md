@@ -113,7 +113,7 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 
 ### APRS Integration
 
-*APRS® is a registered trademark of APRS Software and Bob Bruninga, WB4APR (SK). See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).*
+*APRS® is a registered trademark of TAPR (Tucson Amateur Packet Radio Corporation). Also also credit to Bob Bruninga, WB4APR (SK) for developing APRS. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).*
 
 - Connect to APRS TNC devices (Mobilinkd, etc.) via **Web Bluetooth**
 - Real-time position reporting and tracking
