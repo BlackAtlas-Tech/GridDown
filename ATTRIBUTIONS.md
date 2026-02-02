@@ -288,12 +288,12 @@ Search powered by OpenStreetMap Nominatim
 
 **Copyright**: Bob Bruninga, WB4APR (SK)  
 **Contact**: wb4apr@amsat.org  
-**Organization/Trademark**: TAPR (Tucson Amateur Packet Radio Corporation)  
-**URL**: http://www.tapr.org/  
+**Organization**: TAPR (Tucson Amateur Packet Radio Corporation)  
+**URL**: http://www.aprs.org/  
 
 **Attribution**:
 ```
-APRS is a registered trademark of TAPR (Tucson Amateur Packet Radio Corporation). Also also credit to Bob Bruninga, WB4APR (SK) for developing APRS.
+APRS is a registered trademark of APRS Software and Bob Bruninga, WB4APR.
 Automatic Packet Reporting System (APRS) Copyright © Bob Bruninga WB4APR (SK).
 ```
 

@@ -2,6 +2,432 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.55.0] - 2025-02-01
+
+### Added - Telemetry Export
+
+This release implements comprehensive telemetry export functionality, allowing users to export mesh network data for analysis, reporting, and documentation.
+
+#### Export Modal
+
+Access via the **📊 Export Telemetry** button when connected:
+
+```
+┌─────────────────────────────────────────────┐
+│  📊 Export Telemetry                   [×]  │
+├─────────────────────────────────────────────┤
+│                                             │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐       │
+│  │   12    │ │   47    │ │    3    │       │
+│  │  Nodes  │ │Messages │ │Tracerts │       │
+│  └─────────┘ └─────────┘ └─────────┘       │
+│                                             │
+│  CSV EXPORTS                                │
+│  ┌─────────────────────────────────────┐   │
+│  │ 👥 Node List (CSV)              📥  │   │
+│  │    12 nodes • Position, signal...   │   │
+│  └─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────┐   │
+│  │ 💬 Message History (CSV)        📥  │   │
+│  │    47 messages • Timestamps...      │   │
+│  └─────────────────────────────────────┘   │
+│                                             │
+│  JSON REPORTS                               │
+│  ┌─────────────────────────────────────┐   │
+│  │ 🏥 Mesh Health Report           📥  │   │
+│  │    Health score, signal dist...     │   │
+│  └─────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────┐   │
+│  │ 📋 Full Telemetry Report        📥  │   │
+│  │    Complete export with all data    │   │
+│  └─────────────────────────────────────┘   │
+└─────────────────────────────────────────────┘
+```
+
+#### Export Formats
+
+**Node List CSV** (`griddown-nodes-TIMESTAMP.csv`):
+```csv
+Node ID,Name,Short Name,Hardware Model,Firmware Version,Latitude,Longitude,Altitude (m),SNR (dB),RSSI (dBm),Signal Quality,Battery Level (%),Voltage (V),Last Seen,Status,Minutes Ago
+!abc123,"Base Station",BASE,Heltec V3,2.3.0,39.740210,-104.990250,1609,8.5,-75,excellent,85,4.12,2025-02-01T12:30:00Z,active,5
+```
+
+**Message History CSV** (`griddown-messages-TIMESTAMP.csv`):
+```csv
+Timestamp,From Node,From Name,To Node,Channel,Type,Content,Status,Is Sent,RTT (ms)
+2025-02-01T12:25:00Z,!abc123,"Base Station",broadcast,primary,text,"Team check-in",delivered,No,
+```
+
+**Mesh Health Report JSON** (`griddown-health-TIMESTAMP.json`):
+```json
+{
+  "generatedAt": "2025-02-01T12:30:00Z",
+  "reportType": "Mesh Health Report",
+  "summary": {
+    "overallStatus": "good",
+    "healthScore": 85,
+    "totalNodes": 12,
+    "activeNodes": 8,
+    "isConnected": true
+  },
+  "signalQuality": {
+    "distribution": { "excellent": 3, "good": 4, "fair": 1, "poor": 0 },
+    "averageSNR": 6.2,
+    "averageRSSI": -82
+  },
+  "nodes": [...],
+  "deviceConfig": {...}
+}
+```
+
+**Full Telemetry Report JSON** (`griddown-telemetry-TIMESTAMP.json`):
+- Complete export with all nodes, messages, traceroutes
+- Device configuration and channel settings
+- Statistics summary
+- Version metadata
+
+#### New Functions (MeshtasticModule)
+
+```javascript
+// CSV Exports
+MeshtasticModule.exportNodesCSV()       // Returns CSV string
+MeshtasticModule.exportMessagesCSV()    // Returns CSV string
+
+// JSON Reports
+MeshtasticModule.exportMeshHealthReport()    // Returns object
+MeshtasticModule.exportFullTelemetryReport() // Returns object
+
+// Download functions (trigger file download)
+MeshtasticModule.downloadNodesCSV()
+MeshtasticModule.downloadMessagesCSV(channelId?)
+MeshtasticModule.downloadTelemetryReport()
+MeshtasticModule.downloadHealthReport()
+
+// Summary for UI
+MeshtasticModule.getExportSummary()
+// Returns: { nodesCount, messagesCount, traceroutesCount, hasData }
+```
+
+#### Events Emitted
+
+- `meshtastic:telemetry_exported` - Export completed
+  - Payload: `{ type: 'nodes_csv' | 'messages_csv' | 'health_report' | 'full_report' }`
+
+#### Use Cases
+
+**After-Action Reports:**
+> Export full telemetry after a SAR exercise for documentation and analysis
+
+**Network Analysis:**
+> Export node list with signal quality to identify weak links in mesh coverage
+
+**Backup & Archive:**
+> Export complete telemetry report as backup of mesh configuration and history
+
+**Team Debriefing:**
+> Export message history to review communications timeline
+
+**Performance Tracking:**
+> Export health reports over time to track mesh network improvements
+
+---
+
+## [6.54.0] - 2025-02-01
+
+### Added - Traceroute Visualization
+
+This release implements mesh network traceroute functionality, allowing users to visualize how messages propagate through the mesh and identify the route to any node.
+
+#### How It Works
+
+1. **Click the 🔍 button** next to any team member in the Team panel
+2. Or **open the Traceroute modal** to select a destination node
+3. GridDown sends a traceroute request through the mesh
+4. Each relay node adds itself to the route
+5. The destination responds with the complete path
+6. **Route is visualized** with hop-by-hop display
+
+#### Traceroute Widget
+
+When a traceroute is active or completed, a widget appears showing:
+
+```
+┌─────────────────────────────────────────────┐
+│  TRACEROUTE                     ✅ COMPLETED │
+│                                       245ms  │
+│  Route to Sarah (3 hops)                    │
+│                                             │
+│  ● You (Origin)                             │
+│  │                                          │
+│  ● Mike                            good     │
+│  │                                          │
+│  ● Base Station                    excellent│
+│  │                                          │
+│  ● Sarah (Destination)             good     │
+│                                             │
+│  [📜 History]  [✕ Clear]                   │
+└─────────────────────────────────────────────┘
+```
+
+Features:
+- **Real-time status**: pending → in_progress → completed/timeout/error
+- **RTT (Round Trip Time)** measurement
+- **Hop count** display
+- **Signal quality** badges for each hop
+- **Visual route** with connected nodes
+
+#### Team Card Enhancement
+
+Each team member card now has a **🔍 traceroute button**:
+- Only appears when connected to mesh
+- One-click route tracing
+- Shows route visualization in widget
+
+#### Traceroute Modal
+
+Full-featured modal for traceroute operations:
+- **Node list** with signal quality and last-seen time
+- **Recent traceroutes** history
+- **Start traceroute** to selected node
+
+#### New Functions (MeshtasticModule)
+
+```javascript
+// Request traceroute to a node
+MeshtasticModule.requestTraceroute(targetNodeId)
+// Returns: { requestId, traceroute }
+
+// Get active traceroute
+MeshtasticModule.getActiveTraceroute()
+// Returns: traceroute object or null
+
+// Get specific traceroute by ID
+MeshtasticModule.getTraceroute(requestId)
+
+// Get traceroute history (last 20)
+MeshtasticModule.getTracerouteHistory()
+
+// Clear history
+MeshtasticModule.clearTracerouteHistory()
+
+// Get nodes available for traceroute
+MeshtasticModule.getNodesForTraceroute()
+
+// Format traceroute for display
+MeshtasticModule.formatTracerouteDisplay(traceroute)
+// Returns: { statusIcon, hops, rtt, route: [...], ... }
+```
+
+#### New Message Types
+
+- `TRACEROUTE_REQUEST` - Request route to destination
+- `TRACEROUTE_REPLY` - Route path response
+
+#### Traceroute State
+
+```javascript
+state.traceroutes      // Map of requestId → traceroute data
+state.activeTraceroute // Currently displayed traceroute
+state.tracerouteHistory // Array of completed traceroutes
+```
+
+#### Traceroute Object Structure
+
+```javascript
+{
+  requestId: 'tr-1706834400000-abc123',
+  targetNodeId: '!abcd1234',
+  targetName: 'Sarah',
+  startedAt: 1706834400000,
+  status: 'completed',  // pending, in_progress, completed, timeout, error
+  route: [
+    { nodeId, nodeName, hopNumber, isOrigin, signalQuality },
+    { nodeId, nodeName, hopNumber, signalQuality },
+    { nodeId, nodeName, hopNumber, isDestination, signalQuality }
+  ],
+  hops: 2,
+  rtt: 245,  // Round trip time in ms
+  completedAt: 1706834400245,
+  error: null
+}
+```
+
+#### Events Emitted
+
+- `meshtastic:traceroute_started` - Traceroute request sent
+- `meshtastic:traceroute_complete` - Route found successfully
+- `meshtastic:traceroute_timeout` - Request timed out (30s)
+- `meshtastic:traceroute_error` - Error occurred
+- `meshtastic:traceroute_history_cleared` - History cleared
+
+#### Constants
+
+- `TRACEROUTE_TIMEOUT`: 30 seconds
+- `TRACEROUTE_MAX_HOPS`: 10 hops maximum
+
+#### UI Components Added
+
+- **Traceroute widget** - Route visualization panel
+- **Traceroute modal** - Node selection and history
+- **Traceroute button** - 🔍 on each team member card
+
+#### Use Cases
+
+**Network Debugging:**
+> "Messages to Bob are delayed - let me trace the route to see which relay is slow"
+
+**Mesh Optimization:**
+> "I want to understand how many hops my messages take to reach the base station"
+
+**Relay Placement:**
+> "By tracing routes, I can identify where to add relay nodes"
+
+**Signal Analysis:**
+> "The traceroute shows signal quality at each hop - node 3 has poor signal"
+
+---
+
+## [6.53.0] - 2025-02-01
+
+### Added - Drop Pin → Send to Mesh Workflow
+
+This release implements the highly-requested "Drop Pin → Send" feature, allowing users to instantly share a map location with their mesh network without creating a waypoint first.
+
+#### How It Works
+
+1. **Right-click** (or long-press on mobile) anywhere on the map
+2. Select **"📡 Send to Mesh"** from the context menu
+3. Optionally add a **label** (e.g., "Rally point", "Meeting spot")
+4. Choose to **Broadcast to All** or send to a **specific node**
+5. Tap **Send Location** - done!
+
+#### Context Menu Enhancement
+
+New "Send to Mesh" option added to map right-click menu:
+
+```
+┌─────────────────────────────────┐
+│  39.74021°N, 104.99025°W        │
+├─────────────────────────────────┤
+│  📍 Add Waypoint Here           │
+│  📡 Send to Mesh          ← NEW │
+│  📏 Measure From Here           │
+│  🧭 Navigate To Here            │
+│  ⊕  Center Map Here             │
+│  ─────────────────────────────  │
+│  📋 Copy Coordinates            │
+│  📋 Copy as Decimal             │
+└─────────────────────────────────┘
+```
+
+- Automatically disabled when not connected to mesh
+- Shows "(not connected)" hint when Meshtastic offline
+
+#### Send to Mesh Modal
+
+```
+┌─────────────────────────────────────────┐
+│  📡 Send Location to Mesh          [×]  │
+├─────────────────────────────────────────┤
+│  ┌─────────────────────────────────┐   │
+│  │ 📍 Dropped Pin                   │   │
+│  │    39.74021°N, 104.99025°W      │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  LABEL (optional)                       │
+│  ┌─────────────────────────────────┐   │
+│  │ Rally point                      │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  SEND TO                                │
+│  ┌─────────────────────────────────┐   │
+│  │ 📢 Broadcast to All      ✓      │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  Or send to specific node               │
+│  ┌─────────────────────────────────┐   │
+│  │ 👤 Sarah    2m ago  good        │   │
+│  │ 👤 Mike     5m ago  fair        │   │
+│  └─────────────────────────────────┘   │
+│                                         │
+│  [      📡 Send Location       ]        │
+└─────────────────────────────────────────┘
+```
+
+Features:
+- **Location preview** with coordinates
+- **Optional label** for context
+- **Broadcast** to entire mesh
+- **Direct message** to specific node
+- **Node list** with signal quality and last seen
+- **Visual feedback** on send completion
+
+#### Dual-Format Transmission
+
+Location is sent in two formats for maximum compatibility:
+
+1. **Text Message** (universal)
+   ```
+   📍 Rally point
+   39.740210°N, 104.990250°W
+   ```
+
+2. **Waypoint Packet** (for rich display on compatible devices)
+   - Shows as interactive pin on receiving device's map
+   - Includes label, coordinates, expiration (24 hours)
+
+#### New Functions (MeshtasticModule)
+
+```javascript
+// Send location to mesh
+MeshtasticModule.sendLocation(lat, lon, label, toNodeId)
+
+// Get nodes for recipient selection
+MeshtasticModule.getNodesForRecipientSelection()
+// Returns: [{ id, name, lastSeen, signalQuality, isActive }, ...]
+```
+
+#### New Functions (MapModule)
+
+```javascript
+// Open send to mesh modal (internal)
+openSendToMeshModal(lat, lon)
+
+// Check if mesh is connected
+isMeshConnected()
+
+// Show temporary pin after sending
+showTemporaryPin(lat, lon, label)
+```
+
+### Events Emitted
+
+- `meshtastic:location_sent` - Location sent successfully
+  - Payload: `{ lat, lon, label, to, broadcast }`
+
+### CSS Additions
+
+- `.map-context-menu__item:disabled` - Disabled menu item styling
+- `.map-context-menu__hint` - Hint text for disabled items
+- `.recipient-btn` - Recipient selection button styles
+- `.signal-badge` - Signal quality indicators
+
+### Use Cases
+
+**Emergency Response:**
+> "I found the missing hiker at this location" → Drop pin → Send to all SAR members
+
+**Team Coordination:**
+> "We'll meet here" → Drop pin → Send to team
+
+**Navigation Assistance:**
+> "Turn left at this intersection" → Drop pin → Send to specific node
+
+**Event Coverage:**
+> "Medical station relocated here" → Drop pin → Broadcast update
+
+---
+
 ## [6.52.0] - 2025-02-01
 
 ### Added - Device Detection & Connection Guidance

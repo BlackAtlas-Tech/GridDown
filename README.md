@@ -113,7 +113,7 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 
 ### APRS Integration
 
-*APRS® is a registered trademark of TAPR (Tucson Amateur Packet Radio Corporation). Also also credit to Bob Bruninga, WB4APR (SK) for developing APRS. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).*
+*APRS® is a registered trademark of APRS Software and Bob Bruninga, WB4APR (SK). See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).*
 
 - Connect to APRS TNC devices (Mobilinkd, etc.) via **Web Bluetooth**
 - Real-time position reporting and tracking
@@ -847,10 +847,12 @@ See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for complete data source licensing inform
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.47.0** (January 2025)
+**Current Version: 6.57.3** (February 2025)
 
 ### Recent Highlights
-- **v6.47.0** - Documentation update - Added DISCLAIMER.md, TERMS_OF_SERVICE.md, updated README
+- **v6.57.3** - FPV Drone Detections panel - View RF-detected FPV drones with protocol/frequency/signal info
+- **v6.57.2** - RF Sentinel FPV drone support - Receive both Remote ID and FPV/RF drones
+- **v6.57.1** - CoT Bridge Setup Wizard - Guided setup for bridge connection
 - **v6.46.0** - Situation Wizard - Decision tree for stress-friendly feature discovery
 - **v6.45.0** - Mobile Enhancements - FAB, battery/connection status, PWA install prompt
 - **v6.44.0** - Search Favorites and Help/Settings search integration

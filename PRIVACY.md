@@ -2,7 +2,7 @@
 
 **GridDown by BlackDot Technology**
 
-Last updated: January 2025
+Last updated: February 2025
 
 ---
 
@@ -251,6 +251,47 @@ When operating offline, GridDown:
 - Messages sent over **your radio network**
 - GridDown does not relay or store network traffic
 - **You control your radio communications**
+
+### CoT Bridge (Cursor on Target)
+
+**IMPORTANT: Position Sharing Disclosure**
+
+The CoT Bridge feature enables bidirectional communication with CoT-compatible tactical applications (such as ATAK or WinTAK). When you enable **position sharing**:
+
+| Data Shared | When | To Whom |
+|-------------|------|---------|
+| GPS coordinates | When sharing is active | All devices on the CoT network |
+| Callsign | When sharing is active | All devices on the CoT network |
+| Team color | When sharing is active | All devices on the CoT network |
+| Speed/heading | When sharing is active | All devices on the CoT network |
+
+**Key Privacy Considerations:**
+
+1. **Explicit Consent Required**: Position sharing is disabled by default. You must explicitly consent and enable it.
+
+2. **Local Network Only**: Data is transmitted via UDP multicast on your local network (typically WiFi). It does not traverse the internet unless you configure your network to relay it.
+
+3. **No Server Involvement**: BlackDot Technology does not receive, store, or process any CoT data. All communication is peer-to-peer on your local network.
+
+4. **You Control Transmission**: 
+   - Sharing is off by default
+   - You must consent before enabling
+   - You can stop sharing at any time
+   - You can revoke consent at any time
+
+5. **Visibility Warning**: When sharing is enabled, your position is visible to **all devices** on the CoT multicast network. This may include devices you don't control.
+
+**To disable position sharing:**
+- Click "Stop Sharing" in the CoT Bridge panel
+- Or click "Revoke sharing consent"
+- Or disconnect from the CoT Bridge
+- Sharing automatically stops when you close GridDown
+
+**The CoT Bridge does NOT:**
+- Send data to BlackDot Technology
+- Send data over the internet (unless you configure routing)
+- Store your position history on any server
+- Share data with any third party
 
 ---
 
