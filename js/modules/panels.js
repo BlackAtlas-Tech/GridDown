@@ -2386,6 +2386,209 @@ const PanelsModule = (function() {
 
     // ==================== APRS Helper Functions ====================
     
+    // =========================================================================
+    // COT BRIDGE SECTION
+    // =========================================================================
+    
+    /**
+     * Render CoT Bridge section for Team panel
+     */
+    function renderTAKSection() {
+        if (typeof TAKModule === 'undefined') {
+            return '';
+        }
+        
+        const status = TAKModule.getStatus();
+        const sharingStatus = TAKModule.getSharingStatus();
+        const isConnected = status.isConnected;
+        const isConnecting = status.isConnecting;
+        
+        return `
+            <div class="section-label" style="display:flex;align-items:center;gap:8px">
+                📡 CoT Bridge
+                <span style="font-size:10px;color:rgba(255,255,255,0.3);font-weight:400">Tactical SA interop</span>
+            </div>
+            
+            <div style="padding:14px;background:${isConnected ? 'rgba(6,182,212,0.1)' : 'rgba(255,255,255,0.03)'};border:1px solid ${isConnected ? 'rgba(6,182,212,0.3)' : 'rgba(255,255,255,0.1)'};border-radius:12px;margin-bottom:16px">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:${isConnected ? '12px' : '0'}">
+                    <div style="width:40px;height:40px;border-radius:10px;background:${isConnected ? 'rgba(6,182,212,0.2)' : 'rgba(255,255,255,0.05)'};display:flex;align-items:center;justify-content:center">
+                        <span style="font-size:20px">${isConnected ? '🎯' : isConnecting ? '⏳' : '📡'}</span>
+                    </div>
+                    <div style="flex:1">
+                        <div style="font-size:14px;font-weight:600;color:${isConnected ? '#06b6d4' : 'inherit'}">
+                            ${isConnected ? 'CoT Bridge Connected' : isConnecting ? 'Connecting...' : 'CoT Bridge'}
+                        </div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.5)">
+                            ${isConnected 
+                                ? `${status.positionCount} positions • ${status.markerCount} markers` 
+                                : 'Connect to receive CoT data from compatible apps'}
+                        </div>
+                    </div>
+                </div>
+                
+                ${isConnected ? `
+                    <!-- Position Sharing Section -->
+                    <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:12px;margin-bottom:12px">
+                        <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:8px;text-transform:uppercase">
+                            Bidirectional Sharing
+                        </div>
+                        
+                        ${!sharingStatus.consented ? `
+                            <!-- Consent Required -->
+                            <div style="background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:6px;padding:10px;margin-bottom:10px">
+                                <div style="font-size:11px;color:#fbbf24;font-weight:500;margin-bottom:4px">
+                                    ⚠️ Position Sharing Consent Required
+                                </div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.6);margin-bottom:8px">
+                                    Enabling sharing will broadcast your GPS position to all devices on the CoT network. 
+                                    Your location will be visible to other users.
+                                </div>
+                                <label style="display:flex;align-items:center;gap:8px;font-size:11px;cursor:pointer">
+                                    <input type="checkbox" id="cot-share-consent" style="width:16px;height:16px">
+                                    I understand and consent to sharing my position
+                                </label>
+                            </div>
+                        ` : `
+                            <!-- Sharing Controls -->
+                            <div style="display:flex;gap:8px;margin-bottom:10px">
+                                <input type="text" id="cot-callsign" placeholder="Callsign" 
+                                       value="${sharingStatus.callsign || 'GridDown'}"
+                                       style="flex:1;padding:6px 8px;font-size:11px">
+                                <select id="cot-team" style="padding:6px 8px;font-size:11px;background:#1a1f2e;color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px">
+                                    <option value="Cyan" ${sharingStatus.team === 'Cyan' ? 'selected' : ''}>Cyan</option>
+                                    <option value="Green" ${sharingStatus.team === 'Green' ? 'selected' : ''}>Green</option>
+                                    <option value="Blue" ${sharingStatus.team === 'Blue' ? 'selected' : ''}>Blue</option>
+                                    <option value="Yellow" ${sharingStatus.team === 'Yellow' ? 'selected' : ''}>Yellow</option>
+                                    <option value="Orange" ${sharingStatus.team === 'Orange' ? 'selected' : ''}>Orange</option>
+                                    <option value="Red" ${sharingStatus.team === 'Red' ? 'selected' : ''}>Red</option>
+                                    <option value="White" ${sharingStatus.team === 'White' ? 'selected' : ''}>White</option>
+                                </select>
+                            </div>
+                            
+                            <div style="display:flex;gap:8px">
+                                ${sharingStatus.enabled ? `
+                                    <button class="btn btn--secondary" id="cot-stop-sharing" style="flex:1;font-size:11px;padding:6px;background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.3)">
+                                        ⏹️ Stop Sharing
+                                    </button>
+                                ` : `
+                                    <button class="btn btn--primary" id="cot-start-sharing" style="flex:1;font-size:11px;padding:6px">
+                                        📍 Start Sharing Position
+                                    </button>
+                                `}
+                                <button class="btn btn--secondary" id="cot-send-once" style="font-size:11px;padding:6px">
+                                    📤 Send Once
+                                </button>
+                            </div>
+                            
+                            ${sharingStatus.enabled ? `
+                                <div style="font-size:10px;color:#22c55e;margin-top:8px;text-align:center">
+                                    🔴 LIVE • Broadcasting every ${sharingStatus.intervalMs / 1000}s
+                                    ${sharingStatus.positionsSent > 0 ? ` • ${sharingStatus.positionsSent} sent` : ''}
+                                </div>
+                            ` : ''}
+                            
+                            <div style="font-size:9px;color:rgba(255,255,255,0.3);margin-top:8px;text-align:center">
+                                <a href="#" id="cot-revoke-consent" style="color:rgba(255,255,255,0.4)">Revoke sharing consent</a>
+                            </div>
+                        `}
+                    </div>
+                    
+                    <div style="display:flex;gap:8px">
+                        <button class="btn btn--secondary" id="tak-disconnect-btn" style="flex:1;font-size:11px;padding:6px;color:#ef4444">
+                            Disconnect
+                        </button>
+                    </div>
+                ` : `
+                    <div style="margin-top:12px">
+                        <!-- Setup Wizard Button -->
+                        <button class="btn btn--primary" id="cot-setup-wizard-btn" style="width:100%;padding:12px;font-size:13px;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px">
+                            <span>🧙</span> Setup Wizard
+                        </button>
+                        
+                        <div style="text-align:center;font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:12px">— or connect manually —</div>
+                        
+                        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">BRIDGE WEBSOCKET URL</div>
+                        <div style="display:flex;gap:8px">
+                            <input type="text" id="tak-bridge-url" 
+                                   placeholder="ws://192.168.1.100:8765" 
+                                   value="${status.bridgeUrl || ''}"
+                                   style="flex:1;padding:8px;font-size:11px;font-family:monospace">
+                            <button class="btn btn--secondary" id="tak-connect-btn" style="padding:8px 16px;font-size:11px">
+                                Connect
+                            </button>
+                        </div>
+                        <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:6px">
+                            Run griddown-cot-bridge on a Raspberry Pi to receive CoT multicast
+                        </div>
+                    </div>
+                `}
+            </div>
+            
+            ${isConnected ? renderTAKPositions() : ''}
+        `;
+    }
+    
+    /**
+     * Render CoT positions list
+     */
+    function renderTAKPositions() {
+        if (typeof TAKModule === 'undefined') return '';
+        
+        const positions = TAKModule.getPositions();
+        
+        if (positions.length === 0) {
+            return `
+                <div style="padding:12px;background:rgba(255,255,255,0.02);border-radius:8px;margin-bottom:16px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);text-align:center">
+                        Waiting for CoT positions...
+                    </div>
+                </div>
+            `;
+        }
+        
+        return `
+            <div style="margin-bottom:16px">
+                <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-bottom:8px;text-transform:uppercase">
+                    CoT Units (${positions.length})
+                </div>
+                <div style="max-height:150px;overflow-y:auto">
+                    ${positions.map(pos => {
+                        const teamColor = pos.color || '#06b6d4';
+                        const speedMph = pos.speed ? (pos.speed * 2.237).toFixed(1) : null;
+                        
+                        return `
+                            <div class="card" style="margin-bottom:6px;padding:8px;cursor:pointer" 
+                                 onclick="if(typeof MapModule!=='undefined'){MapModule.centerOnLocation(${pos.lat},${pos.lon},15)}">
+                                <div style="display:flex;align-items:center;gap:10px">
+                                    <div style="width:32px;height:32px;border-radius:50%;background:${teamColor}33;display:flex;align-items:center;justify-content:center;border:2px solid ${teamColor}">
+                                        <span style="font-size:12px;color:${teamColor};font-weight:bold">T</span>
+                                    </div>
+                                    <div style="flex:1;min-width:0">
+                                        <div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                            ${pos.name}
+                                        </div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.4)">
+                                            ${pos.team || 'No Team'}
+                                            ${speedMph ? ` • ${speedMph} mph` : ''}
+                                        </div>
+                                    </div>
+                                    <div style="text-align:right">
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            ${pos.lat.toFixed(4)}°
+                                        </div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            ${pos.lon.toFixed(4)}°
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
     /**
      * Get APRS station count
      */
@@ -3884,7 +4087,7 @@ const PanelsModule = (function() {
                     </div>
                     
                     ${isConnected ? `
-                        <div style="display:flex;gap:8px">
+                        <div style="display:flex;gap:8px;margin-bottom:8px">
                             <button class="btn btn--secondary" id="mesh-broadcast-btn" style="flex:1;font-size:12px;padding:8px">
                                 📍 Broadcast Position
                             </button>
@@ -3893,6 +4096,11 @@ const PanelsModule = (function() {
                             </button>
                             <button class="btn btn--secondary" id="mesh-disconnect-btn" style="font-size:12px;padding:8px;color:#ef4444">
                                 Disconnect
+                            </button>
+                        </div>
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn--secondary" id="mesh-export-btn" style="flex:1;font-size:11px;padding:6px">
+                                📊 Export Telemetry
                             </button>
                         </div>
                     ` : ''}
@@ -3943,6 +4151,9 @@ const PanelsModule = (function() {
                 <!-- Phase 2: Mesh Health Widget (when connected) -->
                 ${isConnected ? renderMeshHealthWidget() : ''}
                 
+                <!-- Traceroute Widget (when active) -->
+                ${isConnected ? renderTracerouteWidget() : ''}
+                
                 <!-- Device Info (when connected) -->
                 ${isConnected ? renderConnectedDeviceInfo() : ''}
             </div>
@@ -3956,6 +4167,11 @@ const PanelsModule = (function() {
             
             <!-- APRS Section -->
             ${renderAPRSSection()}
+            
+            <div class="divider"></div>
+            
+            <!-- CoT Bridge Section -->
+            ${renderTAKSection()}
             
             <div class="divider"></div>
             
@@ -4006,11 +4222,18 @@ const PanelsModule = (function() {
                                     <div style="font-size:9px;color:rgba(255,255,255,0.35);margin-top:2px">${signalText}</div>
                                 ` : ''}
                             </div>
-                            ${!m.isMe && m.lat && m.lon ? `
-                                <button class="btn btn--secondary" data-goto-team="${m.id}" style="padding:6px 10px;font-size:10px" title="Go to location">
-                                    🎯
-                                </button>
-                            ` : ''}
+                            <div style="display:flex;gap:4px">
+                                ${!m.isMe && isConnected ? `
+                                    <button class="btn btn--secondary traceroute-btn" data-traceroute-node="${m.id}" data-node-name="${escapeHtml(m.name)}" style="padding:6px 8px;font-size:10px" title="Trace route to ${m.name}">
+                                        🔍
+                                    </button>
+                                ` : ''}
+                                ${!m.isMe && m.lat && m.lon ? `
+                                    <button class="btn btn--secondary" data-goto-team="${m.id}" style="padding:6px 8px;font-size:10px" title="Go to location">
+                                        🎯
+                                    </button>
+                                ` : ''}
+                            </div>
                         </div>
                     </div>
                 `}).join('')}
@@ -4372,6 +4595,120 @@ const PanelsModule = (function() {
             };
         }
         
+        // Telemetry Export button
+        const exportBtn = container.querySelector('#mesh-export-btn');
+        if (exportBtn) {
+            exportBtn.onclick = () => {
+                openTelemetryExportModal();
+            };
+        }
+        
+        // CoT Bridge Setup Wizard button
+        const cotSetupWizardBtn = container.querySelector('#cot-setup-wizard-btn');
+        if (cotSetupWizardBtn) {
+            cotSetupWizardBtn.onclick = () => {
+                if (typeof TAKModule !== 'undefined' && TAKModule.openSetupWizard) {
+                    TAKModule.openSetupWizard();
+                }
+            };
+        }
+        
+        // CoT Bridge Connect button
+        const takConnectBtn = container.querySelector('#tak-connect-btn');
+        const takUrlInput = container.querySelector('#tak-bridge-url');
+        if (takConnectBtn && takUrlInput) {
+            takConnectBtn.onclick = () => {
+                const url = takUrlInput.value.trim();
+                if (!url) {
+                    ModalsModule.showToast('Please enter a bridge URL', 'error');
+                    return;
+                }
+                if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+                    ModalsModule.showToast('URL must start with ws:// or wss://', 'error');
+                    return;
+                }
+                TAKModule.connect(url);
+                renderTeam();
+            };
+        }
+        
+        // CoT Bridge Disconnect button
+        const takDisconnectBtn = container.querySelector('#tak-disconnect-btn');
+        if (takDisconnectBtn) {
+            takDisconnectBtn.onclick = () => {
+                TAKModule.disconnect();
+                renderTeam();
+            };
+        }
+        
+        // CoT Sharing - Consent checkbox
+        const cotConsentCheckbox = container.querySelector('#cot-share-consent');
+        if (cotConsentCheckbox) {
+            cotConsentCheckbox.onchange = () => {
+                if (cotConsentCheckbox.checked) {
+                    TAKModule.setShareConsent(true);
+                    renderTeam();
+                }
+            };
+        }
+        
+        // CoT Sharing - Start sharing
+        const cotStartSharing = container.querySelector('#cot-start-sharing');
+        if (cotStartSharing) {
+            cotStartSharing.onclick = () => {
+                // Save callsign and team first
+                const callsignInput = container.querySelector('#cot-callsign');
+                const teamSelect = container.querySelector('#cot-team');
+                if (callsignInput && teamSelect) {
+                    TAKModule.configureSharing({
+                        callsign: callsignInput.value.trim() || 'GridDown',
+                        team: teamSelect.value
+                    });
+                }
+                TAKModule.startSharing();
+                renderTeam();
+            };
+        }
+        
+        // CoT Sharing - Stop sharing
+        const cotStopSharing = container.querySelector('#cot-stop-sharing');
+        if (cotStopSharing) {
+            cotStopSharing.onclick = () => {
+                TAKModule.stopSharing();
+                renderTeam();
+            };
+        }
+        
+        // CoT Sharing - Send once
+        const cotSendOnce = container.querySelector('#cot-send-once');
+        if (cotSendOnce) {
+            cotSendOnce.onclick = async () => {
+                // Save callsign and team first
+                const callsignInput = container.querySelector('#cot-callsign');
+                const teamSelect = container.querySelector('#cot-team');
+                if (callsignInput && teamSelect) {
+                    TAKModule.configureSharing({
+                        callsign: callsignInput.value.trim() || 'GridDown',
+                        team: teamSelect.value
+                    });
+                }
+                const sent = await TAKModule.sendPosition();
+                if (sent) {
+                    ModalsModule.showToast('📤 Position sent to CoT network', 'success');
+                }
+            };
+        }
+        
+        // CoT Sharing - Revoke consent
+        const cotRevokeConsent = container.querySelector('#cot-revoke-consent');
+        if (cotRevokeConsent) {
+            cotRevokeConsent.onclick = (e) => {
+                e.preventDefault();
+                TAKModule.setShareConsent(false);
+                renderTeam();
+            };
+        }
+        
         // Channel URL Import button (Phase 1)
         const importChannelBtn = container.querySelector('#mesh-import-channel-btn');
         const channelUrlInput = container.querySelector('#mesh-channel-url');
@@ -4528,6 +4865,34 @@ const PanelsModule = (function() {
                 }
             };
         });
+        
+        // Traceroute buttons on team cards
+        container.querySelectorAll('.traceroute-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                const nodeId = btn.dataset.tracerouteNode;
+                const nodeName = btn.dataset.nodeName;
+                openTracerouteModal(nodeId, nodeName);
+            };
+        });
+        
+        // Traceroute widget buttons
+        const trHistoryBtn = container.querySelector('#traceroute-history-btn');
+        if (trHistoryBtn) {
+            trHistoryBtn.onclick = () => openTracerouteModal();
+        }
+        
+        const trClearBtn = container.querySelector('#traceroute-clear-btn');
+        if (trClearBtn) {
+            trClearBtn.onclick = () => {
+                if (typeof MeshtasticModule !== 'undefined') {
+                    // Clear active traceroute
+                    const state = MeshtasticModule.getState();
+                    if (state) state.activeTraceroute = null;
+                    renderTeam();
+                }
+            };
+        }
         
         // === POSITION EVENT HANDLERS ===
         attachPositionHandlers();
@@ -4919,6 +5284,475 @@ const PanelsModule = (function() {
                 ` : ''}
             </div>
         `;
+    }
+    
+    // =========================================================================
+    // TRACEROUTE VISUALIZATION
+    // =========================================================================
+    
+    /**
+     * Render traceroute result widget
+     */
+    function renderTracerouteWidget() {
+        const traceroute = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getActiveTraceroute()
+            : null;
+        
+        if (!traceroute) return '';
+        
+        const display = MeshtasticModule.formatTracerouteDisplay(traceroute);
+        if (!display) return '';
+        
+        const statusColors = {
+            pending: '#6b7280',
+            in_progress: '#3b82f6',
+            completed: '#22c55e',
+            timeout: '#f59e0b',
+            error: '#ef4444'
+        };
+        
+        const statusColor = statusColors[display.status] || '#6b7280';
+        
+        return `
+            <div style="padding:12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.2);border-radius:10px;margin-bottom:12px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">TRACEROUTE</div>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <span style="font-size:10px;color:${statusColor}">${display.statusIcon} ${display.status.toUpperCase()}</span>
+                        ${display.rtt ? `<span style="font-size:10px;color:rgba(255,255,255,0.5)">${display.rtt}</span>` : ''}
+                    </div>
+                </div>
+                
+                <div style="font-size:12px;font-weight:500;margin-bottom:8px">
+                    Route to ${display.targetName}
+                    ${display.hops !== null ? `<span style="font-size:10px;color:rgba(255,255,255,0.5);font-weight:normal;margin-left:6px">${display.hops} hop${display.hops !== 1 ? 's' : ''}</span>` : ''}
+                </div>
+                
+                <!-- Route Visualization -->
+                <div style="position:relative;padding-left:20px">
+                    ${display.route.map((hop, index) => `
+                        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;position:relative">
+                            <!-- Vertical line -->
+                            ${index < display.route.length - 1 ? `
+                                <div style="position:absolute;left:5px;top:20px;bottom:-6px;width:2px;background:${hop.isDestination ? 'transparent' : 'rgba(59,130,246,0.3)'}"></div>
+                            ` : ''}
+                            
+                            <!-- Hop indicator -->
+                            <div style="position:absolute;left:0;width:12px;height:12px;border-radius:50%;background:${hop.isOrigin ? '#22c55e' : hop.isDestination ? '#f97316' : '#3b82f6'};border:2px solid ${hop.isOrigin ? '#22c55e55' : hop.isDestination ? '#f9731655' : '#3b82f655'}"></div>
+                            
+                            <!-- Hop info -->
+                            <div style="flex:1;margin-left:20px">
+                                <div style="font-size:11px;font-weight:500">${hop.displayName}</div>
+                                <div style="font-size:9px;color:rgba(255,255,255,0.4)">${hop.hopLabel}</div>
+                            </div>
+                            
+                            <!-- Signal badge -->
+                            ${hop.signalBadge && !hop.isOrigin ? `
+                                <span style="font-size:9px;padding:2px 5px;background:${getMeshSignalColor(hop.signalBadge)}22;color:${getMeshSignalColor(hop.signalBadge)};border-radius:4px">
+                                    ${hop.signalBadge}
+                                </span>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                
+                ${display.error ? `
+                    <div style="font-size:10px;color:#ef4444;margin-top:8px">
+                        ⚠️ ${display.error}
+                    </div>
+                ` : ''}
+                
+                <div style="display:flex;gap:6px;margin-top:10px">
+                    <button class="btn btn--secondary" id="traceroute-history-btn" style="flex:1;font-size:10px;padding:6px">
+                        📜 History
+                    </button>
+                    <button class="btn btn--secondary" id="traceroute-clear-btn" style="font-size:10px;padding:6px">
+                        ✕ Clear
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Open traceroute modal for selecting target node
+     */
+    function openTracerouteModal(preselectedNodeId = null, preselectedNodeName = null) {
+        const modalContainer = document.getElementById('modal-container');
+        if (!modalContainer) return;
+        
+        // Get available nodes
+        const nodes = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getNodesForTraceroute()
+            : [];
+        
+        const nodeOptions = nodes.map(node => {
+            const isSelected = preselectedNodeId && node.id === preselectedNodeId;
+            const signalColor = node.signalQuality ? getMeshSignalColor(node.signalQuality) : '#6b7280';
+            const timeAgo = formatTimeAgo(node.lastSeen);
+            
+            return `
+                <button class="traceroute-node-btn ${isSelected ? 'selected' : ''} ${node.isActive ? 'active' : 'inactive'}" 
+                    data-node-id="${node.id}" 
+                    data-node-name="${escapeHtml(node.name)}">
+                    <div style="display:flex;align-items:center;gap:10px;width:100%">
+                        <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center">
+                            <span style="font-size:14px">👤</span>
+                        </div>
+                        <div style="flex:1;text-align:left">
+                            <div style="font-size:12px;font-weight:500">${node.name}</div>
+                            <div style="font-size:10px;color:rgba(255,255,255,0.4)">${timeAgo}${node.hopAway ? ` • ${node.hopAway} hop${node.hopAway !== 1 ? 's' : ''} away` : ''}</div>
+                        </div>
+                        ${node.signalQuality ? `
+                            <span style="font-size:9px;padding:2px 6px;background:${signalColor}22;color:${signalColor};border-radius:4px">
+                                ${node.signalQuality}
+                            </span>
+                        ` : ''}
+                    </div>
+                </button>
+            `;
+        }).join('');
+        
+        modalContainer.innerHTML = `
+            <div class="modal-overlay" id="traceroute-modal">
+                <div class="modal" style="max-width:400px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">🔍 Trace Route</h3>
+                        <button class="modal__close" id="close-traceroute-modal">&times;</button>
+                    </div>
+                    <div class="modal__content">
+                        <div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:12px">
+                            Select a node to trace the mesh route. This shows how messages reach that node.
+                        </div>
+                        
+                        ${nodes.length > 0 ? `
+                            <div style="max-height:300px;overflow-y:auto;margin-bottom:16px">
+                                ${nodeOptions}
+                            </div>
+                            
+                            <button class="btn btn--primary btn--full" id="start-traceroute-btn" ${preselectedNodeId ? '' : 'disabled'}>
+                                🔍 Start Traceroute
+                            </button>
+                        ` : `
+                            <div style="padding:30px;text-align:center;color:rgba(255,255,255,0.4)">
+                                <div style="font-size:32px;margin-bottom:10px">📡</div>
+                                <div style="font-size:13px">No other nodes detected</div>
+                                <div style="font-size:11px;margin-top:6px">Wait for nodes to appear on the mesh</div>
+                            </div>
+                        `}
+                        
+                        <!-- Recent Traceroutes -->
+                        ${renderTracerouteHistoryInModal()}
+                    </div>
+                </div>
+            </div>
+            
+            <style>
+                .traceroute-node-btn {
+                    display: flex;
+                    width: 100%;
+                    padding: 10px 12px;
+                    background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 8px;
+                    margin-bottom: 6px;
+                    cursor: pointer;
+                    transition: all 0.15s;
+                }
+                .traceroute-node-btn:hover {
+                    background: rgba(255,255,255,0.06);
+                    border-color: rgba(255,255,255,0.2);
+                }
+                .traceroute-node-btn.selected {
+                    background: rgba(59,130,246,0.15);
+                    border-color: rgba(59,130,246,0.4);
+                }
+                .traceroute-node-btn.inactive {
+                    opacity: 0.6;
+                }
+            </style>
+        `;
+        
+        // Event handlers
+        let selectedNodeId = preselectedNodeId;
+        let selectedNodeName = preselectedNodeName;
+        
+        document.getElementById('close-traceroute-modal').onclick = () => modalContainer.innerHTML = '';
+        document.getElementById('traceroute-modal').onclick = (e) => {
+            if (e.target.id === 'traceroute-modal') modalContainer.innerHTML = '';
+        };
+        
+        // Node selection
+        modalContainer.querySelectorAll('.traceroute-node-btn').forEach(btn => {
+            btn.onclick = () => {
+                modalContainer.querySelectorAll('.traceroute-node-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedNodeId = btn.dataset.nodeId;
+                selectedNodeName = btn.dataset.nodeName;
+                
+                const startBtn = document.getElementById('start-traceroute-btn');
+                if (startBtn) startBtn.disabled = false;
+            };
+        });
+        
+        // Start traceroute
+        const startBtn = document.getElementById('start-traceroute-btn');
+        if (startBtn) {
+            startBtn.onclick = async () => {
+                if (!selectedNodeId) return;
+                
+                startBtn.disabled = true;
+                startBtn.innerHTML = '⏳ Tracing...';
+                
+                try {
+                    await MeshtasticModule.requestTraceroute(selectedNodeId);
+                    modalContainer.innerHTML = '';
+                    
+                    // Refresh the team panel to show traceroute widget
+                    if (typeof renderTeam === 'function') {
+                        renderTeam();
+                    }
+                } catch (e) {
+                    startBtn.disabled = false;
+                    startBtn.innerHTML = '🔍 Start Traceroute';
+                    ModalsModule.showToast('Traceroute failed: ' + e.message, 'error');
+                }
+            };
+        }
+    }
+    
+    /**
+     * Render traceroute history section for modal
+     */
+    function renderTracerouteHistoryInModal() {
+        const history = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getTracerouteHistory()
+            : [];
+        
+        if (history.length === 0) return '';
+        
+        const statusIcons = {
+            completed: '✅',
+            timeout: '⏱️',
+            error: '❌'
+        };
+        
+        return `
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.1)">
+                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px">RECENT TRACEROUTES</div>
+                <div style="max-height:150px;overflow-y:auto">
+                    ${history.slice(0, 5).map(tr => {
+                        const display = MeshtasticModule.formatTracerouteDisplay(tr);
+                        const timeAgo = formatTimeAgo(tr.startedAt);
+                        return `
+                            <div style="padding:8px;background:rgba(255,255,255,0.02);border-radius:6px;margin-bottom:4px">
+                                <div style="display:flex;justify-content:space-between;align-items:center">
+                                    <span style="font-size:11px">${statusIcons[tr.status] || '❓'} ${tr.targetName}</span>
+                                    <span style="font-size:10px;color:rgba(255,255,255,0.4)">${timeAgo}</span>
+                                </div>
+                                ${tr.status === 'completed' ? `
+                                    <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:2px">
+                                        ${tr.hops} hop${tr.hops !== 1 ? 's' : ''} • ${tr.rtt}ms
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Format time ago helper
+     */
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) return '';
+        const diff = Date.now() - timestamp;
+        if (diff < 60000) return 'just now';
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+        return 'long ago';
+    }
+    
+    // =========================================================================
+    // TELEMETRY EXPORT MODAL
+    // =========================================================================
+    
+    /**
+     * Open Telemetry Export Modal
+     */
+    function openTelemetryExportModal() {
+        const modalContainer = document.getElementById('modal-container');
+        if (!modalContainer) return;
+        
+        // Get export summary
+        const summary = typeof MeshtasticModule !== 'undefined'
+            ? MeshtasticModule.getExportSummary()
+            : { nodesCount: 0, messagesCount: 0, traceroutesCount: 0, hasData: false };
+        
+        modalContainer.innerHTML = `
+            <div class="modal-overlay" id="export-modal">
+                <div class="modal" style="max-width:450px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">📊 Export Telemetry</h3>
+                        <button class="modal__close" id="close-export-modal">&times;</button>
+                    </div>
+                    <div class="modal__content">
+                        <div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:16px">
+                            Export mesh network data for analysis, reporting, or backup.
+                        </div>
+                        
+                        <!-- Data Summary -->
+                        <div style="display:flex;gap:12px;margin-bottom:20px">
+                            <div style="flex:1;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
+                                <div style="font-size:24px;font-weight:600;color:#3b82f6">${summary.nodesCount}</div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.5)">Nodes</div>
+                            </div>
+                            <div style="flex:1;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
+                                <div style="font-size:24px;font-weight:600;color:#22c55e">${summary.messagesCount}</div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.5)">Messages</div>
+                            </div>
+                            <div style="flex:1;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;text-align:center">
+                                <div style="font-size:24px;font-weight:600;color:#f97316">${summary.traceroutesCount}</div>
+                                <div style="font-size:10px;color:rgba(255,255,255,0.5)">Traceroutes</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Export Options -->
+                        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px;text-transform:uppercase">CSV Exports</div>
+                        
+                        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+                            <button class="export-option-btn" id="export-nodes-csv" ${summary.nodesCount === 0 ? 'disabled' : ''}>
+                                <div style="display:flex;align-items:center;gap:12px">
+                                    <span style="font-size:24px">👥</span>
+                                    <div style="flex:1;text-align:left">
+                                        <div style="font-size:13px;font-weight:500">Node List (CSV)</div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            ${summary.nodesCount} nodes • Position, signal, battery, hardware
+                                        </div>
+                                    </div>
+                                    <span style="font-size:12px;color:rgba(255,255,255,0.4)">📥</span>
+                                </div>
+                            </button>
+                            
+                            <button class="export-option-btn" id="export-messages-csv" ${summary.messagesCount === 0 ? 'disabled' : ''}>
+                                <div style="display:flex;align-items:center;gap:12px">
+                                    <span style="font-size:24px">💬</span>
+                                    <div style="flex:1;text-align:left">
+                                        <div style="font-size:13px;font-weight:500">Message History (CSV)</div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            ${summary.messagesCount} messages • Timestamps, sender, content
+                                        </div>
+                                    </div>
+                                    <span style="font-size:12px;color:rgba(255,255,255,0.4)">📥</span>
+                                </div>
+                            </button>
+                        </div>
+                        
+                        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:8px;text-transform:uppercase">JSON Reports</div>
+                        
+                        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+                            <button class="export-option-btn" id="export-health-json">
+                                <div style="display:flex;align-items:center;gap:12px">
+                                    <span style="font-size:24px">🏥</span>
+                                    <div style="flex:1;text-align:left">
+                                        <div style="font-size:13px;font-weight:500">Mesh Health Report</div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            Health score, signal distribution, device config
+                                        </div>
+                                    </div>
+                                    <span style="font-size:12px;color:rgba(255,255,255,0.4)">📥</span>
+                                </div>
+                            </button>
+                            
+                            <button class="export-option-btn" id="export-full-json" ${!summary.hasData ? 'disabled' : ''}>
+                                <div style="display:flex;align-items:center;gap:12px">
+                                    <span style="font-size:24px">📋</span>
+                                    <div style="flex:1;text-align:left">
+                                        <div style="font-size:13px;font-weight:500">Full Telemetry Report</div>
+                                        <div style="font-size:10px;color:rgba(255,255,255,0.5)">
+                                            Complete export with all nodes, messages, traceroutes
+                                        </div>
+                                    </div>
+                                    <span style="font-size:12px;color:rgba(255,255,255,0.4)">📥</span>
+                                </div>
+                            </button>
+                        </div>
+                        
+                        ${!summary.hasData ? `
+                            <div style="padding:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:11px;color:#f59e0b;text-align:center">
+                                ⚠️ No data to export yet. Connect to mesh and discover nodes first.
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+            
+            <style>
+                .export-option-btn {
+                    display: block;
+                    width: 100%;
+                    padding: 12px 14px;
+                    background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 10px;
+                    cursor: pointer;
+                    transition: all 0.15s;
+                    text-align: left;
+                }
+                .export-option-btn:hover:not(:disabled) {
+                    background: rgba(255,255,255,0.06);
+                    border-color: rgba(59,130,246,0.4);
+                }
+                .export-option-btn:active:not(:disabled) {
+                    background: rgba(59,130,246,0.15);
+                }
+                .export-option-btn:disabled {
+                    opacity: 0.4;
+                    cursor: not-allowed;
+                }
+            </style>
+        `;
+        
+        // Event handlers
+        document.getElementById('close-export-modal').onclick = () => modalContainer.innerHTML = '';
+        document.getElementById('export-modal').onclick = (e) => {
+            if (e.target.id === 'export-modal') modalContainer.innerHTML = '';
+        };
+        
+        // Export buttons
+        const nodesBtn = document.getElementById('export-nodes-csv');
+        if (nodesBtn && !nodesBtn.disabled) {
+            nodesBtn.onclick = () => {
+                MeshtasticModule.downloadNodesCSV();
+                modalContainer.innerHTML = '';
+            };
+        }
+        
+        const messagesBtn = document.getElementById('export-messages-csv');
+        if (messagesBtn && !messagesBtn.disabled) {
+            messagesBtn.onclick = () => {
+                MeshtasticModule.downloadMessagesCSV();
+                modalContainer.innerHTML = '';
+            };
+        }
+        
+        const healthBtn = document.getElementById('export-health-json');
+        if (healthBtn) {
+            healthBtn.onclick = () => {
+                MeshtasticModule.downloadHealthReport();
+                modalContainer.innerHTML = '';
+            };
+        }
+        
+        const fullBtn = document.getElementById('export-full-json');
+        if (fullBtn && !fullBtn.disabled) {
+            fullBtn.onclick = () => {
+                MeshtasticModule.downloadTelemetryReport();
+                modalContainer.innerHTML = '';
+            };
+        }
     }
     
     /**
@@ -20085,11 +20919,12 @@ After spreading:
         const isConnecting = typeof RFSentinelModule !== 'undefined' && RFSentinelModule.isConnecting();
         const connectionMode = isConnected ? RFSentinelModule.getConnectionMode() : null;
         const connectionMethod = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getConnectionMethod() : 'auto';
-        const trackCounts = isConnected ? RFSentinelModule.getTrackCounts() : { aircraft: 0, ship: 0, drone: 0, radiosonde: 0, aprs: 0 };
+        const trackCounts = isConnected ? RFSentinelModule.getTrackCounts() : { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
         const trackTypeSettings = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getTrackTypeSettings() : {};
         const weatherSource = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getWeatherSource() : 'internet';
         const fisBData = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getFisBData() : { isStale: true };
         const emergencyTracks = isConnected ? RFSentinelModule.getEmergencyTracks() : [];
+        const fpvTracks = isConnected ? RFSentinelModule.getTracksByType('fpv') : [];
         const host = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getHost() : 'rfsentinel.local';
         const port = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getPort() : 8000;
         const mqttPort = typeof RFSentinelModule !== 'undefined' ? RFSentinelModule.getMqttPort() : 9001;
@@ -20206,12 +21041,12 @@ After spreading:
                             <div style="text-align:center;padding:0.5rem;background:#f59e0b20;border-radius:6px">
                                 <div style="font-size:1.25rem">🛸</div>
                                 <div style="font-size:1.125rem;font-weight:600;color:#f59e0b">${trackCounts.drone}</div>
-                                <div style="font-size:0.65rem;color:#94a3b8">Drones</div>
+                                <div style="font-size:0.65rem;color:#94a3b8">Drones (RID)</div>
                             </div>
-                            <div style="text-align:center;padding:0.5rem;background:#8b5cf620;border-radius:6px">
-                                <div style="font-size:1.25rem">🎈</div>
-                                <div style="font-size:1.125rem;font-weight:600;color:#8b5cf6">${trackCounts.radiosonde}</div>
-                                <div style="font-size:0.65rem;color:#94a3b8">Sondes</div>
+                            <div style="text-align:center;padding:0.5rem;background:#ef444420;border-radius:6px">
+                                <div style="font-size:1.25rem">📡</div>
+                                <div style="font-size:1.125rem;font-weight:600;color:#ef4444">${trackCounts.fpv || 0}</div>
+                                <div style="font-size:0.65rem;color:#94a3b8">Drones (FPV)</div>
                             </div>
                         </div>
                         ${stats ? `
@@ -20219,6 +21054,49 @@ After spreading:
                                 Last update: ${stats.lastUpdate ? new Date(stats.lastUpdate).toLocaleTimeString() : 'N/A'}
                             </div>
                         ` : ''}
+                    </div>
+                ` : ''}
+                
+                <!-- FPV Drone Detections (RF Signal Only) -->
+                ${isConnected && (trackCounts.fpv > 0 || trackTypeSettings.fpv?.enabled) ? `
+                    <div class="card" style="margin-bottom:1rem;border:1px solid #ef444440">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                            <div style="font-weight:600;color:#ef4444;display:flex;align-items:center;gap:0.5rem">
+                                📡 FPV Drone Detections
+                                <span style="font-size:0.7rem;font-weight:400;color:#94a3b8;background:#1e293b;padding:0.125rem 0.375rem;border-radius:4px">Pro</span>
+                            </div>
+                            <span style="font-size:0.75rem;color:#94a3b8">${trackCounts.fpv || 0} active</span>
+                        </div>
+                        
+                        ${fpvTracks.length > 0 ? `
+                            <div style="display:flex;flex-direction:column;gap:0.5rem;max-height:300px;overflow-y:auto">
+                                ${fpvTracks.slice(0, 10).map(track => renderFPVTrackCard(track)).join('')}
+                                ${fpvTracks.length > 10 ? `
+                                    <div style="font-size:0.7rem;color:#64748b;text-align:center;padding:0.5rem">
+                                        +${fpvTracks.length - 10} more detections
+                                    </div>
+                                ` : ''}
+                            </div>
+                        ` : `
+                            <div style="text-align:center;padding:1rem;color:#64748b;font-size:0.8rem">
+                                <div style="font-size:1.5rem;margin-bottom:0.5rem">📡</div>
+                                No FPV signals detected
+                                <div style="font-size:0.7rem;margin-top:0.25rem">
+                                    Monitoring 5.8 GHz / 2.4 GHz / 915 MHz bands
+                                </div>
+                            </div>
+                        `}
+                        
+                        <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #334155">
+                            <div style="font-size:0.65rem;color:#64748b;line-height:1.4">
+                                <strong>⚠️ RF-Only Detection:</strong> FPV tracks are detected by radio frequency analysis only. 
+                                No GPS position is available unless correlated with Remote ID broadcasts.
+                            </div>
+                            <div style="font-size:0.6rem;color:#475569;margin-top:0.375rem;line-height:1.3">
+                                FPV detection requires RF Sentinel Pro license and compatible SDR hardware (Ettus B210).
+                                Intended for authorized security, safety, and research applications only.
+                            </div>
+                        </div>
                     </div>
                 ` : ''}
                 
@@ -20233,9 +21111,17 @@ After spreading:
                     
                     ${renderTrackTypeToggle('aircraft', '✈️', 'Aircraft', trackCounts.aircraft, trackTypeSettings.aircraft?.enabled, '#3b82f6', 'ADS-B 1090 MHz', isConnected)}
                     ${renderTrackTypeToggle('ship', '🚢', 'Ships', trackCounts.ship, trackTypeSettings.ship?.enabled, '#06b6d4', 'AIS 162 MHz', isConnected)}
-                    ${renderTrackTypeToggle('drone', '🛸', 'Drones', trackCounts.drone, trackTypeSettings.drone?.enabled, '#f59e0b', 'Remote ID 2.4 GHz', isConnected)}
+                    ${renderTrackTypeToggle('drone', '🛸', 'Drones (Remote ID)', trackCounts.drone, trackTypeSettings.drone?.enabled, '#f59e0b', 'WiFi/BLE with GPS', isConnected)}
                     ${renderTrackTypeToggle('radiosonde', '🎈', 'Radiosondes', trackCounts.radiosonde, trackTypeSettings.radiosonde?.enabled, '#8b5cf6', '400 MHz', isConnected)}
                     ${renderTrackTypeToggle('aprs', '📻', 'APRS', trackCounts.aprs, trackTypeSettings.aprs?.enabled, '#22c55e', '144.39 MHz', isConnected)}
+                    
+                    ${trackCounts.fpv > 0 ? `
+                        <div style="margin-top:0.5rem;padding:0.5rem;background:#ef444410;border-radius:6px;border:1px dashed #ef444440">
+                            <div style="font-size:0.7rem;color:#fca5a5;display:flex;align-items:center;gap:0.375rem">
+                                📡 <span style="color:#ef4444;font-weight:500">${trackCounts.fpv}</span> FPV drone${trackCounts.fpv !== 1 ? 's' : ''} detected (RF-only, no map position)
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 
                 <!-- Weather Source Toggle -->
@@ -20327,6 +21213,140 @@ After spreading:
                 </div>
             </div>
         `;
+    }
+    
+    /**
+     * Render an FPV drone track card for the RF Sentinel panel
+     * Shows protocol, frequency, signal strength, and correlation status
+     */
+    function renderFPVTrackCard(track) {
+        // Extract track data with fallbacks
+        const protocol = track.primary_protocol || track.protocol || 'unknown';
+        const protocolDisplay = formatFPVProtocol(protocol);
+        const freqMhz = track.primary_frequency_mhz || track.frequency_mhz || 0;
+        const band = track.primary_band || track.band || '';
+        const signalDbm = track.primary_signal_dbm || track.signal_strength_dbm || -100;
+        const channelName = track.video_link?.channel_name || track.channel_name || '';
+        const bandwidthMhz = track.video_link?.bandwidth_mhz || track.bandwidth_mhz || 0;
+        
+        // Active links
+        const hasVideo = !!track.video_link;
+        const hasTelemetry = !!track.telemetry_link;
+        const hasControl = !!track.control_link;
+        
+        // Correlation with Remote ID
+        const correlatedId = track.correlated_remoteid_id;
+        const correlationConfidence = track.correlation_confidence || 0;
+        
+        // Time since first seen
+        const firstSeen = track.first_seen ? new Date(track.first_seen) : null;
+        const timeSinceFirst = firstSeen ? formatTimeSince(firstSeen) : 'Unknown';
+        
+        // Signal strength bar (map -100 to -30 dBm to 0-100%)
+        const signalPercent = Math.max(0, Math.min(100, ((signalDbm + 100) / 70) * 100));
+        const signalColor = signalPercent > 60 ? '#22c55e' : signalPercent > 30 ? '#f59e0b' : '#ef4444';
+        
+        // Protocol color coding
+        const protocolColors = {
+            'dji_digital': '#ef4444',      // Red - DJI
+            'dji_control': '#ef4444',
+            'analog_fpv': '#f97316',        // Orange - Analog
+            'walksnail': '#8b5cf6',         // Purple - Walksnail
+            'hdzero': '#06b6d4',            // Cyan - HDZero
+            'elrs_900': '#22c55e',          // Green - ELRS
+            'elrs_2400': '#22c55e',
+            'crossfire_915': '#3b82f6',     // Blue - Crossfire
+            'crossfire_868': '#3b82f6',
+            'frsky': '#eab308',             // Yellow - FrSky
+            'rfd900': '#a855f7',            // Purple - RFD
+            'unknown': '#64748b'            // Gray - Unknown
+        };
+        const protocolColor = protocolColors[protocol] || protocolColors['unknown'];
+        
+        return `
+            <div style="background:#1e293b;border-radius:8px;padding:0.75rem;border-left:3px solid ${protocolColor}">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem">
+                    <div>
+                        <div style="font-weight:600;color:${protocolColor};font-size:0.85rem">${protocolDisplay.icon} ${protocolDisplay.name}</div>
+                        <div style="font-size:0.7rem;color:#94a3b8">
+                            ${freqMhz.toFixed(1)} MHz${channelName ? ` (${channelName})` : ''}${bandwidthMhz ? ` • ${bandwidthMhz} MHz wide` : ''}
+                        </div>
+                    </div>
+                    <div style="text-align:right">
+                        <div style="font-size:0.8rem;font-weight:600;color:${signalColor}">${signalDbm.toFixed(0)} dBm</div>
+                        <div style="width:50px;height:4px;background:#0f172a;border-radius:2px;overflow:hidden;margin-top:2px">
+                            <div style="width:${signalPercent}%;height:100%;background:${signalColor}"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="display:flex;gap:0.375rem;flex-wrap:wrap;margin-bottom:0.375rem">
+                    ${hasVideo ? `<span style="font-size:0.6rem;background:#ef444430;color:#fca5a5;padding:0.125rem 0.375rem;border-radius:4px">📺 Video</span>` : ''}
+                    ${hasControl ? `<span style="font-size:0.6rem;background:#3b82f630;color:#93c5fd;padding:0.125rem 0.375rem;border-radius:4px">🎮 Control</span>` : ''}
+                    ${hasTelemetry ? `<span style="font-size:0.6rem;background:#22c55e30;color:#86efac;padding:0.125rem 0.375rem;border-radius:4px">📊 Telemetry</span>` : ''}
+                    ${track.fhss_detected ? `<span style="font-size:0.6rem;background:#8b5cf630;color:#c4b5fd;padding:0.125rem 0.375rem;border-radius:4px">⚡ FHSS</span>` : ''}
+                </div>
+                
+                ${correlatedId ? `
+                    <div style="font-size:0.65rem;color:#22c55e;background:#22c55e15;padding:0.25rem 0.5rem;border-radius:4px;margin-bottom:0.375rem">
+                        🔗 Correlated with Remote ID: ${correlatedId.slice(0, 12)}${correlatedId.length > 12 ? '...' : ''}
+                        ${correlationConfidence > 0 ? ` (${(correlationConfidence * 100).toFixed(0)}%)` : ''}
+                    </div>
+                ` : ''}
+                
+                <div style="font-size:0.6rem;color:#64748b">
+                    First detected: ${timeSinceFirst}${track.detection_count ? ` • ${track.detection_count} updates` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    /**
+     * Format FPV protocol name for display
+     */
+    function formatFPVProtocol(protocol) {
+        const protocols = {
+            'unknown': { name: 'Unknown Signal', icon: '❓' },
+            'analog_fpv': { name: 'Analog FPV', icon: '📺' },
+            'dji_digital': { name: 'DJI Digital', icon: '🔴' },
+            'dji_control': { name: 'DJI Control', icon: '🎮' },
+            'walksnail': { name: 'Walksnail Avatar', icon: '🟣' },
+            'hdzero': { name: 'HDZero', icon: '🔵' },
+            'shark_byte': { name: 'SharkByte', icon: '🦈' },
+            'elrs_900': { name: 'ELRS 900', icon: '🟢' },
+            'elrs_2400': { name: 'ELRS 2.4G', icon: '🟢' },
+            'elrs_868': { name: 'ELRS 868', icon: '🟢' },
+            'crossfire_915': { name: 'Crossfire', icon: '🔵' },
+            'crossfire_868': { name: 'Crossfire EU', icon: '🔵' },
+            'frsky': { name: 'FrSky', icon: '🟡' },
+            'spektrum': { name: 'Spektrum', icon: '🟠' },
+            'flysky': { name: 'FlySky', icon: '⚪' },
+            'rfd900': { name: 'RFD900', icon: '🟣' },
+            'rfd868': { name: 'RFD868', icon: '🟣' },
+            'sik': { name: 'SiK Radio', icon: '📻' },
+            '3dr': { name: '3DR Telemetry', icon: '📻' },
+            'dragonlink': { name: 'DragonLink', icon: '🐉' },
+            'mlrs': { name: 'MLRS', icon: '📡' },
+            'wifi_drone': { name: 'WiFi Drone', icon: '📶' }
+        };
+        
+        return protocols[protocol] || protocols['unknown'];
+    }
+    
+    /**
+     * Format time since a given date
+     */
+    function formatTimeSince(date) {
+        const now = new Date();
+        const seconds = Math.floor((now - date) / 1000);
+        
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
     }
     
     function attachRFSentinelHandlers() {

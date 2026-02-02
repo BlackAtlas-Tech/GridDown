@@ -4,7 +4,8 @@
  * Connects to RF Sentinel (rf-sentinel-v3) for real-time RF detection data:
  * - Aircraft (ADS-B 1090 MHz)
  * - Ships (AIS 162 MHz)
- * - Drones (Remote ID 2.4 GHz)
+ * - Drones - Remote ID (2.4 GHz WiFi/BLE) - Has GPS position
+ * - Drones - FPV/RF (5.8/2.4/915 MHz) - RF signal only, no GPS (Pro license)
  * - Radiosondes (400 MHz)
  * - APRS Stations (144.39 MHz)
  * 
@@ -17,7 +18,7 @@
  * - MQTT: Real-time pub/sub via MQTT over WebSocket (requires Mosquitto)
  * - REST polling: Periodic fetch every 5 seconds (fallback)
  * 
- * @version 1.1.0
+ * @version 1.2.0
  */
 const RFSentinelModule = (function() {
     'use strict';
@@ -106,12 +107,22 @@ const RFSentinelModule = (function() {
         },
         drone: {
             id: 'drone',
-            name: 'Drones',
+            name: 'Drones (Remote ID)',
             icon: '🛸',
             color: '#f59e0b',  // Amber
             enabled: false,
             endpoint: '/api/tracks/drones',
-            description: 'Remote ID drones (2.4 GHz)'
+            description: 'Remote ID drones with GPS position'
+        },
+        fpv: {
+            id: 'fpv',
+            name: 'Drones (FPV/RF)',
+            icon: '📡',
+            color: '#ef4444',  // Red
+            enabled: false,
+            endpoint: '/api/fpv/tracks',
+            description: 'FPV drones detected by RF signal (no GPS)',
+            noPosition: true  // Flag indicating these tracks have no map position
         },
         radiosonde: {
             id: 'radiosonde',
@@ -191,6 +202,7 @@ const RFSentinelModule = (function() {
             aircraft: 0,
             ship: 0,
             drone: 0,
+            fpv: 0,
             radiosonde: 0,
             aprs: 0
         },
@@ -200,6 +212,7 @@ const RFSentinelModule = (function() {
             aircraft: { enabled: true },
             ship: { enabled: true },
             drone: { enabled: false },
+            fpv: { enabled: false },
             radiosonde: { enabled: false },
             aprs: { enabled: false }
         },
@@ -620,8 +633,17 @@ const RFSentinelModule = (function() {
                     handleTrackUpdate(message.data || message);
                     break;
                     
+                case 'track_batch':
+                    // RF Sentinel v3.3+ batches track updates for efficiency
+                    handleTrackBatch(message.data || message);
+                    break;
+                    
+                case 'track_new':
+                    handleTrackUpdate(message.data || message);
+                    break;
+                    
                 case 'track_lost':
-                    handleTrackLost(message.id || message.data?.id);
+                    handleTrackLost(message.data?.id || message.id);
                     break;
                     
                 case 'weather':
@@ -630,6 +652,28 @@ const RFSentinelModule = (function() {
                     
                 case 'alert':
                     handleAlert(message.data || message);
+                    break;
+                    
+                case 'service_status':
+                    handleServiceStatus(message.data || message);
+                    break;
+                    
+                case 'service_error':
+                    handleServiceError(message.data || message);
+                    break;
+                    
+                case 'system_status':
+                    handleSystemStatus(message.data || message);
+                    break;
+                    
+                case 'location_update':
+                    handleLocationUpdate(message.data || message);
+                    break;
+                    
+                case 'correlation_new':
+                case 'correlation_update':
+                case 'correlation_lost':
+                    handleCorrelationEvent(message.type, message.data || message);
                     break;
                     
                 case 'ping':
@@ -647,6 +691,99 @@ const RFSentinelModule = (function() {
             }
         } catch (e) {
             console.warn('RFSentinel: Failed to parse WebSocket message:', e);
+        }
+    }
+    
+    /**
+     * Handle batched track updates (RF Sentinel v3.3+)
+     * More efficient than individual updates for high-volume data
+     */
+    function handleTrackBatch(data) {
+        if (!data || !data.tracks || !Array.isArray(data.tracks)) {
+            console.warn('RFSentinel: Invalid track batch data');
+            return;
+        }
+        
+        const batchCount = data.count || data.tracks.length;
+        console.debug(`RFSentinel: Processing batch of ${batchCount} tracks`);
+        
+        // Process all tracks in the batch
+        data.tracks.forEach(track => handleTrackUpdate(track));
+        
+        // Emit batch complete event
+        emitEvent('track:batch', { count: batchCount });
+    }
+    
+    /**
+     * Handle service status updates
+     */
+    function handleServiceStatus(data) {
+        if (!data) return;
+        
+        emitEvent('service:status', data);
+        
+        // Update internal service state if needed
+        if (data.service && data.status) {
+            console.log(`RFSentinel: Service ${data.service} status: ${data.status}`);
+        }
+    }
+    
+    /**
+     * Handle service error notifications
+     */
+    function handleServiceError(data) {
+        if (!data) return;
+        
+        console.warn('RFSentinel: Service error:', data);
+        emitEvent('service:error', data);
+    }
+    
+    /**
+     * Handle system status updates
+     */
+    function handleSystemStatus(data) {
+        if (!data) return;
+        
+        // Update server health info
+        state.serverHealth = {
+            ...state.serverHealth,
+            ...data
+        };
+        
+        emitEvent('system:status', data);
+    }
+    
+    /**
+     * Handle location updates from RF Sentinel GPS
+     */
+    function handleLocationUpdate(data) {
+        if (!data) return;
+        
+        emitEvent('location:update', data);
+    }
+    
+    /**
+     * Handle correlation events (RF Sentinel Pro feature)
+     * Correlation links multiple tracks that belong to the same physical object
+     * e.g., ADS-B + Remote ID from same drone
+     */
+    function handleCorrelationEvent(eventType, data) {
+        if (!data) return;
+        
+        switch (eventType) {
+            case 'correlation_new':
+                console.log('RFSentinel: New correlation:', data.id || data.correlation_id);
+                emitEvent('correlation:new', data);
+                break;
+                
+            case 'correlation_update':
+                emitEvent('correlation:update', data);
+                break;
+                
+            case 'correlation_lost':
+                console.log('RFSentinel: Correlation lost:', data.id || data.correlation_id);
+                emitEvent('correlation:lost', data);
+                break;
         }
     }
 
@@ -1020,6 +1157,8 @@ const RFSentinelModule = (function() {
             'drone': 'drone',
             'uav': 'drone',
             'remoteid': 'drone',
+            'fpv': 'fpv',
+            'drone_rf': 'fpv',
             'radiosonde': 'radiosonde',
             'sonde': 'radiosonde',
             'balloon': 'radiosonde',
@@ -1030,7 +1169,7 @@ const RFSentinelModule = (function() {
     }
 
     function updateTrackCounts() {
-        state.trackCounts = { aircraft: 0, ship: 0, drone: 0, radiosonde: 0, aprs: 0 };
+        state.trackCounts = { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
         
         for (const [id, track] of state.tracks) {
             if (state.trackCounts.hasOwnProperty(track.type)) {

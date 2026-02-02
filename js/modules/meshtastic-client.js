@@ -16,7 +16,16 @@
 
 // Use dynamic imports from esm.sh CDN for zero-build integration
 const ESM_CDN = 'https://esm.sh';
-const MESHTASTIC_VERSION = '2.6.7';
+
+// Package versions - use latest available or specific stable versions
+// Note: Transport packages have different version schemes than core
+// If specific versions fail, we'll try without version pinning
+const MESHTASTIC_VERSIONS = {
+    core: '2.5.9',           // Last known stable on esm.sh
+    transportBle: '0.1.2',   // JSR version scheme
+    transportSerial: '0.2.5', // JSR version scheme  
+    protobufs: '2.5.9'       // Match core version
+};
 
 // Global state for the client
 const MeshtasticClient = {
@@ -72,24 +81,46 @@ async function loadLibraries() {
         try {
             console.log('[MeshtasticClient] Loading libraries from esm.sh...');
             
-            // Load core and transport modules
-            const [core, bleTransport, serialTransport, protobufs] = await Promise.all([
-                import(`${ESM_CDN}/@meshtastic/core@${MESHTASTIC_VERSION}`),
-                import(`${ESM_CDN}/@meshtastic/transport-web-bluetooth@${MESHTASTIC_VERSION}`),
-                import(`${ESM_CDN}/@meshtastic/transport-web-serial@${MESHTASTIC_VERSION}`),
-                import(`${ESM_CDN}/@meshtastic/protobufs@${MESHTASTIC_VERSION}`)
-            ]);
-            
-            MeshtasticClient.core = core;
-            MeshtasticClient.bleTransport = bleTransport;
-            MeshtasticClient.serialTransport = serialTransport;
-            MeshtasticClient.protobufs = protobufs;
-            MeshtasticClient.librariesLoaded = true;
-            
-            console.log('[MeshtasticClient] Libraries loaded successfully');
-            return true;
+            // Try loading with pinned versions first
+            try {
+                const [core, bleTransport, serialTransport, protobufs] = await Promise.all([
+                    import(`${ESM_CDN}/@meshtastic/core@${MESHTASTIC_VERSIONS.core}`),
+                    import(`${ESM_CDN}/@meshtastic/transport-web-bluetooth@${MESHTASTIC_VERSIONS.transportBle}`),
+                    import(`${ESM_CDN}/@meshtastic/transport-web-serial@${MESHTASTIC_VERSIONS.transportSerial}`),
+                    import(`${ESM_CDN}/@meshtastic/protobufs@${MESHTASTIC_VERSIONS.protobufs}`)
+                ]);
+                
+                MeshtasticClient.core = core;
+                MeshtasticClient.bleTransport = bleTransport;
+                MeshtasticClient.serialTransport = serialTransport;
+                MeshtasticClient.protobufs = protobufs;
+                MeshtasticClient.librariesLoaded = true;
+                
+                console.log('[MeshtasticClient] Libraries loaded successfully (pinned versions)');
+                return true;
+            } catch (pinnedError) {
+                console.warn('[MeshtasticClient] Pinned versions failed, trying latest...', pinnedError.message);
+                
+                // Fallback: try without version pinning (get latest)
+                const [core, bleTransport, serialTransport, protobufs] = await Promise.all([
+                    import(`${ESM_CDN}/@meshtastic/core`),
+                    import(`${ESM_CDN}/@meshtastic/transport-web-bluetooth`),
+                    import(`${ESM_CDN}/@meshtastic/transport-web-serial`),
+                    import(`${ESM_CDN}/@meshtastic/protobufs`)
+                ]);
+                
+                MeshtasticClient.core = core;
+                MeshtasticClient.bleTransport = bleTransport;
+                MeshtasticClient.serialTransport = serialTransport;
+                MeshtasticClient.protobufs = protobufs;
+                MeshtasticClient.librariesLoaded = true;
+                
+                console.log('[MeshtasticClient] Libraries loaded successfully (latest versions)');
+                return true;
+            }
         } catch (error) {
             console.error('[MeshtasticClient] Failed to load libraries:', error);
+            console.warn('[MeshtasticClient] Meshtastic libraries unavailable - basic serial mode will be used');
             MeshtasticClient.loadingPromise = null;
             throw error;
         }

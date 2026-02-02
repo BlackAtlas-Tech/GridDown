@@ -47,7 +47,10 @@ const MeshtasticModule = (function() {
         // Direct Message types
         DM: 'dm',                        // Encrypted direct message
         DM_ACK: 'dm_ack',                // DM delivery acknowledgment
-        DM_READ: 'dm_read'               // DM read receipt
+        DM_READ: 'dm_read',              // DM read receipt
+        // Traceroute types
+        TRACEROUTE_REQUEST: 'traceroute_request',   // Request route to destination
+        TRACEROUTE_REPLY: 'traceroute_reply'        // Route path response
     };
     
     // Message delivery status
@@ -415,6 +418,11 @@ const MeshtasticModule = (function() {
         
         // Batch 3: Read receipts
         readReceiptsEnabled: true,       // Whether to send read receipts
+        
+        // Traceroute tracking
+        traceroutes: new Map(),          // requestId -> { targetNodeId, startedAt, status, route, hops, rtt }
+        activeTraceroute: null,          // Currently displayed traceroute requestId
+        tracerouteHistory: [],           // Array of completed traceroutes for history
         
         // Batch 3: Message retry tracking
         pendingRetries: new Map(),       // messageId -> { message, retryCount, nextRetryAt, timeout }
@@ -1350,6 +1358,13 @@ const MeshtasticModule = (function() {
                 break;
             case MessageType.DM_READ:
                 handleDMReadReceipt(message);
+                break;
+            // Traceroute types
+            case MessageType.TRACEROUTE_REQUEST:
+                handleTracerouteRequest(message);
+                break;
+            case MessageType.TRACEROUTE_REPLY:
+                handleTracerouteReply(message);
                 break;
             default:
                 console.warn('Unknown message type:', message.type);
@@ -5408,6 +5423,104 @@ const MeshtasticModule = (function() {
     }
     
     /**
+     * Send a quick location pin to mesh (streamlined for Drop Pin → Send workflow)
+     * @param {number} lat - Latitude
+     * @param {number} lon - Longitude
+     * @param {string} label - Optional label for the pin
+     * @param {string} toNodeId - Optional recipient node ID (null = broadcast)
+     * @param {number} channelId - Optional channel index
+     */
+    async function sendLocation(lat, lon, label = null, toNodeId = null, channelId = null) {
+        // Generate a compact label if not provided
+        const pinLabel = label || `Pin ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        
+        // Format coordinates for text message (works on all Meshtastic devices)
+        const latDir = lat >= 0 ? 'N' : 'S';
+        const lonDir = lon >= 0 ? 'W' : 'E';
+        const coordText = `📍 ${pinLabel}\n${Math.abs(lat).toFixed(6)}°${latDir}, ${Math.abs(lon).toFixed(6)}°${lonDir}`;
+        
+        // Also send as waypoint for rich display on compatible devices
+        const waypointMessage = {
+            type: MessageType.WAYPOINT,
+            from: state.myNodeId,
+            fromName: state.shortName,
+            to: toNodeId,  // null = broadcast
+            waypoint: {
+                id: `pin-${Date.now()}`,
+                name: pinLabel,
+                type: 'pin',
+                lat: lat,
+                lon: lon,
+                notes: '',
+                icon: '📍',
+                expire: Date.now() + (24 * 60 * 60 * 1000) // Expire in 24 hours
+            },
+            timestamp: Date.now()
+        };
+        
+        try {
+            // Send as text message first (universal compatibility)
+            const textMsg = await sendTextMessage(coordText, toNodeId, channelId);
+            
+            // Then send as waypoint for rich devices
+            await sendToDevice(waypointMessage);
+            
+            const recipientName = toNodeId 
+                ? (getNodeById(toNodeId)?.name || 'selected node')
+                : 'all';
+            
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`📍 Location sent to ${recipientName}`, 'success');
+            }
+            
+            Events.emit('meshtastic:location_sent', { 
+                lat, lon, label: pinLabel, 
+                to: toNodeId, 
+                broadcast: !toNodeId 
+            });
+            
+            return { success: true, textMessage: textMsg, waypointMessage };
+        } catch (e) {
+            console.error('[Meshtastic] Failed to send location:', e);
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Failed to send location: ' + e.message, 'error');
+            }
+            return { success: false, error: e.message };
+        }
+    }
+    
+    /**
+     * Get list of mesh nodes for recipient selection
+     */
+    function getNodesForRecipientSelection() {
+        const nodes = [];
+        const now = Date.now();
+        
+        state.nodes.forEach((node, id) => {
+            // Skip self
+            if (id === state.myNodeId || node.num === state.myNodeNum) return;
+            
+            // Include nodes seen within last hour
+            if (node.lastSeen && (now - node.lastSeen) < 3600000) {
+                nodes.push({
+                    id: id,
+                    num: node.num,
+                    name: node.longName || node.shortName || `Node ${id}`,
+                    shortName: node.shortName,
+                    lastSeen: node.lastSeen,
+                    signalQuality: calculateSignalQuality(node.snr, node.rssi),
+                    isActive: (now - node.lastSeen) < 300000 // Active within 5 min
+                });
+            }
+        });
+        
+        // Sort by most recently seen
+        nodes.sort((a, b) => b.lastSeen - a.lastSeen);
+        
+        return nodes;
+    }
+    
+    /**
      * Handle received waypoint
      */
     function handleWaypointShare(message) {
@@ -5582,6 +5695,707 @@ const MeshtasticModule = (function() {
     function expandTerrain(t) {
         const map = { h: 'highway', r: 'road', t: 'trail', c: 'crawl' };
         return map[t] || 'road';
+    }
+
+    // =========================================================================
+    // TRACEROUTE FUNCTIONALITY
+    // =========================================================================
+    
+    const TRACEROUTE_TIMEOUT = 30000;  // 30 seconds timeout
+    const TRACEROUTE_MAX_HOPS = 10;    // Maximum hops to track
+    
+    /**
+     * Request traceroute to a destination node
+     * @param {string} targetNodeId - Node ID to trace route to
+     * @returns {Promise<Object>} - Traceroute result
+     */
+    async function requestTraceroute(targetNodeId) {
+        if (!isConnected()) {
+            throw new Error('Not connected to Meshtastic');
+        }
+        
+        if (!targetNodeId) {
+            throw new Error('Target node ID required');
+        }
+        
+        // Get target node info
+        const targetNode = getNodeById(targetNodeId);
+        const targetName = targetNode?.name || targetNode?.longName || `Node ${targetNodeId}`;
+        
+        // Generate unique request ID
+        const requestId = `tr-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Initialize traceroute tracking
+        const traceroute = {
+            requestId,
+            targetNodeId,
+            targetName,
+            startedAt: Date.now(),
+            status: 'pending',  // pending, in_progress, completed, timeout, error
+            route: [
+                {
+                    nodeId: state.myNodeId,
+                    nodeName: state.longName || state.shortName,
+                    hopNumber: 0,
+                    timestamp: Date.now(),
+                    isOrigin: true
+                }
+            ],
+            hops: 0,
+            rtt: null,         // Round trip time in ms
+            error: null
+        };
+        
+        state.traceroutes.set(requestId, traceroute);
+        state.activeTraceroute = requestId;
+        
+        // Send traceroute request
+        const message = {
+            type: MessageType.TRACEROUTE_REQUEST,
+            requestId,
+            from: state.myNodeId,
+            fromName: state.shortName,
+            to: targetNodeId,
+            route: [state.myNodeId],  // Track route as it propagates
+            hopCount: 0,
+            maxHops: TRACEROUTE_MAX_HOPS,
+            timestamp: Date.now()
+        };
+        
+        try {
+            await sendToDevice(message);
+            
+            traceroute.status = 'in_progress';
+            Events.emit('meshtastic:traceroute_started', { requestId, targetNodeId, targetName });
+            
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast(`🔍 Tracing route to ${targetName}...`, 'info');
+            }
+            
+            // Set timeout
+            const timeoutId = setTimeout(() => {
+                const tr = state.traceroutes.get(requestId);
+                if (tr && tr.status === 'in_progress') {
+                    tr.status = 'timeout';
+                    tr.error = 'Traceroute timed out';
+                    Events.emit('meshtastic:traceroute_timeout', { requestId, targetNodeId });
+                    
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(`⏱️ Traceroute to ${targetName} timed out`, 'warning');
+                    }
+                }
+            }, TRACEROUTE_TIMEOUT);
+            
+            // Store timeout ID for cleanup
+            traceroute.timeoutId = timeoutId;
+            
+            return { requestId, traceroute };
+            
+        } catch (e) {
+            traceroute.status = 'error';
+            traceroute.error = e.message;
+            Events.emit('meshtastic:traceroute_error', { requestId, error: e.message });
+            throw e;
+        }
+    }
+    
+    /**
+     * Handle incoming traceroute request (when we're a relay node)
+     */
+    function handleTracerouteRequest(message) {
+        // Add ourselves to the route
+        const updatedRoute = [...(message.route || []), state.myNodeId];
+        const hopCount = (message.hopCount || 0) + 1;
+        
+        // Check if we're the destination
+        if (message.to === state.myNodeId || message.to === state.myNodeNum) {
+            // We're the destination - send reply back
+            sendTracerouteReply(message.requestId, message.from, updatedRoute, hopCount);
+            return;
+        }
+        
+        // Check hop limit
+        if (hopCount >= (message.maxHops || TRACEROUTE_MAX_HOPS)) {
+            console.log('[Traceroute] Max hops reached, not forwarding');
+            return;
+        }
+        
+        // Forward the request (in real Meshtastic this would be handled by the mesh routing)
+        // For simulation, we just update the route tracking
+        const forwardMessage = {
+            ...message,
+            route: updatedRoute,
+            hopCount: hopCount,
+            lastRelay: state.myNodeId,
+            relayName: state.shortName
+        };
+        
+        sendToDevice(forwardMessage);
+    }
+    
+    /**
+     * Send traceroute reply back to origin
+     */
+    async function sendTracerouteReply(requestId, originNodeId, route, hopCount) {
+        const reply = {
+            type: MessageType.TRACEROUTE_REPLY,
+            requestId,
+            from: state.myNodeId,
+            fromName: state.shortName,
+            to: originNodeId,
+            route: route,
+            hopCount: hopCount,
+            destination: {
+                nodeId: state.myNodeId,
+                nodeName: state.longName || state.shortName,
+                firmwareVersion: state.deviceConfig.firmwareVersion,
+                hwModel: state.deviceConfig.hwModelName
+            },
+            timestamp: Date.now()
+        };
+        
+        await sendToDevice(reply);
+    }
+    
+    /**
+     * Handle traceroute reply (we originated the request)
+     */
+    function handleTracerouteReply(message) {
+        const requestId = message.requestId;
+        const traceroute = state.traceroutes.get(requestId);
+        
+        if (!traceroute) {
+            console.log('[Traceroute] Received reply for unknown request:', requestId);
+            return;
+        }
+        
+        // Clear timeout
+        if (traceroute.timeoutId) {
+            clearTimeout(traceroute.timeoutId);
+        }
+        
+        // Calculate RTT
+        const rtt = Date.now() - traceroute.startedAt;
+        
+        // Build complete route with node info
+        const completeRoute = (message.route || []).map((nodeId, index) => {
+            const node = getNodeById(nodeId);
+            return {
+                nodeId: nodeId,
+                nodeName: node?.name || node?.longName || node?.shortName || `Node ${nodeId}`,
+                hopNumber: index,
+                isOrigin: index === 0,
+                isDestination: index === message.route.length - 1,
+                signalQuality: node?.signalQuality,
+                snr: node?.snr,
+                rssi: node?.rssi,
+                lastSeen: node?.lastSeen
+            };
+        });
+        
+        // Update traceroute
+        traceroute.status = 'completed';
+        traceroute.route = completeRoute;
+        traceroute.hops = message.hopCount || completeRoute.length - 1;
+        traceroute.rtt = rtt;
+        traceroute.completedAt = Date.now();
+        traceroute.destination = message.destination;
+        
+        // Add to history
+        state.tracerouteHistory.unshift({
+            ...traceroute,
+            timeoutId: undefined  // Don't store timeout reference
+        });
+        
+        // Keep history limited
+        if (state.tracerouteHistory.length > 20) {
+            state.tracerouteHistory = state.tracerouteHistory.slice(0, 20);
+        }
+        
+        Events.emit('meshtastic:traceroute_complete', { 
+            requestId, 
+            route: completeRoute, 
+            hops: traceroute.hops,
+            rtt 
+        });
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast(
+                `✓ Route found: ${traceroute.hops} hop${traceroute.hops !== 1 ? 's' : ''} (${rtt}ms)`, 
+                'success'
+            );
+        }
+        
+        return traceroute;
+    }
+    
+    /**
+     * Get active traceroute result
+     */
+    function getActiveTraceroute() {
+        if (!state.activeTraceroute) return null;
+        return state.traceroutes.get(state.activeTraceroute);
+    }
+    
+    /**
+     * Get traceroute by request ID
+     */
+    function getTraceroute(requestId) {
+        return state.traceroutes.get(requestId);
+    }
+    
+    /**
+     * Get traceroute history
+     */
+    function getTracerouteHistory() {
+        return [...state.tracerouteHistory];
+    }
+    
+    /**
+     * Clear traceroute history
+     */
+    function clearTracerouteHistory() {
+        state.tracerouteHistory = [];
+        Events.emit('meshtastic:traceroute_history_cleared');
+    }
+    
+    /**
+     * Get nodes available for traceroute
+     * Returns nodes that have been seen recently
+     */
+    function getNodesForTraceroute() {
+        const nodes = [];
+        const now = Date.now();
+        
+        state.nodes.forEach((node, id) => {
+            // Skip self
+            if (id === state.myNodeId || node.num === state.myNodeNum) return;
+            
+            // Include nodes seen within last hour
+            if (node.lastSeen && (now - node.lastSeen) < 3600000) {
+                nodes.push({
+                    id: id,
+                    num: node.num,
+                    name: node.longName || node.shortName || `Node ${id}`,
+                    shortName: node.shortName,
+                    lastSeen: node.lastSeen,
+                    signalQuality: calculateSignalQuality(node.snr, node.rssi),
+                    snr: node.snr,
+                    rssi: node.rssi,
+                    hopAway: node.hopAway || null,
+                    isActive: (now - node.lastSeen) < 300000
+                });
+            }
+        });
+        
+        // Sort by most recently seen
+        nodes.sort((a, b) => b.lastSeen - a.lastSeen);
+        
+        return nodes;
+    }
+    
+    /**
+     * Format traceroute for display
+     */
+    function formatTracerouteDisplay(traceroute) {
+        if (!traceroute) return null;
+        
+        const statusIcons = {
+            pending: '⏳',
+            in_progress: '🔄',
+            completed: '✅',
+            timeout: '⏱️',
+            error: '❌'
+        };
+        
+        return {
+            requestId: traceroute.requestId,
+            targetName: traceroute.targetName,
+            status: traceroute.status,
+            statusIcon: statusIcons[traceroute.status] || '❓',
+            hops: traceroute.hops,
+            rtt: traceroute.rtt ? `${traceroute.rtt}ms` : null,
+            route: traceroute.route.map((hop, index) => ({
+                ...hop,
+                displayName: hop.nodeName,
+                hopLabel: hop.isOrigin ? 'Origin' : hop.isDestination ? 'Destination' : `Hop ${hop.hopNumber}`,
+                signalBadge: hop.signalQuality || null
+            })),
+            startedAt: traceroute.startedAt,
+            completedAt: traceroute.completedAt,
+            duration: traceroute.completedAt 
+                ? traceroute.completedAt - traceroute.startedAt 
+                : Date.now() - traceroute.startedAt,
+            error: traceroute.error
+        };
+    }
+
+    // =========================================================================
+    // TELEMETRY EXPORT
+    // =========================================================================
+    
+    /**
+     * Export nodes to CSV format
+     * @returns {string} CSV content
+     */
+    function exportNodesCSV() {
+        const nodes = Array.from(state.nodes.values());
+        const now = Date.now();
+        
+        // CSV header
+        const headers = [
+            'Node ID',
+            'Name',
+            'Short Name',
+            'Hardware Model',
+            'Firmware Version',
+            'Latitude',
+            'Longitude',
+            'Altitude (m)',
+            'SNR (dB)',
+            'RSSI (dBm)',
+            'Signal Quality',
+            'Battery Level (%)',
+            'Voltage (V)',
+            'Last Seen',
+            'Status',
+            'Minutes Ago'
+        ];
+        
+        const rows = nodes.map(node => {
+            const minutesAgo = node.lastSeen ? Math.round((now - node.lastSeen) / 60000) : '';
+            const lastSeenDate = node.lastSeen ? new Date(node.lastSeen).toISOString() : '';
+            
+            return [
+                node.id || '',
+                `"${(node.name || node.longName || '').replace(/"/g, '""')}"`,
+                node.shortName || '',
+                node.hwModelName || '',
+                node.firmwareVersion || '',
+                node.lat !== undefined ? node.lat.toFixed(6) : '',
+                node.lon !== undefined ? node.lon.toFixed(6) : '',
+                node.alt !== undefined ? Math.round(node.alt) : '',
+                node.snr !== undefined ? node.snr.toFixed(1) : '',
+                node.rssi !== undefined ? node.rssi : '',
+                node.signalQuality || '',
+                node.batteryLevel !== undefined ? node.batteryLevel : '',
+                node.voltage !== undefined ? node.voltage.toFixed(2) : '',
+                lastSeenDate,
+                node.status || '',
+                minutesAgo
+            ].join(',');
+        });
+        
+        return [headers.join(','), ...rows].join('\n');
+    }
+    
+    /**
+     * Export messages to CSV format
+     * @param {string|null} channelId - Optional channel filter
+     * @returns {string} CSV content
+     */
+    function exportMessagesCSV(channelId = null) {
+        let messages = channelId ? getMessages(channelId) : getMessages();
+        
+        // CSV header
+        const headers = [
+            'Timestamp',
+            'From Node',
+            'From Name',
+            'To Node',
+            'Channel',
+            'Type',
+            'Content',
+            'Status',
+            'Is Sent',
+            'RTT (ms)'
+        ];
+        
+        const rows = messages.map(msg => {
+            const timestamp = new Date(msg.timestamp || msg.receivedAt).toISOString();
+            const content = (msg.text || msg.content || '').replace(/"/g, '""').replace(/\n/g, ' ');
+            
+            return [
+                timestamp,
+                msg.from || '',
+                `"${(msg.fromName || '').replace(/"/g, '""')}"`,
+                msg.to || 'broadcast',
+                msg.channelId || 'primary',
+                msg.type || 'text',
+                `"${content}"`,
+                msg.status || '',
+                msg.isSent ? 'Yes' : 'No',
+                msg.rtt || ''
+            ].join(',');
+        });
+        
+        return [headers.join(','), ...rows].join('\n');
+    }
+    
+    /**
+     * Export mesh health report
+     * @returns {Object} Health report data
+     */
+    function exportMeshHealthReport() {
+        const health = getMeshHealth();
+        const nodes = Array.from(state.nodes.values());
+        const now = Date.now();
+        
+        return {
+            generatedAt: new Date().toISOString(),
+            reportType: 'Mesh Health Report',
+            summary: {
+                overallStatus: health.status,
+                healthScore: health.score,
+                totalNodes: health.totalNodes,
+                activeNodes: health.activeNodes,
+                recentNodes: health.recentNodes,
+                isConnected: health.isConnected,
+                scenario: health.scenario?.name || 'Custom'
+            },
+            signalQuality: {
+                distribution: health.signalDistribution,
+                averageSNR: health.averageSignal.snr,
+                averageRSSI: health.averageSignal.rssi
+            },
+            messageQueue: health.queueStatus,
+            nodes: nodes.map(node => ({
+                id: node.id,
+                name: node.name || node.longName,
+                shortName: node.shortName,
+                hardware: node.hwModelName,
+                firmware: node.firmwareVersion,
+                position: node.lat !== undefined ? {
+                    lat: node.lat,
+                    lon: node.lon,
+                    alt: node.alt
+                } : null,
+                signal: {
+                    snr: node.snr,
+                    rssi: node.rssi,
+                    quality: node.signalQuality
+                },
+                battery: {
+                    level: node.batteryLevel,
+                    voltage: node.voltage
+                },
+                lastSeen: node.lastSeen ? new Date(node.lastSeen).toISOString() : null,
+                minutesAgo: node.lastSeen ? Math.round((now - node.lastSeen) / 60000) : null,
+                status: node.status
+            })),
+            deviceConfig: {
+                region: state.deviceConfig.region,
+                modemPreset: state.deviceConfig.modemPreset,
+                hopLimit: state.deviceConfig.hopLimit,
+                txPower: state.deviceConfig.txPower,
+                firmwareVersion: state.deviceConfig.firmwareVersion,
+                hwModel: state.deviceConfig.hwModelName
+            }
+        };
+    }
+    
+    /**
+     * Export comprehensive telemetry report as JSON
+     * @returns {Object} Full telemetry report
+     */
+    function exportFullTelemetryReport() {
+        const now = Date.now();
+        const nodes = Array.from(state.nodes.values());
+        const messages = getMessages();
+        const health = getMeshHealth();
+        const tracerouteHist = getTracerouteHistory();
+        
+        return {
+            meta: {
+                exportedAt: new Date().toISOString(),
+                reportType: 'Full Telemetry Export',
+                version: '1.0',
+                griddownVersion: '6.55.0'
+            },
+            myNode: {
+                id: state.myNodeId,
+                num: state.myNodeNum,
+                longName: state.longName,
+                shortName: state.shortName
+            },
+            connection: {
+                state: state.connectionState,
+                type: state.connectionType
+            },
+            meshHealth: health,
+            nodes: nodes.map(node => ({
+                id: node.id,
+                num: node.num,
+                name: node.name || node.longName,
+                shortName: node.shortName,
+                hardware: {
+                    model: node.hwModel,
+                    modelName: node.hwModelName,
+                    firmware: node.firmwareVersion
+                },
+                position: {
+                    lat: node.lat,
+                    lon: node.lon,
+                    alt: node.alt
+                },
+                signal: {
+                    snr: node.snr,
+                    rssi: node.rssi,
+                    quality: node.signalQuality
+                },
+                power: {
+                    batteryLevel: node.batteryLevel,
+                    voltage: node.voltage
+                },
+                timing: {
+                    lastSeen: node.lastSeen,
+                    lastSeenISO: node.lastSeen ? new Date(node.lastSeen).toISOString() : null,
+                    minutesAgo: node.lastSeen ? Math.round((now - node.lastSeen) / 60000) : null
+                },
+                status: node.status
+            })),
+            messages: messages.map(msg => ({
+                id: msg.id,
+                type: msg.type,
+                from: msg.from,
+                fromName: msg.fromName,
+                to: msg.to,
+                channelId: msg.channelId,
+                content: msg.text || msg.content,
+                timestamp: msg.timestamp,
+                timestampISO: msg.timestamp ? new Date(msg.timestamp).toISOString() : null,
+                status: msg.status,
+                isSent: msg.isSent,
+                rtt: msg.rtt
+            })),
+            traceroutes: tracerouteHist.map(tr => ({
+                requestId: tr.requestId,
+                targetNodeId: tr.targetNodeId,
+                targetName: tr.targetName,
+                status: tr.status,
+                hops: tr.hops,
+                rtt: tr.rtt,
+                route: tr.route,
+                startedAt: tr.startedAt ? new Date(tr.startedAt).toISOString() : null,
+                completedAt: tr.completedAt ? new Date(tr.completedAt).toISOString() : null
+            })),
+            deviceConfig: { ...state.deviceConfig },
+            channels: state.channels.map(ch => ({
+                id: ch.id,
+                name: ch.name,
+                index: ch.index,
+                isDefault: ch.isDefault,
+                isPrivate: ch.isPrivate
+            })),
+            statistics: {
+                totalMessages: messages.length,
+                sentMessages: messages.filter(m => m.isSent).length,
+                receivedMessages: messages.filter(m => !m.isSent).length,
+                totalNodes: nodes.length,
+                nodesWithPosition: nodes.filter(n => n.lat !== undefined).length,
+                nodesWithSignal: nodes.filter(n => n.snr !== undefined || n.rssi !== undefined).length,
+                traceroutesCompleted: tracerouteHist.filter(tr => tr.status === 'completed').length
+            }
+        };
+    }
+    
+    /**
+     * Download data as a file
+     * @param {string} content - File content
+     * @param {string} filename - Filename
+     * @param {string} type - MIME type
+     */
+    function downloadFile(content, filename, type) {
+        const blob = new Blob([content], { type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+    
+    /**
+     * Export and download nodes as CSV
+     */
+    function downloadNodesCSV() {
+        const csv = exportNodesCSV();
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        downloadFile(csv, `griddown-nodes-${timestamp}.csv`, 'text/csv');
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('📊 Nodes exported to CSV', 'success');
+        }
+        
+        Events.emit('meshtastic:telemetry_exported', { type: 'nodes_csv' });
+    }
+    
+    /**
+     * Export and download messages as CSV
+     * @param {string|null} channelId - Optional channel filter
+     */
+    function downloadMessagesCSV(channelId = null) {
+        const csv = exportMessagesCSV(channelId);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const channelSuffix = channelId ? `-${channelId}` : '';
+        downloadFile(csv, `griddown-messages${channelSuffix}-${timestamp}.csv`, 'text/csv');
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('💬 Messages exported to CSV', 'success');
+        }
+        
+        Events.emit('meshtastic:telemetry_exported', { type: 'messages_csv', channelId });
+    }
+    
+    /**
+     * Export and download full telemetry report as JSON
+     */
+    function downloadTelemetryReport() {
+        const report = exportFullTelemetryReport();
+        const json = JSON.stringify(report, null, 2);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        downloadFile(json, `griddown-telemetry-${timestamp}.json`, 'application/json');
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('📋 Full telemetry report exported', 'success');
+        }
+        
+        Events.emit('meshtastic:telemetry_exported', { type: 'full_report' });
+    }
+    
+    /**
+     * Export and download mesh health report as JSON
+     */
+    function downloadHealthReport() {
+        const report = exportMeshHealthReport();
+        const json = JSON.stringify(report, null, 2);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        downloadFile(json, `griddown-health-${timestamp}.json`, 'application/json');
+        
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('🏥 Mesh health report exported', 'success');
+        }
+        
+        Events.emit('meshtastic:telemetry_exported', { type: 'health_report' });
+    }
+    
+    /**
+     * Get export summary (for UI display)
+     */
+    function getExportSummary() {
+        const nodes = Array.from(state.nodes.values());
+        const messages = getMessages();
+        const traceroutes = getTracerouteHistory();
+        
+        return {
+            nodesCount: nodes.length,
+            nodesWithPosition: nodes.filter(n => n.lat !== undefined).length,
+            messagesCount: messages.length,
+            traceroutesCount: traceroutes.length,
+            hasData: nodes.length > 0 || messages.length > 0
+        };
     }
 
     // =========================================================================
@@ -5960,6 +6774,28 @@ const MeshtasticModule = (function() {
         // Sharing
         shareWaypoint,
         shareRoute,
+        sendLocation,
+        getNodesForRecipientSelection,
+        
+        // Traceroute
+        requestTraceroute,
+        getActiveTraceroute,
+        getTraceroute,
+        getTracerouteHistory,
+        clearTracerouteHistory,
+        getNodesForTraceroute,
+        formatTracerouteDisplay,
+        
+        // Telemetry Export
+        exportNodesCSV,
+        exportMessagesCSV,
+        exportMeshHealthReport,
+        exportFullTelemetryReport,
+        downloadNodesCSV,
+        downloadMessagesCSV,
+        downloadTelemetryReport,
+        downloadHealthReport,
+        getExportSummary,
         
         // Emergency
         sendSOS,

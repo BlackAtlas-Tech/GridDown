@@ -733,6 +733,7 @@ const MapModule = (function() {
         renderMeasurements(width, height);
         renderWaypoints(width, height);
         renderTeamMembers(width, height);
+        renderTAKOverlay(width, height);
         renderAPRSStations(width, height);
         renderRadiaCodeOverlay(width, height);
         renderRFSentinelOverlay(width, height);
@@ -1756,6 +1757,111 @@ const MapModule = (function() {
             }
         });
     }
+    
+    /**
+     * Render CoT positions and markers on the map
+     */
+    function renderTAKOverlay(width, height) {
+        if (typeof TAKModule === 'undefined') return;
+        
+        const status = TAKModule.getStatus();
+        if (!status.isConnected) return;
+        
+        const positions = TAKModule.getPositions();
+        const markers = TAKModule.getMarkers();
+        
+        // Render markers first (under positions)
+        markers.forEach(marker => {
+            if (!marker.lat || !marker.lon) return;
+            
+            const pixel = latLonToPixel(marker.lat, marker.lon);
+            
+            // Skip if offscreen
+            if (pixel.x < -50 || pixel.x > width + 50 || pixel.y < -50 || pixel.y > height + 50) return;
+            
+            const color = marker.color || '#f97316';
+            
+            // Draw marker dot
+            ctx.beginPath();
+            ctx.arc(pixel.x, pixel.y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Draw label at higher zoom
+            if (mapState.zoom >= 10) {
+                ctx.font = '10px system-ui, sans-serif';
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                ctx.lineWidth = 3;
+                ctx.textAlign = 'center';
+                ctx.strokeText(marker.name, pixel.x, pixel.y + 18);
+                ctx.fillText(marker.name, pixel.x, pixel.y + 18);
+            }
+        });
+        
+        // Render positions
+        positions.forEach(pos => {
+            if (!pos.lat || !pos.lon) return;
+            
+            const pixel = latLonToPixel(pos.lat, pos.lon);
+            
+            // Skip if offscreen
+            if (pixel.x < -50 || pixel.x > width + 50 || pixel.y < -50 || pixel.y > height + 50) return;
+            
+            const color = pos.color || '#06b6d4';
+            
+            // Draw direction indicator (if moving)
+            if (pos.speed > 0.5 && pos.course !== undefined) {
+                ctx.save();
+                ctx.translate(pixel.x, pixel.y);
+                ctx.rotate((pos.course * Math.PI) / 180);
+                
+                ctx.beginPath();
+                ctx.moveTo(0, -18);
+                ctx.lineTo(-6, -10);
+                ctx.lineTo(6, -10);
+                ctx.closePath();
+                ctx.fillStyle = color;
+                ctx.fill();
+                
+                ctx.restore();
+            }
+            
+            // Draw position dot with TAK styling
+            ctx.beginPath();
+            ctx.arc(pixel.x, pixel.y, 12, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            
+            // White border
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            // Inner 'T' indicator for TAK
+            ctx.font = 'bold 10px system-ui';
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('T', pixel.x, pixel.y);
+            
+            // Name label
+            if (mapState.zoom >= 10) {
+                const shortName = pos.name?.substring(0, 10) || 'TAK';
+                ctx.font = 'bold 10px system-ui, sans-serif';
+                ctx.fillStyle = '#fff';
+                ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                ctx.lineWidth = 3;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.strokeText(shortName, pixel.x, pixel.y + 14);
+                ctx.fillText(shortName, pixel.x, pixel.y + 14);
+            }
+        });
+    }
 
     /**
      * Render APRS stations on the map
@@ -2707,6 +2813,15 @@ const MapModule = (function() {
     }
     
     /**
+     * Check if Meshtastic is connected
+     */
+    function isMeshConnected() {
+        if (typeof MeshtasticModule === 'undefined') return false;
+        const state = MeshtasticModule.getState();
+        return state && state.connectionState === 'connected';
+    }
+    
+    /**
      * Render the context menu UI
      */
     function renderContextMenu() {
@@ -2748,6 +2863,11 @@ const MapModule = (function() {
                 <button class="map-context-menu__item" data-action="add-waypoint">
                     <span class="map-context-menu__icon">📍</span>
                     <span>Add Waypoint Here</span>
+                </button>
+                <button class="map-context-menu__item" data-action="send-to-mesh" ${isMeshConnected() ? '' : 'disabled'}>
+                    <span class="map-context-menu__icon">📡</span>
+                    <span>Send to Mesh</span>
+                    ${!isMeshConnected() ? '<span class="map-context-menu__hint">(not connected)</span>' : ''}
                 </button>
                 <button class="map-context-menu__item" data-action="measure-from">
                     <span class="map-context-menu__icon">📏</span>
@@ -2820,6 +2940,15 @@ const MapModule = (function() {
                     lat: lat, 
                     lon: lon 
                 });
+                break;
+            
+            case 'send-to-mesh':
+                // Open Send to Mesh modal
+                if (typeof MeshtasticModule !== 'undefined' && isMeshConnected()) {
+                    openSendToMeshModal(lat, lon);
+                } else {
+                    ModalsModule.showToast('Connect to Meshtastic first', 'warning');
+                }
                 break;
                 
             case 'measure-from':
@@ -2918,6 +3047,264 @@ const MapModule = (function() {
             console.error('Fallback copy failed:', err);
         }
         document.body.removeChild(textarea);
+    }
+    
+    // ==================== Send to Mesh Modal ====================
+    
+    /**
+     * Open modal to send a location to mesh network
+     */
+    function openSendToMeshModal(lat, lon) {
+        const modalContainer = document.getElementById('modal-container');
+        if (!modalContainer) {
+            console.error('Modal container not found');
+            return;
+        }
+        
+        // Format coordinates for display
+        const latDir = lat >= 0 ? 'N' : 'S';
+        const lonDir = lon >= 0 ? 'W' : 'E';
+        const coordsDisplay = `${Math.abs(lat).toFixed(5)}°${latDir}, ${Math.abs(lon).toFixed(5)}°${lonDir}`;
+        
+        // Get available recipients
+        const nodes = typeof MeshtasticModule !== 'undefined' 
+            ? MeshtasticModule.getNodesForRecipientSelection()
+            : [];
+        
+        // Build recipient options
+        const recipientOptions = nodes.map(node => {
+            const activeClass = node.isActive ? 'active' : 'inactive';
+            const signalBadge = node.signalQuality 
+                ? `<span class="signal-badge signal-${node.signalQuality}">${node.signalQuality}</span>` 
+                : '';
+            const timeAgo = formatTimeAgo(node.lastSeen);
+            return `
+                <button class="recipient-btn ${activeClass}" data-node-id="${node.id}" data-node-name="${node.name}">
+                    <span class="recipient-icon">👤</span>
+                    <span class="recipient-info">
+                        <span class="recipient-name">${node.name}</span>
+                        <span class="recipient-details">${timeAgo} ${signalBadge}</span>
+                    </span>
+                </button>
+            `;
+        }).join('');
+        
+        modalContainer.innerHTML = `
+            <div class="modal-overlay" id="send-to-mesh-modal">
+                <div class="modal" style="max-width:400px">
+                    <div class="modal__header">
+                        <h3 class="modal__title">📡 Send Location to Mesh</h3>
+                        <button class="modal__close" id="close-send-mesh-modal">&times;</button>
+                    </div>
+                    <div class="modal__content">
+                        <!-- Location Preview -->
+                        <div style="padding:12px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);border-radius:8px;margin-bottom:16px">
+                            <div style="display:flex;align-items:center;gap:10px">
+                                <span style="font-size:24px">📍</span>
+                                <div>
+                                    <div style="font-size:14px;font-weight:600">Dropped Pin</div>
+                                    <div style="font-size:12px;color:rgba(255,255,255,0.6);font-family:monospace">${coordsDisplay}</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Label Input -->
+                        <div style="margin-bottom:16px">
+                            <label style="font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:4px">LABEL (optional)</label>
+                            <input type="text" id="mesh-pin-label" placeholder="e.g., Meeting point, Rally point" 
+                                style="width:100%;padding:10px;font-size:13px" maxlength="50">
+                        </div>
+                        
+                        <!-- Recipient Selection -->
+                        <div style="margin-bottom:16px">
+                            <label style="font-size:11px;color:rgba(255,255,255,0.4);display:block;margin-bottom:8px">SEND TO</label>
+                            
+                            <!-- Broadcast Option -->
+                            <button class="recipient-btn broadcast selected" data-node-id="" id="broadcast-btn">
+                                <span class="recipient-icon">📢</span>
+                                <span class="recipient-info">
+                                    <span class="recipient-name">Broadcast to All</span>
+                                    <span class="recipient-details">Everyone on mesh will receive</span>
+                                </span>
+                            </button>
+                            
+                            ${nodes.length > 0 ? `
+                                <div style="font-size:10px;color:rgba(255,255,255,0.3);margin:12px 0 8px;text-transform:uppercase">Or send to specific node</div>
+                                <div style="max-height:150px;overflow-y:auto">
+                                    ${recipientOptions}
+                                </div>
+                            ` : `
+                                <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:8px;text-align:center;padding:12px">
+                                    No other nodes detected yet
+                                </div>
+                            `}
+                        </div>
+                        
+                        <!-- Send Button -->
+                        <button class="btn btn--primary btn--full" id="send-location-btn">
+                            📡 Send Location
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <style>
+                .recipient-btn {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    width: 100%;
+                    padding: 10px 12px;
+                    background: rgba(255,255,255,0.03);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 8px;
+                    margin-bottom: 6px;
+                    cursor: pointer;
+                    transition: all 0.15s;
+                    text-align: left;
+                }
+                .recipient-btn:hover {
+                    background: rgba(255,255,255,0.06);
+                    border-color: rgba(255,255,255,0.2);
+                }
+                .recipient-btn.selected {
+                    background: rgba(249,115,22,0.15);
+                    border-color: rgba(249,115,22,0.4);
+                }
+                .recipient-btn.broadcast {
+                    background: rgba(34,197,94,0.1);
+                    border-color: rgba(34,197,94,0.2);
+                }
+                .recipient-btn.broadcast.selected {
+                    background: rgba(34,197,94,0.2);
+                    border-color: rgba(34,197,94,0.4);
+                }
+                .recipient-btn.inactive {
+                    opacity: 0.6;
+                }
+                .recipient-icon {
+                    font-size: 20px;
+                }
+                .recipient-info {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                }
+                .recipient-name {
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: #fff;
+                }
+                .recipient-details {
+                    font-size: 10px;
+                    color: rgba(255,255,255,0.5);
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                }
+                .signal-badge {
+                    padding: 1px 4px;
+                    border-radius: 3px;
+                    font-size: 9px;
+                    text-transform: uppercase;
+                }
+                .signal-excellent { background: rgba(34,197,94,0.2); color: #22c55e; }
+                .signal-good { background: rgba(132,204,22,0.2); color: #84cc16; }
+                .signal-fair { background: rgba(245,158,11,0.2); color: #f59e0b; }
+                .signal-poor { background: rgba(239,68,68,0.2); color: #ef4444; }
+            </style>
+        `;
+        
+        // Store selected recipient
+        let selectedNodeId = null;
+        let selectedNodeName = 'all';
+        
+        // Event handlers
+        document.getElementById('close-send-mesh-modal').onclick = () => modalContainer.innerHTML = '';
+        document.getElementById('send-to-mesh-modal').onclick = (e) => {
+            if (e.target.id === 'send-to-mesh-modal') modalContainer.innerHTML = '';
+        };
+        
+        // Recipient selection
+        modalContainer.querySelectorAll('.recipient-btn').forEach(btn => {
+            btn.onclick = () => {
+                modalContainer.querySelectorAll('.recipient-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                selectedNodeId = btn.dataset.nodeId || null;
+                selectedNodeName = btn.dataset.nodeName || 'all';
+            };
+        });
+        
+        // Send button
+        document.getElementById('send-location-btn').onclick = async () => {
+            const label = document.getElementById('mesh-pin-label').value.trim() || null;
+            
+            // Show sending state
+            const sendBtn = document.getElementById('send-location-btn');
+            sendBtn.disabled = true;
+            sendBtn.innerHTML = '⏳ Sending...';
+            
+            try {
+                const result = await MeshtasticModule.sendLocation(lat, lon, label, selectedNodeId);
+                
+                if (result.success) {
+                    modalContainer.innerHTML = '';
+                    // Show pin on map briefly
+                    showTemporaryPin(lat, lon, label || 'Sent');
+                } else {
+                    sendBtn.disabled = false;
+                    sendBtn.innerHTML = '📡 Send Location';
+                    ModalsModule.showToast('Failed to send: ' + result.error, 'error');
+                }
+            } catch (e) {
+                sendBtn.disabled = false;
+                sendBtn.innerHTML = '📡 Send Location';
+                ModalsModule.showToast('Error: ' + e.message, 'error');
+            }
+        };
+        
+        // Focus label input
+        setTimeout(() => {
+            const labelInput = document.getElementById('mesh-pin-label');
+            if (labelInput) labelInput.focus();
+        }, 100);
+    }
+    
+    /**
+     * Format time ago for recipient list
+     */
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) return '';
+        const diff = Date.now() - timestamp;
+        if (diff < 60000) return 'now';
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+        return 'long ago';
+    }
+    
+    /**
+     * Show temporary pin marker on map after sending
+     */
+    function showTemporaryPin(lat, lon, label) {
+        // Add temporary marker
+        const tempMarker = {
+            id: `temp-sent-${Date.now()}`,
+            lat: lat,
+            lon: lon,
+            label: label,
+            type: 'sent-pin'
+        };
+        
+        // Store temporarily and render
+        if (!mapState.tempMarkers) mapState.tempMarkers = [];
+        mapState.tempMarkers.push(tempMarker);
+        render();
+        
+        // Remove after 3 seconds
+        setTimeout(() => {
+            mapState.tempMarkers = mapState.tempMarkers.filter(m => m.id !== tempMarker.id);
+            render();
+        }, 3000);
     }
     
     /**

@@ -104,6 +104,17 @@ const ElevationModule = (function() {
 
         return results;
     }
+    
+    /**
+     * Get elevation for a single point
+     * @param {number} lat - Latitude
+     * @param {number} lon - Longitude
+     * @returns {Promise<number|null>} Elevation in feet or null on error
+     */
+    async function getElevation(lat, lon) {
+        const results = await fetchElevations([{ lat, lon }]);
+        return results.length > 0 ? results[0] : null;
+    }
 
     /**
      * Interpolate points along a route for smoother elevation profile
@@ -638,7 +649,8 @@ const ElevationModule = (function() {
         renderGradeDistribution,
         getLogisticsImpact,
         clearCache,
-        fetchElevations
+        fetchElevations,
+        getElevation
     };
 })();
 
