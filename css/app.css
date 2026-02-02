@@ -3864,6 +3864,20 @@ body.stealth-mode .radio-freq-item__freq {
     margin: 6px 14px;
 }
 
+.map-context-menu__item:disabled,
+.map-context-menu__item[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.map-context-menu__hint {
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.4);
+    margin-left: auto;
+    font-style: italic;
+}
+
 /* Night mode adjustments */
 body.night-mode .map-context-menu {
     background: linear-gradient(180deg, rgba(30, 0, 0, 0.95), rgba(20, 0, 0, 0.98));
