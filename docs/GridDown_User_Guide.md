@@ -414,7 +414,7 @@ Quickly configure your mesh radio for different operational scenarios:
 | Search & Rescue | Long Fast | 5 | 60 sec | Wide-area SAR operations |
 | Field Exercise | Medium | 3 | 120 sec | Training, exercises |
 | Event Coverage | Short Fast | 2 | 300 sec | Events, gatherings |
-| Low Profile | Long Slow | 3 | 600 sec | Minimal RF signature |
+| Low Profile | Long Slow | 3 | 600 sec | Minimal RF footprint |
 | Emergency | Long Fast | 7 | 30 sec | Maximum range, rapid updates |
 | Custom | User-defined | User-defined | User-defined | Full manual configuration |
 
@@ -563,13 +563,13 @@ Connect to an RF Sentinel SDR receiver for multi-protocol RF detection and situa
 | Aircraft (ADS-B) | 1090 MHz | Commercial and general aviation aircraft |
 | Ships (AIS) | 162 MHz | Maritime vessels |
 | Drones (Remote ID) | 2.4 GHz | UAVs with FAA Remote ID |
-| FPV Drones | Various | FPV/racing drones detected by RF signature |
+| FPV Drones | Various | FPV/racing drones detected by passive RF monitoring |
 | Radiosondes | 400 MHz | Weather balloons |
 | APRS | 144.39 MHz | Amateur radio stations |
 
 #### 9.2.2 FPV Drone Detections
 
-The FPV Drone Detections panel displays drones detected by RF signature analysis through RF Sentinel Pro. For each detected drone, the panel shows protocol type, operating frequency and band, signal strength (dBm), active links (video, telemetry, control), and correlation with Remote ID when available. This capability is useful for airspace awareness, security monitoring, and counter-UAS applications.
+The FPV Drone Detections panel displays drones detected by passive RF analysis through RF Sentinel Pro. For each detected drone, the panel shows protocol type, operating frequency and band, signal strength (dBm), active links (video, telemetry, control), and correlation with Remote ID when available. This capability is useful for airspace awareness, security monitoring, and counter-UAS applications.
 
 #### 9.2.3 Connection Methods
 
