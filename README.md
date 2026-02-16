@@ -73,7 +73,6 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 | **Aircraft** | ADS-B 1090 MHz | ✈️ Blue | Commercial and GA aircraft |
 | **Ships** | AIS 162 MHz | 🚢 Cyan | Maritime vessels |
 | **Drones** | Remote ID 2.4 GHz | 🛸 Amber | UAVs with Remote ID |
-| **FPV Drones** | Various RF | 🎮 Red | FPV/analog drones via passive RF monitoring |
 | **Radiosondes** | 400 MHz | 🎈 Purple | Weather balloons |
 | **APRS** | 144.39 MHz | 📻 Green | Amateur radio stations |
 
@@ -94,11 +93,6 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 - **AIS Emergency Devices**: SART, MOB, EPIRB
 - Visual alerts with pulsing red indicators on map
 - Toast notifications for critical emergencies
-
-### FPV Drone Detection (NEW in v6.57)
-- Dedicated FPV Drone Detections panel with protocol/frequency/signal info
-- Displays both Remote ID and passively detected FPV drones
-- Signal strength, frequency band, and protocol identification
 
 ### Map Rendering
 - Track symbols with heading rotation
@@ -128,65 +122,10 @@ Connect to [RF Sentinel](https://github.com/yourrepo/rf-sentinel) for comprehens
 - Speed and heading display for moving stations
 
 ### Meshtastic Mesh Networking
-
-Connect to Meshtastic devices via **Web Bluetooth** or **Web Serial** for comprehensive off-grid mesh communication.
-
-#### Connection & Setup
-- **Device type selector** with capability detection for 20+ hardware models (T-Beam, Heltec, RAK WisMesh, T-Echo, etc.)
-- **Setup Wizard** guides first-time users through device connection and configuration
-- Automatic detection of Bluetooth-only vs Serial-capable devices
-- Connected device info card with firmware version and update status
-
-#### Scenario Presets
-One-tap configuration optimized for your situation:
-
-| Scenario | Modem | Hop Limit | Use Case |
-|----------|-------|-----------|----------|
-| Search & Rescue | Long Fast | 5 | Wide area coverage |
-| Community Network | Long Slow | 7 | Maximum range |
-| Backcountry Hiking | Medium | 3 | Small groups |
-| Emergency Comms | Long Fast | 7 | Crisis communication |
-| Event Coordination | Short Fast | 2 | Dense, close groups |
-
-#### Messaging
-- **Channel messaging** with multiple channel support (Primary, LongFast, custom encrypted)
-- **Encrypted Direct Messages** with end-to-end PKI encryption (ECDH + AES-256-GCM)
-- **Canned messages** with one-tap quick-send (8 configurable presets)
-- **Message delivery tracking**: Pending → Sent → Delivered → Read
-- **Offline message queue** — compose messages offline, auto-send when mesh connectivity returns
-- **Unread indicators** per channel and per DM contact
-
-#### Device Configuration
-- **Region selection** with 22 region codes matching Meshtastic protobuf
-- **Modem preset selection** (Long Fast, Long Slow, Medium, Short Fast, etc.)
-- **TX Power adjustment** (1–30 dBm)
-- **Hop limit configuration** (1–7 hops)
-- **Channel URL import/export** — share `meshtastic://` URLs or QR codes
-- **Firmware version checking** with update status
-
-#### Map Integration
-- **Drop Pin → Send to Mesh** — right-click (or long-press) anywhere on the map to instantly share a location
-- **Waypoint sharing** over mesh network
-- **Route sharing** with team members
-- Node positions displayed on map with live updates
-
-#### Mesh Network Tools
-- **Traceroute visualization** — trace the path messages take through the mesh to identify relay nodes
-- **Mesh health dashboard** with score (Excellent/Good/Fair/Poor) and node signal distribution
-- **Signal quality display** — SNR/RSSI per node with color-coded indicators
-- **Telemetry export** — CSV node lists, message history, JSON health reports, full telemetry dumps
-
-#### Security & Privacy
-- **End-to-end encrypted DMs** using Web Crypto API (ECDH P-256 + AES-256-GCM)
-- **Key verification** with human-readable fingerprints for out-of-band comparison
-- **Read receipts** (optional, user-controlled)
-- **Message retry** with exponential backoff for failed sends
-- Private keys never leave the device
-
-#### Team Onboarding
-- **QR code generation** for instant team join
-- **Channel URL sharing** for team setup
-- **Setup Wizard** walks new users through connection → scenario → channel configuration
+- Connect to Meshtastic devices via **Web Bluetooth/Serial**
+- Off-grid text messaging
+- Position sharing across mesh network
+- Node discovery and management
 
 ### Team Management
 - Team roster with roles (Leader, Co-Leader, Navigator, Medic, etc.)
@@ -234,128 +173,139 @@ One-tap configuration optimized for your situation:
 
 Transmit and receive images over amateur radio using industry-standard SSTV modes. Full-featured codec with real-time DSP processing and AI enhancement.
 
-### Supported Modes (12)
-| Mode | Resolution | Time | Quality |
-|------|-----------|------|---------|
-| Robot 36 | 320×240 | 36s | Basic |
-| Robot 72 | 320×240 | 72s | Good |
-| Scottie 1 | 320×256 | 110s | High |
-| Scottie 2 | 320×256 | 71s | Good |
-| Scottie DX | 320×256 | 269s | Highest |
-| Martin 1 | 320×256 | 114s | High |
-| Martin 2 | 320×256 | 58s | Good |
-| PD 90 | 320×256 | 90s | High |
-| PD 120 | 640×496 | 126s | High-Res |
-| PD 160 | 512×400 | 160s | High-Res |
-| PD 180 | 640×496 | 180s | Highest |
-| PD 240 | 640×496 | 248s | Highest |
+### Supported Modes (12 Total)
+
+| Mode | Resolution | Time | Color Mode | VIS Code |
+|------|------------|------|------------|----------|
+| Robot 36 | 320×240 | 36s | YCrCb | 0x08 |
+| Robot 72 | 320×240 | 72s | YCrCb | 0x0C |
+| Martin M1 | 320×256 | 114s | GBR | 0x2C |
+| Martin M2 | 160×256 | 58s | GBR | 0x28 |
+| Scottie S1 | 320×256 | 110s | GBR | 0x3C |
+| Scottie S2 | 160×256 | 71s | GBR | 0x38 |
+| PD-90 | 320×256 | 90s | YCrCb | 0x63 |
+| PD-120 | 640×496 | 126s | YCrCb | 0x5F |
+| PD-180 | 640×496 | 180s | YCrCb | 0x60 |
+| PD-240 | 640×496 | 240s | YCrCb | 0x62 |
+| PD-290 | 800×616 | 290s | YCrCb | 0x64 |
+| Wraase SC2-180 | 320×256 | 180s | RGB | 0x55 |
+
+### Receive Features
+- **Auto VIS code detection** - Automatically identifies transmission mode
+- **Real-time decode progress** with live preview
+- **Signal strength meter** for tuning assistance
+- **Image history** with timestamps, mode info, and PNG export
+- **Annotate & Retransmit** - Open received images in editor for markup
+
+### Transmit Features
+- **Camera capture** - Take photo and transmit
+- **Gallery import** - Send existing images
+- **Map view capture** - Transmit your current tactical view
+- **Automatic callsign overlay** for legal compliance
+- **Grid square auto-calculation** from GPS position
+- **Mode-specific scaling** - Images auto-resized to mode dimensions
+
+### DSP Processing (NEW in v6.19.4)
+- **Waterfall Display** - Real-time FFT spectrogram with 4 colormaps (Viridis, Plasma, Thermal, Grayscale)
+- **Frequency markers** - Visual indicators for SYNC, BLACK, VIS, WHITE frequencies
+- **Auto-Slant Correction** - Fixes image skew from sample rate mismatches
+- **Frequency Drift Compensation** - Tracks and corrects transmitter frequency drift (±50 Hz)
+- **Signal Quality Analysis** - Guidance for optimal signal levels
+
+### Image Annotation (NEW in v6.19.7)
+- **Drawing Tools** - Pen, Arrow, Circle, Rectangle, Text, Eraser
+- **Customization** - Color picker and line width (Thin/Medium/Thick/Bold)
+- **Undo/Clear** - 20-level undo history
+- **Auto-Flatten** - Annotations automatically merged before transmission
+- **Touch Support** - Full mobile/tablet drawing support
+
+### Expandable Views (NEW in v6.19.6)
+- **Full-screen waterfall** - 800×300 expanded display with live updates
+- **Full-screen image preview** - Large format during active decode
+- **Keyboard shortcut** - Press Escape to close
+
+### AI Enhancement (NEW in v6.19.2)
+- **2× and 4× AI upscaling** using Real-CUGAN/Real-ESRGAN models
+- **Denoising** for radio interference removal
+- **OCR text extraction** - Automatically detect callsigns, grid squares, coordinates
+- **Lightweight architecture** - Models downloaded separately (~2-17MB each)
+- **WebGPU acceleration** when available (WASM fallback)
+
+### Hardware Requirements
+- Any amateur radio with audio output (receive)
+- Audio interface for transmit (Digirig, SignaLink, direct cable)
+- See [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) for detailed setup
+
+### Legal Requirements
+- Valid amateur radio license required for transmitting
+- Callsign verification before TX enabled
+- 10-minute identification reminder
+- Automatic callsign overlay option
+
+---
+
+## 🆘 SARSAT Beacon Receiver (NEW in v6.19.9)
+
+Monitor COSPAS-SARSAT 406 MHz emergency beacons with an external Raspberry Pi-based SDR receiver.
+
+### Beacon Types Supported
+| Type | Full Name | Use Case | Icon |
+|------|-----------|----------|------|
+| **PLB** | Personal Locator Beacon | Hikers, adventurers, individuals | 🚶 |
+| **ELT** | Emergency Locator Transmitter | Aviation emergencies | ✈️ |
+| **EPIRB** | Emergency Position-Indicating Radio Beacon | Maritime vessels | ⚓ |
+| **SSAS** | Ship Security Alert System | Maritime security | 🚨 |
 
 ### Features
-- **Decode**: Live audio decode with progress display and waterfall visualization
-- **Encode**: Camera capture, gallery selection, or map screenshot
-- **DSP**: Goertzel frequency detection, slant correction, drift compensation
-- **AI Enhancement**: On-device image enhancement (WebGPU/WASM)
-- **Legal Compliance**: Mandatory callsign for TX, license acknowledgment workflow
-- **Image History**: Store and manage received images in IndexedDB
+- **Real-time beacon tracking** with map display
+- **Emergency alerts** with pulsing visual indicators and audio alerts
+- **Country identification** from 200+ MID codes
+- **GPS position extraction** from long-format messages
+- **Test beacon filtering** - distinguish training from real emergencies
+- **Auto-waypoint creation** for beacons with coordinates
+- **Position history** tracking with track tails
+
+### Connection Methods
+- **WebSocket** - Connect to Raspberry Pi receiver over network
+- **Web Serial** - Direct USB connection to receiver hardware
+
+### Hardware Requirements
+- Raspberry Pi 4 or 5
+- RTL-SDR Blog V4 (or compatible SDR)
+- 406 MHz antenna (quarter-wave whip, ~18.5 cm)
+- Optional: 406 MHz bandpass filter and LNA
+
+### Protocol Details
+| Parameter | Value |
+|-----------|-------|
+| Frequency | 406.025 - 406.040 MHz |
+| Modulation | BPSK @ 400 bps |
+| Message Length | 112 bits (short) / 144 bits (long) |
+| Error Correction | BCH codes |
+
+### Important Notice
+This is a **supplementary monitoring tool** for situational awareness. Always contact official search and rescue services in emergencies. Receiving 406 MHz signals is legal; transmitting is strictly prohibited except by certified beacons.
 
 ---
 
-## 🎯 CoT Bridge (Cursor on Target) (NEW in v6.57)
+## 🥾 Field Guides (NEW in v6.13)
 
-Bidirectional integration with CoT-compatible tactical applications (ATAK, WinTAK, iTAK) through the GridDown CoT Bridge.
+Comprehensive offline reference library with **600+ entries** covering:
+
+### Categories
+- **Foraging**: 150+ edible plants, mushrooms, and wild foods
+- **Medicinal Plants**: 100+ species with preparation methods
+- **Wildlife**: Mammals, birds, reptiles, and insects
+- **Hazards**: Dangerous plants, animals, and environmental risks
+- **Survival Skills**: Fire, shelter, water, navigation techniques
+- **Knots & Lashing**: 50+ knot tutorials with use cases
 
 ### Features
-- **WebSocket connection** to CoT Bridge for real-time data exchange
-- **Receive CoT positions** (PLI) displayed as team members on the map
-- **Receive markers** displayed as waypoints
-- **Receive GeoChat messages** in the team panel
-- **Bidirectional position sharing** — send your GPS position to the CoT network (requires explicit user consent)
-- **Auto-reconnect** with progressive backoff on disconnect
-- **TAK team colors** (Cyan, Green, Yellow, Red, Blue, etc.)
-- **Setup Wizard** for guided bridge configuration
-
-### Privacy
-- Position sharing requires explicit opt-in with privacy warning
-- Callsign and team color configurable
-- Sharing interval adjustable (default 30 seconds)
-- All communication flows through your own CoT Bridge — no third-party servers
-
----
-
-## 🔭 Celestial Navigation (NEW in v6.27-6.38)
-
-Complete 8-phase celestial navigation system for GPS-denied positioning using stars, sun, moon, and planets. All algorithms run offline with no external dependencies.
-
-### Celestial Almanac
-- **58 navigation stars** with SHA, Declination, magnitude
-- **Sun/Moon/Planet positions** (Venus, Mars, Jupiter, Saturn) with GHA/Dec
-- GHA Aries calculation
-- Daily almanac generation
-
-### Observation & Sight Reduction
-- Altitude corrections (refraction, dip, semi-diameter, parallax)
-- Device sensor integration for crude altitude measurement
-- Sight reduction to Line of Position (LOP)
-- Emergency position fix from 2+ observations
-
-### Star Chart & Tools
-- Interactive star chart for current time/location
-- **AR Star Identification** — point camera at sky to identify stars and planets
-- **Camera Sextant** — measure celestial body altitude with phone sensors (±1-2° accuracy)
-- Sun compass, Polaris finder, moon navigation
-
-### Training Mode
-- Shadow stick method with step-by-step timer
-- Solar noon calculator
-- Watch method navigation
-- Hand measurement reference
-- Horizon distance calculator
-
----
-
-## 🧭 GPS-Denied Navigation
-
-### Pedestrian Dead Reckoning (PDR) (NEW in v6.35)
-- Navigate without GPS using device motion sensors
-- Step detection and stride length calibration
-- Heading from device compass with drift correction
-- Works in tunnels, buildings, and during GPS jamming
-
-### Rangefinder Resection (NEW in v6.36)
-- Calculate position from 2-3 known landmarks
-- Measure distances with any rangefinder device
-- **Landmark database** with 3,100+ public domain locations (peaks, towers, dams)
-- Searchable landmark packs from USGS/GNIS databases
-
----
-
-## 🚨 SARSAT Beacon Receiver (NEW in v6.19.9)
-
-Integration for COSPAS-SARSAT 406 MHz beacon detection using external Raspberry Pi-based SDR receiver.
-
-- Support for **PLB** (Personal Locator Beacon), **ELT** (Aviation), **EPIRB** (Maritime), and **SSAS** (Ship Security)
-- WebSocket and Web Serial connection to SDR receiver
-- Real-time beacon tracking with map display and pulsing emergency indicators
-- Country code decoding for 200+ countries
-- Auto-waypoint creation for received beacons with GPS position
-- Alert sounds for emergency beacons
-
----
-
-## 🌿 Offline Field Guides
-
-### Survival Skills Reference
-- Fire starting, water purification, shelter construction
-- Navigation without instruments, STOP protocol
-- Ground-to-air signals, signal mirror, signal fire
-
-### Knots Reference
-- Essential knots with ASCII art diagrams
-- Hitches and lashings for camp construction
-
-### Edible Plants Database
-- Common edibles with seasonal availability
-- Universal edibility test procedure
+- Full-text search across all guides
+- Favorites system for quick access
+- Offline-first with IndexedDB storage
+- Regional filtering (North America, Europe, etc.)
+- Seasonal availability indicators
 - Nutritional and toxicity information
 
 ---
@@ -393,20 +343,6 @@ Integration for COSPAS-SARSAT 406 MHz beacon detection using external Raspberry 
 - Automatic logistics adjustment for temperature
 - **Off-grid weather via RF Sentinel FIS-B** (NEW)
 
-### Air Quality Index (AQI) (NEW in v6.23-6.24)
-
-Real-time air quality monitoring powered by EPA AirNow API.
-
-- **AQI display** with EPA-standard color coding and health guidance (Good through Hazardous)
-- **Primary pollutant** identification (PM2.5, O3, PM10, etc.)
-- **AQI map overlay** — station markers across the map with color-coded badges, dynamic loading as you pan
-- **AQI at waypoints/routes** — see air quality alongside weather for any waypoint or route point
-- **Automated monitoring & alerts** — configurable background checks at your location and saved waypoints
-- **Threshold configuration** — Caution (101+), Warning (151+), Critical (201+), Emergency (301+)
-- **Sensitive Groups mode** — lowers alert thresholds by 50 points for vulnerable individuals
-- **Forecast alerts** — next-day AQI forecast warnings from AirNow API
-- Coverage: United States, Canada, Mexico (graceful fallback for international users)
-
 ### Sun/Moon Calculator
 - Rise and set times for current location
 - Moon phase display with illumination percentage
@@ -420,21 +356,11 @@ Real-time air quality monitoring powered by EPA AirNow API.
 - True vs magnetic bearing conversion
 - Annual change rate display
 
-### Barometric Altimeter (NEW in v6.13-6.14)
-
-High-precision altitude measurement and weather prediction using device pressure sensors.
-
-- **Barometric altitude** with ±1-3m accuracy (vs GPS ±10-50m)
-- Display in feet and meters; works indoors and in canyons where GPS struggles
-- Calibrate to known elevation, GPS, or manual entry
-- **Pressure trend monitoring** with 6-hour history graph
-- **Barometric weather prediction** with 5 trend classifications:
-  - Steady (±0.5 hPa/3hr) — No significant change expected
-  - Slow Rise — Generally improving conditions
-  - Rapid Rise (>2 hPa/3hr) — Brief clearing, possible instability
-  - Slow Fall — Deteriorating conditions approaching
-  - Rapid Fall (>2 hPa/3hr) — Storm likely within 6-12 hours
-- Low power consumption compared to continuous GPS
+### Barometric Altimeter (NEW in v6.14)
+- Uses device pressure sensor when available
+- Calibrate to known elevation or GPS
+- Pressure trend monitoring
+- Altitude history graph
 
 ### Terrain Analysis
 - **Slope analysis** with trafficability assessment
@@ -479,29 +405,83 @@ High-precision altitude measurement and weather prediction using device pressure
 
 ### Browser Compatibility Detection
 - Feature-specific warnings (Web Bluetooth, Web Serial, etc.)
-- Browser and OS identification
-- Compatibility level rating (Full/Partial/Limited)
+- Recommends optimal browser for full functionality
+- Graceful degradation for unsupported features
 
 ---
 
-## ⚙️ Settings & Tools
+## 🆘 SOS & Emergency
+
+- Emergency contact management with quick-dial
+- Quick-access emergency information card
+- **Signal mirror** sun angle calculator
+- International distress signal reference
+- Emergency frequencies quick reference
+
+---
+
+## 📄 Print & Export
+
+### Document Types
+- **Full operational plan** - Complete mission package
+- **Route cards** - Turn-by-turn directions for each leg
+- **Waypoint lists** - Grouped by type with coordinates
+- **Communication plan** - Frequencies, call signs, schedule
+- **Quick reference card** - Pocket-sized essential info
+
+### Data Formats
+- **GPX** import/export (GPS Exchange Format)
+- **KML/KMZ** support for Google Earth
+- **GeoJSON** for radiation tracks
+- **Encrypted .gdplan** format with AES-256-GCM
+
+### Plan Sharing
+- Export entire plans with optional passphrase protection
+- Package includes waypoints, routes, and logistics config
+- Secure sharing between team members
+
+---
+
+## ⚙️ Additional Features
+
+### Night Mode
+- **Standard dark theme** for normal use
+- **Red light mode** preserves night vision
+- **Blackout mode** minimal screen glow
+
+### Accessibility (WCAG 2.1)
+- Comprehensive ARIA attributes (417 attributes)
+- Skip-to-content navigation
+- Keyboard navigation support
+- Reduced motion option
+- Screen reader compatible
 
 ### 🔍 Global Search System (NEW in v6.40-6.44)
 
 Unified search across all app features with **Ctrl+K** (desktop) or FAB button (mobile).
 
-- **Fuzzy matching** across waypoints, routes, celestial bodies, landmarks, actions, help topics, and settings
-- **Category filtering** with Tab/Shift+Tab cycling
-- **Contextual suggestions** based on time of day, location, and recent activity
-- **Favorites system** — pin frequently used items for instant access (Ctrl+D)
-- **Recent searches** with history management
-- **20 help topics** and **15 settings** searchable from the command palette
+**8 Search Categories**:
+| Category | Icon | Examples |
+|----------|------|----------|
+| Actions | ⚡ | Add waypoint, Start navigation, Toggle night mode |
+| Celestial | ⭐ | Stars (Polaris, Sirius), Planets (Mars, Venus), Sun/Moon |
+| Landmarks | 🏔️ | 3,100+ peaks, summits, and geographic features |
+| Waypoints | 📍 | Your saved waypoints |
+| Routes | 🛣️ | Your saved routes |
+| Team | 👥 | Team members and rally points |
+| Help | ❓ | 20 searchable help topics |
+| Settings | ⚙️ | 15 quick-toggle settings |
+
+**Features**:
+- Fuzzy matching with typo tolerance
+- Category filtering with Tab/Shift+Tab
+- Favorites system (Ctrl+D to favorite, max 20)
+- Recent searches history
+- Keyboard navigation (↑/↓/Enter/Esc)
 
 ### ❓ Situation Wizard (NEW in v6.46)
 
-Stress-friendly decision tree that guides users to the right feature without remembering names.
-
-Designed for stress scenarios where users can't remember feature names.
+Decision tree that guides users to relevant features based on their situation. Designed for stress scenarios where users can't remember feature names.
 
 **Access**: Press **F1** or **Ctrl+/** anywhere, or tap "Help Me" in mobile FAB menu.
 
@@ -548,25 +528,6 @@ Mobile-specific features that gracefully degrade on desktop:
 - **Undo/Redo** support for all operations (Ctrl+Z/Ctrl+Shift+Z)
 - Location search with geocoding
 - Coordinate conversion between all formats
-- **Night vision modes** (red light and blackout)
-- **Accessibility** — comprehensive ARIA attributes, skip navigation, reduced motion, screen reader support
-
----
-
-## 🖨️ Export & Printing
-
-### Print Documents
-- Full operational plan with cover page
-- Route cards with turn-by-turn directions
-- Waypoint lists grouped by type
-- Communication plan reference
-- Quick reference card
-
-### Data Export
-- **GPX/KML** import and export
-- Radiation track **GeoJSON** export
-- Mesh telemetry **CSV and JSON** export
-- **Encrypted plan sharing** (.gdplan format) with AES-256-GCM encryption
 
 ---
 
@@ -651,34 +612,32 @@ GridDown/
         ├── commplan.js     # Communication planning
         ├── aprs.js         # APRS integration
         ├── meshtastic.js   # Mesh networking
-        ├── meshtastic-client.js # Real device communication
         ├── radiacode.js    # Gamma spectrometer
         ├── rfsentinel.js   # RF Sentinel integration
         ├── sstv.js         # SSTV encode/decode
         ├── sstv-ai.js      # SSTV AI enhancement
         ├── sstv-dsp.js     # SSTV DSP (waterfall, slant, drift)
         ├── sarsat.js       # SARSAT PLB/ELT/EPIRB beacon receiver
-        ├── tak.js          # CoT Bridge integration
         ├── team.js         # Team management
         ├── medical.js      # Medical reference
         ├── fieldguides.js  # Offline field guides
         ├── streamgauge.js  # USGS water data
         ├── barometer.js    # Barometric altimeter
-        ├── airquality.js   # EPA AirNow integration
         ├── rflos.js        # RF line-of-sight
-        ├── celestial.js    # Celestial navigation (8-phase)
+        ├── celestial.js    # Celestial navigation (8-phase) (NEW)
         ├── star-id.js      # Star identification
         ├── camera-sextant.js # Camera-based sextant
         ├── sos.js          # Emergency features
         ├── measure.js      # Distance/area tool
-        ├── search.js       # Global search system
-        ├── landmark.js     # Landmark database
-        ├── wizard.js       # Situation wizard
-        ├── mobile.js       # Mobile enhancements
+        ├── search.js       # Global search system (NEW)
+        ├── landmark.js     # Landmark database (NEW)
+        ├── wizard.js       # Situation wizard (NEW)
+        ├── mobile.js       # Mobile enhancements (NEW)
         ├── print.js        # Print/PDF export
         ├── plansharing.js  # Encrypted sharing
         ├── nightmode.js    # Night vision modes
         ├── alerts.js       # Alert system
+        ├── airquality.js   # EPA AirNow integration
         ├── satweather.js   # Satellite weather imagery
         ├── onboarding.js   # First-run tour
         ├── undo.js         # Undo/redo
@@ -700,20 +659,49 @@ GridDown/
 | Opera | 67+ | ✅ Full support including Web Bluetooth |
 | Firefox | 75+ | ⚠️ No Web Bluetooth (APRS/Meshtastic/RadiaCode unavailable) |
 | Safari | 13.1+ | ⚠️ No Web Bluetooth |
-| Chrome Android | 80+ | ✅ Full support + barometer sensor |
+| Chrome Android | 80+ | ✅ Full support |
 | Safari iOS | 13+ | ⚠️ Limited - no Web Bluetooth |
 
 **Note**: Web Bluetooth features (APRS, Meshtastic, RadiaCode, RF Sentinel via BLE) require Chrome, Edge, or Opera.
 
 ---
 
-## 🔢 Stats
+## 🔧 Troubleshooting
 
-- **45+ JavaScript modules**
-- **~80,000+ lines of code**
-- Fully offline-capable PWA
-- Zero external dependencies at runtime
-- No accounts, no telemetry, no cloud
+### GPS / Location Issues
+
+**Safari/iOS Console Message**: `CoreLocationProvider: kCLErrorLocationUnknown`
+
+This is **NOT a GridDown bug** - it's an iOS/macOS system message that appears when:
+- Location services are disabled in device settings
+- Device is indoors with poor GPS signal  
+- Device is in airplane mode
+- GPS hardware hasn't acquired satellites yet
+
+**Solutions**:
+1. Enable Location Services: Settings → Privacy → Location Services
+2. Grant location permission to your browser
+3. Move outdoors or near a window for better GPS signal
+4. Wait 30-60 seconds for GPS to acquire satellites
+5. Use "Set Manual Position" if GPS is unavailable
+
+**Firefox/Android**: If location fails, check that location permission is granted in browser settings.
+
+### Offline Maps Not Loading
+
+If cached tiles don't appear offline:
+1. Ensure tiles were downloaded while online
+2. Check storage quota (Settings → Storage)
+3. Clear browser cache and re-download tiles
+4. Try a different map layer
+
+### Web Bluetooth Connection Failed
+
+For APRS, Meshtastic, or RadiaCode:
+1. Ensure Bluetooth is enabled on your device
+2. Use Chrome, Edge, or Opera (Firefox/Safari don't support Web Bluetooth)
+3. Device must be in pairing mode
+4. Stay within Bluetooth range (~10m)
 
 ---
 
@@ -731,32 +719,6 @@ GridDown/
 | `N` | Reset map to north |
 | `Tab` | Next search category |
 | `Shift+Tab` | Previous search category |
-
----
-
-## 🐛 Troubleshooting
-
-### GPS Not Working
-1. Enable Location Services in device settings
-2. Grant location permission when prompted
-3. Move outdoors for better satellite reception
-4. Check that browser has location access
-
-### Offline Maps Not Loading
-
-If cached tiles don't appear offline:
-1. Ensure tiles were downloaded while online
-2. Check storage quota (Settings → Storage)
-3. Clear browser cache and re-download tiles
-4. Try a different map layer
-
-### Web Bluetooth Connection Failed
-
-For APRS, Meshtastic, or RadiaCode:
-1. Ensure Bluetooth is enabled on your device
-2. Use Chrome, Edge, or Opera (Firefox/Safari don't support Web Bluetooth)
-3. Device must be in pairing mode
-4. Stay within Bluetooth range (~10m)
 
 ---
 
@@ -858,19 +820,21 @@ GridDown collects no personal data and operates offline-first. See [PRIVACY.md](
 
 ## ⚠️ Disclaimer
 
-GridDown is a supplementary tool, not a substitute for professional emergency services or proper training. See [DISCLAIMER.md](DISCLAIMER.md) for safety and liability information.
+GridDown is a supplementary tool, not a substitute for professional emergency services or proper training. See [DISCLAIMER.md](DISCLAIMER.md) for complete safety and liability information.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- OpenStreetMap contributors for map data
-- USGS for topographic data and stream gauge API
-- Open-Meteo for weather API
-- NASA GIBS for satellite imagery
-- EPA AirNow for air quality data
-- Iowa Environmental Mesonet for NEXRAD radar
-- Bob Bruninga, WB4APR (SK), creator of APRS®. APRS is a registered trademark. Special thanks to [TAPR](https://tapr.org/) (Tucson Amateur Packet Radio) for their contributions to amateur radio.
+- Built with **vanilla JavaScript** for maximum portability and offline reliability
+- Map tiles from OpenStreetMap, USGS, USFS, Esri, and OpenTopoMap
+- Satellite imagery from [NASA GIBS](https://earthdata.nasa.gov/gibs) (Global Imagery Browse Services)
+- Weather radar from NOAA/NWS via [Iowa Environmental Mesonet](https://mesonet.agron.iastate.edu/)
+- Air quality data from [EPA AirNow](https://www.airnow.gov/) (US, Canada, Mexico)
+- Weather and elevation data from [Open-Meteo](https://open-meteo.com/)
+- Stream gauge data from [USGS National Water Information System](https://waterservices.usgs.gov/)
+- Geocoding from [OpenStreetMap Nominatim](https://nominatim.org/)
+- **APRS®** (Automatic Packet Reporting System) - Copyright © [Bob Bruninga, WB4APR](http://www.aprs.org/) (SK). APRS is a registered trademark. Special thanks to [TAPR](https://tapr.org/) (Tucson Amateur Packet Radio) for their contributions to amateur radio.
 - RadiaCode BLE protocol from [cdump/radiacode](https://github.com/cdump/radiacode) and [mkgeiger/RadiaCode](https://github.com/mkgeiger/RadiaCode) (MIT)
 - Icons inspired by Lucide/Feather icon sets
 - MQTT.js for browser-based MQTT over WebSocket
@@ -883,37 +847,29 @@ See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for complete data source licensing inform
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.57.3** (February 2025)
+**Current Version: 6.57.42** (February 2025)
 
 ### Recent Highlights
-- **v6.57.3** - FPV Drone Detections panel - View passively detected FPV drones with protocol/frequency/signal info
-- **v6.57.2** - RF Sentinel FPV drone support - Receive both Remote ID and FPV/RF drones
-- **v6.57.1** - CoT Bridge Setup Wizard - Guided setup for bridge connection
-- **v6.57.0** - CoT Bridge - Bidirectional Cursor on Target integration with ATAK/WinTAK
-- **v6.56.0** - Meshtastic waypoint/route sharing over mesh
-- **v6.55.0** - Meshtastic telemetry export (CSV, JSON health reports)
-- **v6.54.0** - Meshtastic traceroute visualization
-- **v6.53.0** - Drop Pin → Send to Mesh
-- **v6.52.0** - Encrypted direct messages with PKI
-- **v6.51.0** - Meshtastic Quick Setup & Field UX
-- **v6.50.0** - Offline message queue (store-and-forward)
-- **v6.49.0** - Meshtastic setup wizard, scenario presets, canned messages
-- **v6.48.0** - Meshtastic device type selector with capability detection
-- **v6.46.0** - Situation Wizard - Decision tree for stress-friendly feature discovery
-- **v6.45.0** - Mobile Enhancements - FAB, battery/connection status, PWA install prompt
-- **v6.44.0** - Search Favorites and Help/Settings search integration
-- **v6.43.0** - Landmark pack search with 3,100+ public domain locations
-- **v6.40.0** - Global Search System with fuzzy matching (Ctrl+K)
-- **v6.24.0** - AQI monitoring & automated alerts with forecast
-- **v6.23.0** - Air Quality Index (AQI) integration via EPA AirNow
-- **v6.22.9** - NASA GIBS satellite imagery integration
-- **v6.19.9** - SARSAT 406 MHz beacon receiver integration
-- **v6.19.0** - SSTV encode/decode with 12 modes
-- **v6.18.0** - RF Sentinel multi-protocol RF detection
+- **v6.57.32** - Fixed longitude direction in location shares, channel device sync, LoRa payload overflow (message compaction)
+- **v6.57.31** - Fixed GATT errors: GPS-aware position broadcast, failure backoff, aria-hidden fix
+- **v6.57.30** - Mesh nodes now appear on map immediately on connect (NodeInfo position extraction fix)
+- **v6.57.29** - Config modal audit: visual QR codes, wizard race condition fix, fallback reboot path
+- **v6.57.28** - Meshtastic config persistence fix (begin/commit transaction protocol for NVS flash writes)
+- **v6.57.27** - Meshtastic radio config programming fixed (protobuf contamination, missing reboot, batch writes)
+- **v6.57.26** - Team module audit: scannable QR codes, AES-256-GCM encryption, mesh sync fixes, RadiaCode heatmap activation
+- **v6.57.25** - RF Sentinel REST data shape normalization for track metadata
+- **v6.57.24** - RF Sentinel Direct Ethernet Link compatibility (protocol auto-detection, port alignment)
+- **v6.57.23** - RF Sentinel connection reliability (retry logic, WebSocket race condition fixes)
+- **v6.57.22** - RF Sentinel silhouette map icons (aircraft, ships, drones, radiosondes, APRS)
+- **v6.57.21** - Search navigation routing fixes, APRS icon rendering
+- **v6.57.20** - RadiaCode cumulative dose persistence, radiation heatmap, CSV/GPX/GeoJSON export
+- **v6.57.19** - Spectrum viewer rewrite with peak detection and isotope annotations
+- **v6.57.3** - FPV Drone Detections panel
+- **v6.57.2** - RF Sentinel FPV drone support
+- **v6.57.1** - CoT Bridge Setup Wizard
 
 ### Documentation
-- [User Guide (DOCX)](docs/GridDown_User_Guide.docx) - Comprehensive user manual
-- [User Guide (Markdown)](docs/GridDown_User_Guide.md) - Markdown version
+- [User Guide](docs/GridDown_User_Guide.docx) - Comprehensive user manual
 - [Hardware Compatibility Guide](docs/HARDWARE_GUIDE.md) - Radios, cables, and accessories
 - [Architecture Overview](docs/ARCHITECTURE.md) - Technical documentation
 - [Privacy Policy](PRIVACY.md) - Data handling practices

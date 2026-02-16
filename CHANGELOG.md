@@ -2,6 +2,998 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.51] - 2025-02-15
+
+### Fixed
+- **RF Sentinel panel track counts not updating in real-time** — Track counts ("Aircraft: 0, Ships: 0, Drones: 0") in the RF Sentinel panel were stale while tracks rendered fine on the map. Root cause: `rfsentinel:track:new`, `rfsentinel:track:update`, and `rfsentinel:track:batch` events only triggered `MapModule.render()` (or had no handler at all), but never called `PanelsModule.render()`. Counts only refreshed on connection events or when navigating away and back.
+  - Added throttled `PanelsModule.render()` on all four track events (new/update/batch/lost) with 2-second trailing-edge throttle. Fast enough to feel live, light enough to avoid DOM thrashing from 500ms batch arrivals on constrained hardware (Pi, tablets).
+  - Panel render gated by `State.get('activePanel') === 'rfsentinel'` — no wasted renders when viewing other panels.
+
+### Technical
+- Modified: `js/app.js` — added `rfPanelRenderTimer` throttle variable, `throttledRFPanelRender` function, 4 new `Events.on()` listeners for `rfsentinel:track:new`, `rfsentinel:track:update`, `rfsentinel:track:batch`, `rfsentinel:track:lost`
+
+## [6.57.50] - 2025-02-15
+
+### Added
+- **Phase 5: Waypoint Weather Monitoring & Threshold Configuration UI** — Completes the audible weather alerts system with waypoint coverage and user-configurable alert thresholds.
+
+  **Waypoint Monitoring**
+  - `checkWeatherAtWaypoints()` — iterates all saved waypoints, fetches weather from Open-Meteo for each, routes through `processWeatherAlerts()` with waypoint name for location context in alert messages. Includes NWS fallback per waypoint when RF Sentinel is disconnected.
+  - Separate polling timer from current-position monitoring (default: 60 min vs 30 min) to reduce API load — waypoints change less frequently than user position.
+  - 1-second throttle between waypoint requests to avoid rate limiting.
+  - Wired into `startWeatherMonitoring()` with 5-second initial delay to avoid overlapping with position check, then periodic polling via `waypointMonitoringTimer`.
+  - `checkWeatherNow()` fires waypoint check (non-blocking) alongside position check.
+  - `setWaypointMonitoring(enabled)` — toggle waypoint monitoring on/off, restarts monitoring if active.
+  - `weather:monitoring:waypoints` event emitted with results array for other modules.
+
+  **Threshold Configuration**
+  - `getAlertThresholds()` / `setAlertThresholds(thresholds)` — get/set the thresholds that `processWeatherAlerts()` uses for Phase 1 condition checks. Merges partial updates, persists to IndexedDB.
+  - Configurable thresholds: Extreme Heat (default ≥100°F), Heat (≥90°F), Cold (≤32°F), Extreme Cold (≤10°F), Extreme Wind gusts (≥50 mph), High Wind (≥30 mph), Poor Visibility (≤1 mi).
+  - Thresholds persist across page refreshes via `_saveWeatherMonitoringState()` / `_restoreWeatherMonitoringState()`.
+
+  **Weather Panel UI**
+  - Waypoint status indicator in monitoring card: shows waypoint count, monitoring status (on/off), interval, and last check time.
+  - Waypoint monitoring checkbox toggle with toast feedback.
+  - Alert Thresholds configuration section with 7 numeric inputs organized in a 2-column grid: Temperature (4 fields with severity color dots), Wind (2 fields), Visibility (1 field). "Save Thresholds" button with success toast.
+  - Updated monitoring-off description to mention waypoint coverage.
+
+### Technical
+- Modified: `js/modules/weather.js` — added `waypointMonitoringTimer`, `waypointMonitoringLastCheck`, `waypointIntervalMs`, `waypointMonitoring` state; 4 new functions (checkWeatherAtWaypoints, getAlertThresholds, setAlertThresholds, setWaypointMonitoring); updated startWeatherMonitoring to create waypoint timer, stopWeatherMonitoring to clear it, checkWeatherNow to include waypoints, getWeatherMonitoringSettings to expose waypoint/threshold data; updated save/restore to persist waypoint settings and custom thresholds; 4 new public API exports
+- Modified: `js/modules/panels.js` — waypoint status display, waypoint monitoring checkbox, threshold configuration inputs (7 fields), "Save Thresholds" button, 2 new event handlers (save-wx-thresholds, wx-waypoint-monitoring)
+- weather.js: 2329 lines (was 1198 before Phase 1). 28 new functions across Phases 1-5. 11 AlertModule.trigger calls.
+
+## [6.57.49] - 2025-02-15
+
+### Added
+- **Phase 4: NWS Weather Alerts API Fallback** — When RF Sentinel is disconnected (or not providing FIS-B data), the background monitoring loop now fetches active weather alerts from the NWS Weather Alerts API (api.weather.gov) and routes them through AlertModule for audible notifications.
+
+  **Fallback Architecture**
+  - `_isRFSentinelProvidingAlerts()` — gating function checks 4 conditions: RFSentinelModule loaded, connected, weather source set to FIS-B, and FIS-B data not stale. All four must pass to suppress NWS (prevents duplicate alerting when both sources are available).
+  - When RF Sentinel IS providing FIS-B: Phase 3 SIGMET processing handles aviation weather alerts, NWS is skipped
+  - When RF Sentinel is NOT providing: NWS API fetches active alerts for user's GPS position as fallback
+  - Both Phase 1 threshold alerts (Open-Meteo) and NWS alerts are combined in monitoring results
+
+  **NWS API Integration**
+  - `fetchNWSAlerts(lat, lon)` — fetches from `api.weather.gov/alerts/active?point={lat},{lon}` with proper User-Agent header (required by NWS), GeoJSON accept header, 15-second timeout
+  - 10-minute response cache with ~5mi position tolerance to avoid redundant fetches
+  - Graceful handling: HTTP 404 for non-US locations returns empty array (NWS is US-only), network timeouts logged at debug level (expected when offline), errors don't break monitoring loop
+  - Query parameters: `status=actual&message_type=alert,update` filters to real alerts only
+
+  **NWS Alert Classification**
+  - CRITICAL: Extreme severity + specific life-threat events (Tornado Warning, Flash Flood Emergency, Tsunami Warning, Extreme Wind Warning, Hurricane Warning) → persistent banner + sound + push
+  - WARNING: Severe severity + all warning products (Severe Thunderstorm, Flood, Winter Storm, Fire, Wind, Heat, Hurricane/Tropical) → sound + toast + push. Context-specific icons (⛈️🌊❄️🔥💨🌡️🌀)
+  - CAUTION: Moderate/Minor severity + watches/advisories → toast only (watches also get push notifications)
+  - Full NWS metadata preserved in alert data: event, severity, urgency, certainty, headline, instruction, effective, expires, senderName
+
+  **Deduplication**
+  - Alert ID-based dedup using NWS `properties.id` field (globally unique per alert)
+  - Expiration tracking from NWS `properties.expires` field, defaults to 4 hours
+  - Expired entries purged on each processing cycle
+  - Prevents re-alerting on repeated monitoring checks for same active alerts
+
+  **Weather Panel UI Updates**
+  - Alert source indicator in monitoring status card: "📡 RF Sentinel FIS-B" (green) when connected, "🌐 NWS API (N active)" (blue) when fallback is active
+  - Updated threshold description to mention NWS alert types alongside Open-Meteo thresholds
+  - Updated monitoring OFF description to mention NWS API fallback behavior
+
+### Technical
+- Modified: `js/modules/weather.js` — added NWS state variables (API base, User-Agent, cache duration, alerts cache, last fetch, alert count, dedup map), 5 new functions (_isRFSentinelProvidingAlerts, fetchNWSAlerts, classifyNWSAlert, processNWSAlerts, getNWSAlertStatus), wired NWS check into checkWeatherAtCurrentPosition after Phase 1 alerts, updated getWeatherMonitoringSettings to include NWS status, 3 new public API exports
+- Modified: `js/modules/panels.js` — alert source indicator in monitoring status card, updated threshold/description text
+- No changes to alerts.js, app.js, or rfsentinel.js — uses existing RFSentinelModule public API for connection/source/stale checks
+
+## [6.57.48] - 2025-02-15
+
+### Added
+- **Phase 3: FIS-B SIGMET Alert Processing** — SIGMETs received from RF Sentinel via FIS-B (978 MHz UAT) are now classified, geographically filtered, deduplicated, and routed through AlertModule for audible alerts. Previously, SIGMETs were received and stored but never processed into notifications.
+
+  **SIGMET Classification**
+  - Convective SIGMETs (severe thunderstorms, tornadoes) → CRITICAL (sound + persistent banner + push notification)
+  - Standard SIGMETs (severe turbulence, severe icing, volcanic ash, dust/sandstorms) → WARNING (sound + toast + push notification)
+  - AIRMETs (moderate turbulence/icing, IFR conditions, mountain obscuration) → CAUTION (toast only, no sound)
+  - Keyword-based classification with multiple field name fallbacks — handles varying RF Sentinel data formats robustly
+  - Sub-classification with descriptive labels: Tornado SIGMET, Severe Turbulence SIGMET, AIRMET Sierra/Tango/Zulu, etc.
+
+  **Geographic Relevance Filtering**
+  - SIGMETs are only alerted if within 100 miles of user's current GPS position or any saved waypoint
+  - Position extraction from multiple field formats: direct lat/lon, center coordinates, polygon centroid ({lat,lon} objects or [lat,lon] arrays)
+  - SIGMETs with no position data are conservatively treated as relevant (safety-first for missing data)
+  - Haversine great-circle distance calculation for accurate radius check
+  - Distance from user included in alert message when available
+
+  **Deduplication**
+  - SIGMET ID-based deduplication with expiration tracking (uses SIGMET validity period, defaults to 2 hours)
+  - FIS-B rebroadcasts identical SIGMETs every few minutes — dedup cache prevents re-alerting
+  - Expired entries automatically purged on each processing cycle
+  - Fallback key generation from type + content hash when structured IDs are absent
+
+  **Integration**
+  - `processFisBSigmets()` called automatically from `handleRFSentinelWeather()` when SIGMETs are present
+  - Event flow: RF Sentinel → rfsentinel.js → app.js event bridge → handleRFSentinelWeather → processFisBSigmets → AlertModule.trigger
+  - `weather:sigmet:alerts` event emitted for other modules to consume
+  - Also exported as public API for manual invocation
+
+### Technical
+- Modified: `js/modules/weather.js` — added SIGMET dedup state (`alertedSigmetIds` Map, `SIGMET_ALERT_RADIUS_MI` constant), 8 new functions (classifySigmet, getSigmetKey, getSigmetPosition, _haversineDistMi, isSigmetRelevant, getSigmetDescription, getSigmetExpiration, processFisBSigmets), wired call from handleRFSentinelWeather, 1 new public API export
+- No changes to alerts.js, panels.js, or app.js — existing event bridge and AlertModule infrastructure already handle the alert routing
+
+## [6.57.47] - 2025-02-15
+
+### Added
+- **Phase 2: Background Weather Monitoring** — Periodically checks weather conditions at user's current GPS position and triggers audible alerts through AlertModule when dangerous conditions are detected.
+  
+  **Monitoring Loop**
+  - `startWeatherMonitoring()` / `stopWeatherMonitoring()` — toggle background polling
+  - `checkWeatherAtCurrentPosition()` — gets GPS position (falls back to map center), fetches weather from Open-Meteo, routes current conditions through `processWeatherAlerts()` from Phase 1
+  - `checkWeatherNow()` — manual immediate check, works whether monitoring is on or off
+  - Configurable interval: 15, 30 (default), or 60 minutes via `setWeatherMonitoringInterval()`
+  - Minimum interval guard: 5 minutes to prevent API abuse
+  - `weather:monitoring:check` event emitted on each check for other modules to consume
+  
+  **State Persistence**
+  - Monitoring enabled/disabled and interval saved to IndexedDB via Storage.Settings
+  - Auto-restores on page load: `init()` calls `_restoreWeatherMonitoringState()` to resume monitoring if it was active before refresh
+  - `destroy()` stops monitoring timer cleanly
+  
+  **Weather Panel UI**
+  - New "Weather Alerts & Monitoring" section in Weather panel (above AQI section)
+  - ON/OFF toggle button with visual state feedback
+  - "Check Now" button for immediate weather check with loading indicator
+  - Interval selector: 15 / 30 / 60 minute buttons with active state highlighting
+  - When monitoring is ON: shows check interval, last check time, and last conditions summary (icon, description, temperature, wind speed, gust warning)
+  - When monitoring is OFF: shows description of what monitoring does
+  - Alert history panel showing recent weather alerts with severity color coding, timestamps, and clear button
+  - Threshold summary shown below interval selector for user reference
+
+### Technical
+- Modified: `js/modules/weather.js` — added monitoring state variables, 8 new functions (checkWeatherAtCurrentPosition, startWeatherMonitoring, stopWeatherMonitoring, checkWeatherNow, setWeatherMonitoringInterval, isWeatherMonitoringEnabled, getWeatherMonitoringSettings, plus 2 private persistence helpers), wired into init/destroy, 6 new public API exports
+- Modified: `js/modules/panels.js` — Weather Alerts & Monitoring UI section with toggle, check now, interval selector, conditions display, and alert history; 4 event handler blocks (toggle, check now, interval buttons, clear history)
+
+## [6.57.46] - 2025-02-15
+
+### Added
+- **Phase 1: Weather → AlertModule Integration** — New `processWeatherAlerts(current, locationName)` function bridges weather threshold checks to the centralized AlertModule, enabling audible alerts, persistent banners, and push notifications for dangerous weather conditions. This is the foundational plumbing for background weather monitoring (Phase 2), FIS-B SIGMET processing (Phase 3), and NWS fallback alerts (Phase 4).
+
+### Severity Mapping
+- **CRITICAL** (sound + persistent banner + push notification): Extreme heat (≥100°F), extreme cold (≤10°F), dangerous wind gusts (≥50 mph), severe weather (WMO severity 4+: thunderstorms, heavy freezing rain, heavy snow, violent rain showers)
+- **WARNING** (sound + toast + push notification): High temperature (≥90°F), cold conditions (≤32°F), high winds (≥30 mph), adverse weather (WMO severity 3: dense freezing drizzle, heavy rain, moderate snow)
+- **CAUTION** (toast only, no sound): Poor visibility (<1 mile)
+
+### Technical
+- Modified: `js/modules/weather.js` — added `processWeatherAlerts()` function with 9 threshold conditions routing through `AlertModule.trigger()`, exported via public API. Uses existing `ALERT_THRESHOLDS` constants. AlertModule's built-in 60-second debounce per alert key (`source:severity:title`) prevents duplicate notifications. Guard clause handles missing AlertModule gracefully.
+- Existing `generateRouteAlerts()` unchanged — continues to produce visual-only route analysis alerts as before. The two functions serve different purposes: `generateRouteAlerts()` for on-demand route analysis cards, `processWeatherAlerts()` for real-time audible/notification alerting.
+
+## [6.57.45] - 2025-02-14
+
+### Added
+- **Meshtastic BLE auto-reconnect on page refresh** — When connected to a Meshtastic device via Bluetooth, the connection now automatically restores after page refresh or PWA restart without requiring a user gesture. Uses `navigator.bluetooth.getDevices()` (Chrome 85+) to retrieve previously paired devices and reconnect silently. Saves device name for reliable matching across sessions. If the device is out of range, shows a toast prompting manual reconnect; the next refresh will retry automatically.
+- `MeshtasticClient.reconnectBLE(deviceName)` — New gesture-free BLE reconnect function that probes previously paired devices by name match, falling back to Meshtastic service UUID detection
+- `MeshtasticClient.getLastBleDeviceName()` — Accessor for the last connected BLE device name
+- `MeshtasticClient.lastBleDeviceName` state — Captured during BLE connection for reconnect matching
+- Auto-reconnect state persistence via `meshtastic_reconnect` storage key (autoReconnect flag, lastConnectionType, lastBleDeviceName)
+- Toast notifications for reconnect status: "Meshtastic reconnected" on success, "tap Connect to restore BLE" on failure
+- Serial connection type tracked for future serial auto-reconnect support
+
+### Technical
+- Modified: `js/modules/meshtastic-client.js` — added `reconnectBLE()` function (follows same transport/MeshDevice/configure flow as `connectBLE()` but using `getDevices()` instead of `requestDevice()`), `lastBleDeviceName` state, device name capture in both Method 1 and Method 2 connect paths, new exports
+- Modified: `js/modules/meshtastic.js` — added `autoReconnect`/`lastConnectionType`/`lastBleDeviceName` state fields, `saveReconnectState()` persistence helper, `attemptAutoReconnect()`/`attemptBleReconnect()` functions, auto-reconnect save in all 4 connect success paths (MeshtasticClient BLE, basic BLE, MeshtasticClient serial, basic serial), auto-reconnect clear in explicit `disconnect()`, `init()` chains loadSettings→attemptAutoReconnect
+- Design: Unexpected disconnects (device lost/powered off) preserve autoReconnect=true so next refresh retries; only explicit user disconnect clears it. Library load wait uses `meshtastic-client-ready` event with 15s timeout fallback.
+
+## [6.57.44] - 2025-02-14
+
+### Added
+- **RF Sentinel auto-reconnect on page refresh** — When connected to an RF Sentinel server (via WebSocket, MQTT, or REST), the connection now automatically restores after page refresh or PWA restart. Uses the same pattern as CoT/TAK Bridge: saves `autoReconnect: true` when connection succeeds, clears it when user explicitly disconnects. All three connection methods (WebSocket, MQTT, REST) and auto mode are supported. If the server is temporarily unreachable on refresh, the next refresh will retry.
+- `rfsentinel:connecting` event listener in app.js — panel re-renders to show "Connecting..." during auto-reconnect
+- `rfsentinel:error` event listener in app.js — panel re-renders to show "Disconnected" if auto-reconnect fails
+
+### Technical
+- Modified: `js/modules/rfsentinel.js` — added `autoReconnect` to state, loadSettings, saveSettings; `init()` chains `loadSettings().then(connect)` when autoReconnect is true; `connect()` sets `autoReconnect = true`; `disconnect()` sets `autoReconnect = false` and persists
+- Modified: `js/app.js` — added `rfsentinel:connecting` and `rfsentinel:error` event listeners
+
+## [6.57.43] - 2025-02-14
+
+### Fixed
+- **User settings lost on page refresh** — Multiple UI states were not persisted across sessions: active panel always reset to 'map', waypoint filter reset to 'all', selected vehicle reset to 'truck', panel open/closed state reset, GPS navigation target silently disappeared, and traceroute history was wiped. All six are now saved to IndexedDB and restored on load.
+
+### Added
+- UI state persistence (active panel, panel open state, waypoint filter, vehicle type) with debounced auto-save via `Storage.Settings`
+- GPS navigation target persistence — active waypoint navigation survives refresh; validates target waypoint still exists before restoring
+- Traceroute history persistence — completed mesh route traces saved to `Storage.Settings` and restored on load
+- Dedicated `onTraceRoutePacket` event subscription in meshtastic-client.js for firmware versions that fire traceroute responses through a dedicated event rather than generic `onMeshPacket`
+- `meshtastic:traceroute_complete` and `meshtastic:traceroute_timeout` event listeners in app.js to auto-refresh team panel widget when async traceroute responses arrive
+
+### Technical
+- Modified: `js/core/state.js` — `init()` loads uiState + gpsNavTarget from Storage; subscribers auto-save on change
+- Modified: `js/modules/meshtastic.js` — traceroute history load/save in loadSettings/handleNativeTracerouteResponse/clearTracerouteHistory
+- Modified: `js/modules/meshtastic-client.js` — added `handleTraceroutePacket()`, `onTraceRoutePacket` subscription, alternative event mapping
+- Modified: `js/app.js` — added traceroute event listeners for panel re-rendering
+
+## [6.57.42] - 2025-02-14
+
+### Fixed
+- **Traceroute payloads exceed LoRa 228-byte limit (TOO_LARGE errors)** — The traceroute implementation was sending JSON text messages over LoRa that grew with each hop (route array, metadata, names). A 2-hop trace already hit 235 bytes, triggering firmware TOO_LARGE rejections and "Failed to forward: undefined" errors. Replaced the entire custom application-layer traceroute with Meshtastic's native firmware-level `device.traceRoute()` API (RouteDiscovery protobuf, portnum 70). Native traceroute sends compact protobuf packets handled at the routing layer — works with ALL Meshtastic nodes, not just GridDown ones.
+
+### Changed
+- `requestTraceroute()` now calls `MeshtasticClient.traceRoute(nodeNum)` instead of sending JSON text messages
+- Removed `handleTracerouteRequest()`, `handleTracerouteReply()`, `sendTracerouteReply()` (firmware handles relay/reply)
+- Added `handleNativeTracerouteResponse()` to process firmware RouteDiscovery responses
+- Added `traceRoute()` function to meshtastic-client.js wrapping `device.traceRoute()`
+- Added `onTraceroute` callback slot and detection in `handleMeshPacket()` (portnum 70)
+- Legacy JSON traceroute messages silently ignored for backward compatibility
+
+### Technical
+- Modified: `js/modules/meshtastic.js` — requestTraceroute, message routing, new native handler
+- Modified: `js/modules/meshtastic-client.js` — traceRoute(), onTraceroute callback, handleMeshPacket portnum detection
+
+## [6.57.41] - 2025-02-14
+
+### Fixed
+- **Traceroute fails with "isConnected is not defined"** — `requestTraceroute()` called bare `isConnected()` which doesn't exist as a standalone function in the module scope. The module exports `isConnected` as an inline arrow function on the return object (`isConnected: () => state.connectionState === ConnectionState.CONNECTED`), but that's only accessible externally via `MeshtasticModule.isConnected()`, not from inside the IIFE. Replaced with direct state check `state.connectionState !== ConnectionState.CONNECTED`.
+
+### Technical
+- Modified: `js/modules/meshtastic.js` line 6529
+
+## [6.57.40] - 2025-02-14
+
+### Fixed
+- **Factory Reset takes minutes to activate** — `factoryResetDevice()` tried 4 strategies sequentially. When Strategy 1 (`device.factoryReset()`) sent the reset command, the device rebooted and dropped the BLE connection. But the `await device.factoryReset()` promise hung forever — Web Bluetooth GATT promises don't reject on disconnect, they just wait for a response that never comes. After eventually timing out (browser-dependent, sometimes 30-120 seconds), it fell through to Strategy 2, 3, and 4 — each also hanging on the dead connection. Total wait: 2-8 minutes for what should be instant.
+- **New Device Setup shows "Writing configuration to device..." indefinitely** — Same root cause. `batchWriteConfigs()` called `await device.commitEditSettings()` which triggered the firmware's auto-reboot for LoRa changes. The BLE connection dropped, but the promise hung forever. The catch block in `applyConfig()` that checks for disconnect errors never fired because the promise never rejected — it was stuck in limbo. The success screen never appeared even though the device had already rebooted with the correct config applied.
+- **Config modal Save Configuration could also hang** — `writeConfig()` and `setLoRaConfig()` both used bare `await device.commitEditSettings()` and `await device.reboot()` which suffer from the same hanging promise issue.
+
+### Added
+- **`withBleTimeout()` helper** — Races any BLE device operation against an 8-second timeout using `Promise.race`. Returns `{completed: true, result}` if the operation resolved normally, or `{completed: false}` if it timed out. Timeout = the device rebooted and dropped BLE = treat as success. Applied to all device operations that trigger reboots: `commitEditSettings`, `reboot`, `factoryReset`, `factoryResetConfig`, `setConfig(factoryReset)`, and `resetNodes/resetPeers`.
+
+### Technical
+- `withBleTimeout(promise, timeoutMs, label)` defined at module scope in meshtastic-client.js. Uses `Promise.race` between the actual operation and a setTimeout that resolves (not rejects) after 8 seconds. Logging identifies which operation timed out.
+- `writeConfig()`: `commitEditSettings` now wrapped in `withBleTimeout`. Added defensive null check for `device` reference (prevents crash if BLE disconnect handler fires between caller's connected check and writeConfig execution).
+- `batchWriteConfigs()`: `commitEditSettings` now wrapped in `withBleTimeout`
+- `rebootDevice()`: `device.reboot()` now wrapped in `withBleTimeout`
+- `factoryResetDevice()`: All 4 strategies now wrapped in `withBleTimeout`. Each strategy also catches BLE disconnect errors (gatt/bluetooth/disconnect/network error) as success indicators. Strategies no longer fall through after a successful send — timeout OR error = device is rebooting = return true immediately.
+- Modified: `js/modules/meshtastic-client.js`
+- Modified: `js/modules/meshtastic.js` — Reordered `sendConfigToDevice()` to write non-reboot config (owner, position) BEFORE LoRa config (which triggers reboot). Previous order wrote LoRa first → device rebooted → then tried setOwner/setPositionConfig on the dead BLE connection. Also added BLE disconnect catch as success in the outer try/catch.
+
+## [6.57.39] - 2025-02-14
+
+### Fixed
+- **New Device Setup wizard still reboots mid-write** — The v6.57.35 fix introduced `batchWriteConfigs()` to write all configs in one edit session, but `applyConfig()` in the wizard bypassed it entirely. It accessed `MeshtasticClient.device` directly from panels.js, which is NOT exposed on the public `window.MeshtasticClient` API — so `device` was always `undefined`. Every `device.setConfig()` and `device.beginEditSettings()` call silently failed (guarded by `if (device && ...)`), falling through to the old broken fallback path that used separate `writeConfig()` calls with individual begin/commit cycles.
+
+### Technical
+- **Root cause chain:** `MeshtasticClient.device` is the internal Meshtastic JS library connection object. It's stored as a module-private variable inside meshtastic-client.js and intentionally NOT included in `window.MeshtasticClient = { ... }`. The wizard code at line 6847 did `const device = MeshtasticClient.device` → `undefined` → all `device.*` calls skipped → fallback path triggered → `setOwner()` fallback used `writeConfig()` with its own `beginEditSettings/commitEditSettings` → commit triggered firmware auto-reboot → BLE dropped → remaining config writes failed.
+- **Fix:** Wizard now calls `MeshtasticClient.batchWriteConfigs()` (the public API) with three arguments: config payloads array, delay, and new `ownerInfo` parameter. `batchWriteConfigs()` handles `device.setOwner()` + all `setConfig()` calls + `commitEditSettings()` internally using its own reference to the device object. Panels.js never touches `MeshtasticClient.device`.
+- **BLE disconnect handling:** The outer try/catch treats any BLE disconnect error (GATT, Bluetooth, network, connection, abort) during the write as success — because it means the device is rebooting to apply LoRa changes, which is expected firmware behavior.
+- Modified: `js/modules/panels.js` (applyConfig rewritten), `js/modules/meshtastic-client.js` (batchWriteConfigs accepts ownerInfo)
+
+## [6.57.38] - 2025-02-14
+
+### Fixed
+- **Connected Meshtastic device never appears on map** — Two bugs worked together to prevent the user's own device from ever showing on the map:
+  1. `updateTeamMembers()` hardcoded `lat: 0, lon: 0` for the self entry — it never checked the self node's actual position data in `state.nodes` (populated from the device's GPS during connection) or `GPSModule` (phone/tablet GPS).
+  2. The map's team overlay filter explicitly excluded self with `!m.isMe`, so even if self somehow had valid coordinates, it would never render.
+
+### Added
+- **Self mesh node marker on map** — When connecting a Meshtastic device, your own node now appears on the map with a distinct orange marker (📡) that's visually separate from the blue GPS dot (phone position) and green team node circles (other mesh members). This gives immediate visual confirmation that the device connected and has a GPS fix.
+
+### Technical
+- `updateTeamMembers()` now resolves self position from two sources in priority order: (1) self node in `state.nodes` via `state.myNodeId` lookup — this is the Meshtastic device's own GPS position populated during the initial node info exchange, (2) `GPSModule.getPosition()` fallback — the phone/tablet's GPS or manual position. Both sources include zero-position guards.
+- `setConnectionState()` now calls `updateTeamMembers()` when transitioning to `CONNECTED`, ensuring the self marker appears immediately after connection rather than waiting for the next position broadcast cycle.
+- Map team overlay: Removed `!m.isMe` from the visibility filter. Self marker renders with distinct orange styling (`#f97316`), outer ring, dark inner circle, 📡 icon, and bold label — visually distinct from other nodes' green/yellow/gray circles with 👤 icon.
+- Modified: `js/modules/meshtastic.js` (updateTeamMembers, setConnectionState), `js/modules/map.js` (team overlay filter + self rendering)
+
+## [6.57.37] - 2025-02-14
+
+### Fixed
+- **Export modals don't dismiss / panel stuck after use** — Four modals (Export Telemetry, Traceroute Details, Team QR Code, New Device Setup Wizard) used CSS class `modal-overlay` which has no CSS definition. Only `modal-backdrop` has the required `position: fixed; inset: 0; z-index: 200; backdrop-filter: blur(4px)` styling. Without it, these modals rendered inline in the DOM without fixed positioning, backdrop dimming, or proper stacking — making the panel appear broken and preventing normal dismissal. Changed all four to `modal-backdrop`.
+- **Export Channel URL and Show QR Code buttons in Meshtastic Configuration do not work** — Two separate issues:
+  1. `buildChannelProtobuf()` called `hexToBytes(channel.psk)` but device-synced channels store PSK as `Uint8Array` (from protobuf-es), not hex strings. `hexToBytes()` called `.substr()` on the Uint8Array, threw a TypeError, caught silently by `generateChannelUrl`'s try/catch, returned null. The Export URL button had no error feedback on null — just `if (urls) { ... }` with no else clause.
+  2. All clipboard operations used bare `navigator.clipboard.writeText()` without checking if `navigator.clipboard` exists. In non-secure contexts (HTTP, certain WebViews), `navigator.clipboard` is undefined, causing synchronous TypeError before the promise chain, bypassing the `.catch()` fallback.
+
+### Technical
+- `buildChannelProtobuf()` now handles PSK in four formats: `Uint8Array` (direct use), `ArrayBuffer` (wrapped), hex string (via `hexToBytes`), and base64 string (via `atob` decode). Each format is auto-detected.
+- Export Channel URL button: Added `if (!urls || !urls.web)` guard with error toast. Wrapped clipboard access in `try { if (navigator.clipboard && navigator.clipboard.writeText) { ... } else { prompt() } } catch { prompt() }`.
+- Show QR Code button: Applied same safe clipboard pattern to all three clipboard call sites (QR copy button, QR generation fallback, no-QR-library fallback).
+- CSS class fix: `modal-overlay` → `modal-backdrop` on traceroute modal, export telemetry modal, team QR modal, and new device setup wizard modal. Element IDs unchanged so close handlers still work.
+- Modified: `js/modules/panels.js`, `js/modules/meshtastic.js`
+
+## [6.57.36] - 2025-02-14
+
+### Fixed
+- **Meshtastic nodes intermittently disappearing from map** — When a Meshtastic device broadcasts a position packet without a valid GPS fix (common during cold start, indoor operation, or momentary fix loss), the firmware sends lat=0/lon=0. This zero position was overwriting the node's last known valid position at every level of the chain: `handlePositionPacket` (client), `handlePositionFromClient`, `handleNodeInfoFromClient`, and `handlePositionUpdate` (module). The map filter correctly hides nodes at 0,0, so the device would vanish until the next valid GPS fix arrived. Added zero-position guards at all six `node.lat`/`node.longitude` assignment sites across both `meshtastic-client.js` and `meshtastic.js`. A valid last-known position is now preserved when zero-position packets arrive. The `onPosition` callback also now only fires when valid position data is available, preventing downstream handlers from receiving bogus 0,0 coordinates.
+
+### Technical
+- `handlePositionPacket` (client): Guard `if (latI !== 0 || lonI !== 0)` before writing `node.latitude`/`node.longitude`; metadata fields (satsInView, groundSpeed, etc.) still update regardless
+- `handleNodeInfoPacket` (client): Already had guard — no change needed
+- `handlePositionFromClient` (module): `hasValidPosition` check before writing `node.lat`/`node.lon`
+- `handleNodeInfoFromClient` (module): Changed from `!== undefined` to `!== undefined && !== 0` check
+- `handlePositionUpdate` (module): Added `Math.abs > 0.0001` guard
+- `handleCheckin` (module): Already had `message.lat && message.lon` guard
+- `onPosition` callback: Only fires when `node.latitude !== 0 || node.longitude !== 0`
+- Modified: `js/modules/meshtastic-client.js`, `js/modules/meshtastic.js`
+
+## [6.57.35] - 2025-02-14
+
+### Fixed
+- **New Device Setup reboots before finishing configuration** — The wizard wrote each config section (owner name, position broadcast, LoRa radio) as separate `beginEditSettings() → setConfig() → commitEditSettings()` transactions. The `commitEditSettings()` call flushes to NVS flash, and many Meshtastic firmware versions automatically reboot on commit — killing the BLE connection before the remaining config sections could be written. The wizard now batches position and LoRa radio config into a single edit session via new `MeshtasticClient.batchWriteConfigs()`, then issues one explicit `rebootDevice()` at the very end after all writes are committed.
+
+### Technical
+- `MeshtasticClient.batchWriteConfigs(payloads, delayMs)` — New API that opens one `beginEditSettings()`, writes all payloads with configurable inter-write delay (default 500ms), then calls one `commitEditSettings()`. Prevents intermediate flash commits from triggering premature reboots.
+- Wizard `applyConfig()` rewritten: `setOwner()` runs first (separate admin command), then `batchWriteConfigs([position, lora])` writes both config sections in one session, then single `rebootDevice(2)` at the end.
+- Fallback path preserved: if `batchWriteConfigs` is unavailable, falls back to individual writes with 1-second delays between them.
+- Modified: `js/modules/meshtastic-client.js` (batchWriteConfigs), `js/modules/panels.js` (wizard applyConfig)
+
+## [6.57.34] - 2025-02-14
+
+### Fixed
+- **Meshtastic Configuration modal not fully visible** — The modal used `overflow: hidden` on the outer container with a fixed max-height, clipping the footer (Save/Cancel buttons) when content exceeded the viewport. Converted to flex column layout with `max-height: 85vh` on the modal and `flex:1; min-height:0; overflow-y:auto` on the body, so the header and footer always stay visible while the body scrolls.
+
+- **Factory Reset Device not executing** — `device.factoryReset()` doesn't exist on all firmware/library versions. Rewrote `MeshtasticClient.factoryResetDevice()` with four fallback strategies: (1) `device.factoryReset()`, (2) `device.factoryResetConfig()`, (3) admin message via `device.setConfig()` with `device.factoryReset` flag, (4) `resetNodes`/`resetPeers`/`resetDB`/`nodeDBReset` + reboot. Logs all available device methods for debugging. Error message now includes which reset-related methods were found on the device object.
+
+- **Configuration modal persisting after Save** — The save handler's `await setRadioConfig()` could throw when device communication failed, and the `catch` block showed an error toast but never called `closeModal()`. Moved `closeModal()` and `renderTeam()` after the try/catch so the modal always closes regardless of success or failure. Also switched all close/cancel/backdrop handlers from `domCache.get()` to `document.getElementById()` with null checks for reliability.
+
+### Technical
+- Modified: `js/modules/meshtastic-client.js` (factory reset strategies), `js/modules/panels.js` (modal layout + close handlers)
+
+## [6.57.33] - 2025-02-14
+
+### Added
+- **Factory Reset and App State Reset for Meshtastic** — Two-mode reset capability accessible from the Meshtastic Configuration modal's new "Reset" section.
+  - **Reset App Data** — Clears all GridDown-side Meshtastic state: PKI key pairs, peer public keys, DM conversations, message history, outbound queue, channel read state, setup wizard, cached device config, and traceroute history. Does not touch the Meshtastic device hardware. Useful for handing a tablet to a new operator or clearing stale state after team changes.
+  - **Factory Reset Device** — Sends the firmware `factoryReset()` command to the connected Meshtastic device, erasing all device settings (region, channels, PSKs, owner, position config) and restoring firmware defaults. Device reboots automatically. Clears GridDown's cached device config to force clean re-sync on reconnect. Falls back to `resetNodes()` + reboot on older firmware that lacks `factoryReset()`.
+  - Both buttons require two-click confirmation (click once to arm, click again to execute) with auto-revert timeout to prevent accidental resets.
+  - Factory Reset Device button is disabled when no device is connected.
+
+### Technical
+- `MeshtasticClient.factoryResetDevice()` — New client API function wrapping `device.factoryReset()` with fallback to `resetNodes()` + reboot
+- `MeshtasticModule.factoryResetDevice()` — Module wrapper that sends reset command and clears cached device config, channels, connection state
+- `MeshtasticModule.resetAppState()` — Comprehensive app state cleanup covering 10 state categories with per-category reporting
+- UI: "Reset" danger zone section added to `openMeshConfigModal()` in panels.js with two-step confirmation pattern
+- Modified: `js/modules/meshtastic-client.js`, `js/modules/meshtastic.js`, `js/modules/panels.js`
+
+## [6.57.32] - 2025-02-14
+
+### Fixed
+- **Longitude direction reversed in mesh location shares** — `sendLocation()` displayed positive longitudes as West and negative as East (swapped). For example, a pin at -119.19°W would display as "119.19°E" in the text message. The waypoint JSON had correct raw coordinates, so GridDown-to-GridDown rendering was fine, but any standard Meshtastic client receiving the text would see the wrong hemisphere. Fixed: `lon >= 0 ? 'E' : 'W'`.
+
+- **Channel management was local-only — never reached the Meshtastic device** — `createChannel()`, `importChannelFromUrl()`, `joinFromQR()`, and `deleteChannel()` all modified GridDown's internal channel list but never called `MeshtasticClient.setChannel()` to push changes to the connected device. Additionally, channels reported by the device during connection were stored in `MeshtasticClient.channels` but never synced into GridDown's `state.channels`. This two-way disconnect meant GridDown's hardcoded defaults (Primary/LongFast/LongSlow at indices 0/1/2) could mismatch the device's actual configuration, sending messages on wrong channel indices.
+  - Added `syncChannelsFromDevice()` — replaces hardcoded defaults with device-reported channels on connect via the `onChannelUpdate` callback
+  - Added `pushChannelToDevice()` — writes new channels to device hardware when creating/importing channels
+  - `deleteChannel()` now disables the channel on device (sets role to DISABLED)
+  - All channel creation paths enforce the 8-channel device limit (indices 0-7)
+
+- **GridDown protocol messages exceeded Meshtastic's ~228 byte LoRa payload** — SOS (238 bytes), waypoints (226 bytes), and encrypted DMs with longer text all exceeded the LoRa text payload limit. The firmware would either silently truncate (corrupting the JSON → receiver parse failure → message lost) or throw a GATT error. SOS messages — the most safety-critical — always exceeded the limit even with empty defaults.
+  - Added message compaction: `compactMessage()` recursively shortens JSON field names (e.g. `type→t`, `fromName→fn`, `timestamp→ts`, `waypoint→w`, `encryptedText→et`). Applied automatically in `sendViaRealClient()` when payload exceeds 228 bytes.
+  - Added `expandMessage()` on the receive side — both the real client path (`handleMessageFromClient`) and legacy path (`processReceivedData`) detect and expand compacted messages via the `"t"` field discriminator.
+  - Multi-level payload optimization in `sendViaRealClient()`: L1 compacts field names; L2 strips reconstructable fields (`fromName`, `timestamp`, empty strings) — receiver resolves sender name from `state.nodes` and uses arrival time for timestamp; L3 dynamically truncates the longest nested string values (SOS details, waypoint notes) to shed remaining excess bytes.
+  - DM text limit enforced at 65 chars (`MAX_DM_TEXT_SIZE`) to account for AES-GCM encryption overhead + base64 encoding + JSON envelope.
+  - All message types verified to fit within 228-byte LoRa payload across minimal, realistic, and worst-case payloads.
+
+### Technical
+- Modified: `js/modules/meshtastic.js` (all three fixes)
+- New constants: `MAX_LORA_PAYLOAD` (228), `MAX_DM_TEXT_SIZE` (65)
+- New functions: `compactMessage()`, `expandMessage()`, `isCompactedMessage()`, `removeEmptyStrings()`, `truncateNestedStrings()`, `syncChannelsFromDevice()`, `pushChannelToDevice()`
+- Receive-side reconstruction: `handleMessageFromClient()` reconstructs `fromName` from node map and `timestamp` from arrival time when stripped by L2 optimization
+- Compaction field map: 34 verbose→compact key mappings covering all GridDown protocol message types
+
+## [6.57.31] - 2025-02-13
+
+### Fixed
+- **GATT errors and packet timeouts during position broadcast**
+  - Root cause: GridDown was broadcasting the phone's GPS position every 60 seconds via `device.setPosition()`, even when the Meshtastic device has its own GPS enabled. The device was already broadcasting its own position, so GridDown's broadcasts created duplicate mesh traffic and overwhelmed the BLE link — producing `GATT operation failed for unknown reason`, `Packet timed out`, and cascading `create(PositionSchema) failed: undefined` errors.
+  - Fix: `startPositionBroadcast()` now checks `MeshtasticClient.deviceConfig.gpsEnabled`. When the device has GPS enabled, phone position broadcasting is skipped entirely (the device handles it). Phone GPS is only broadcast when the device lacks GPS or has it disabled.
+  - Added failure backoff: after 3 consecutive position broadcast failures, the interval is stopped to prevent flooding the BLE transport with failing packets. Counter resets on success.
+
+- **`Position via create(PositionSchema) failed: undefined`** — The Meshtastic library's `setPosition()` rejection value has no `.message` property when packets time out. Error logging now uses `e?.message || e` to show the actual error instead of `undefined`.
+
+- **`Blocked aria-hidden on an element because its descendant retained focus`** — The modal container in `index.html` had a static `aria-hidden="true"` attribute that conflicted with focused elements inside open modals. Removed the static attribute; when the container is empty there's nothing for assistive tech to find anyway.
+
+### Technical
+- Modified: `js/modules/meshtastic.js` (GPS-aware position broadcast, failure backoff)
+- Modified: `js/modules/meshtastic-client.js` (error logging in sendPosition)
+- Modified: `index.html` (removed aria-hidden from modal-container)
+- Service worker cache: v6.57.30 → v6.57.31
+
+## [6.57.30] - 2025-02-13
+
+### Fixed
+- **Meshtastic nodes missing from map — NodeInfo position extraction**
+  - Root cause: `handleNodeInfoPacket` in meshtastic-client.js never extracted position data from NodeInfo packets. When a device connects, it receives NodeInfo for all known mesh nodes (which includes each node's last known GPS position stored on the device). But the handler only extracted user info, SNR, and device metrics — position was silently dropped.
+  - Result: Nodes only appeared on the map after they sent a *separate* position broadcast packet (default: every 15 minutes with smart broadcasting). So on connect, most nodes showed in the team list but not on the map.
+  - Fix: Extract `nodeInfo.position.latitudeI/longitudeI` (integer format, ÷1e7 for degrees) along with altitude, time, and satsInView. Handles both camelCase and snake_case protobuf field names. Zero-position guard prevents storing invalid coordinates.
+  - The downstream handler in meshtastic.js (`handleNodeInfoFromClient`) already checked `clientNode.latitude` — it was just never being populated by the client layer.
+
+### Technical
+- Modified: `js/modules/meshtastic-client.js` (handleNodeInfoPacket position extraction)
+- Service worker cache: v6.57.29 → v6.57.30
+- Data flow: NodeInfo packet → position extraction → onNodeUpdate callback → handleNodeInfoFromClient → updateTeamMembers → State.set('teamMembers') → map re-render via State subscription
+
+## [6.57.29] - 2025-02-13
+
+### Fixed
+- **Meshtastic config modal audit — 3 issues fixed:**
+  1. **Setup wizard race condition** — `setRadioConfig` (which triggers device reboot) was called before `setPositionConfig`, so position config was racing a 2-second reboot timer. Reordered steps: device name → position broadcast → radio config (reboot-triggering step is now always last).
+  2. **QR button was placeholder** — "Show QR Code" button just copied base64 text to clipboard. Now renders a visual QR code using the ISO 18004 `QRGenerator` module with scannable overlay, channel URL display, and copy button. Falls back to clipboard if QR generator unavailable.
+  3. **Fallback config path missing reboot** — If `setLoRaConfig` batch function wasn't available, individual LoRa setters committed to flash via `writeConfig` but never triggered the reboot needed to apply LoRa radio changes. Added `rebootDevice(2)` to fallback path when `_reboot` flag is set.
+
+### Technical
+- Modified: `js/modules/panels.js` (wizard step reorder, QR code rendering)
+- Modified: `js/modules/meshtastic.js` (fallback reboot in sendConfigToDevice)
+- Service worker cache: v6.57.28 → v6.57.29
+
+## [6.57.28] - 2025-02-13
+
+### Fixed
+- **Meshtastic config lost on reboot** — Config changes staged to RAM but never committed to NVS/flash. Meshtastic firmware uses a 3-phase write protocol: `beginEditSettings()` → `setConfig()` → `commitEditSettings()`. We were only calling phase 2, so the reboot (which correctly triggers to apply LoRa radio changes) loaded the old config from flash. Added `writeConfig()` helper that wraps all `setConfig()` calls with `beginEditSettings/commitEditSettings` transaction. All config paths now commit to flash: LoRa batch (`setLoRaConfig`), individual setters (`setRegion/setModemPreset/setTxPower/setHopLimit`), owner identity (`setOwner`), and position broadcast (`setPositionConfig`).
+
+### Technical
+- Modified: `js/modules/meshtastic-client.js` (added `writeConfig()` helper, all 7 config-writing functions updated)
+- Service worker cache: v6.57.27 → v6.57.28
+
+## [6.57.27] - 2025-02-13
+
+### Fixed
+- **Meshtastic config not programming radio** — Three bugs prevented LoRa config changes (region, modem preset, TX power, hop limit) from actually taking effect on the device:
+  - `deviceConfig` contamination: All four LoRa setters spread the entire `deviceConfig` accumulator (which includes non-LoRa fields like `role`, `gpsEnabled`, `firmwareVersion`, `hwModel`) into the protobuf `lora` config message. Foreign fields cause `@meshtastic/core` v2.6+ to reject or silently drop the write. Fixed by extracting only LoRa-specific fields via new `getLoRaFields()` helper
+  - No reboot after config write: Meshtastic firmware stores LoRa config to flash but doesn't apply it to the radio until reboot. `rebootDevice()` existed but was never called. Config modal now auto-reboots after writing
+  - Four flash writes instead of one: Save handler made 4 separate `device.setConfig()` calls. Added `setLoRaConfig()` batch function that writes all LoRa params in a single call + triggers reboot. Config modal, setup wizard, and scenario presets all updated to use batch path
+- **`setOwner` fallback contamination** — Same `deviceConfig` spreading bug in the `setOwner` fallback path, injecting LoRa/position/metadata fields into a device config protobuf message
+
+### Added
+- `MeshtasticClient.setLoRaConfig(config, autoReboot)` — Batch LoRa config write + optional reboot
+- `MeshtasticModule.setRadioConfig(config)` — Validated batch LoRa config with automatic reboot
+
+### Technical
+- Modified: `js/modules/meshtastic-client.js` (config contamination fix, batch function), `js/modules/meshtastic.js` (batch routing, scenario update), `js/modules/panels.js` (config modal + wizard batch calls)
+- Service worker cache: v6.57.26 → v6.57.27
+
+## [6.57.26] - 2025-02-13
+
+### Fixed
+- **RadiaCode heatmap dead code** - Map rendering reimplemented RadiaCode tracks/position inline (130 lines) instead of calling `RadiaCodeModule.renderOnMap()`, making the heatmap toggle a no-op. Replaced with delegation call matching the RF Sentinel pattern. Heatmap IDW overlay, demo mode indicator, and pulse ring hex parsing all now work end-to-end
+- **Team rally point sync broken** - All three rally operations (add/update/remove) broadcast `rally_update` with empty data. Receivers checked `msg.d.rallyPoints` which was always undefined, silently dropping all rally sync. Now sends full rally array
+- **Team comm plan sync missing** - `updateCommPlan()` broadcast `comm_plan` messages but `processTeamSync()` had no handler case. Comm plan changes (frequencies, check-in schedules, emergency words) never reached other team members. Added `case 'comm_plan':` handler
+- **Team info sync broken** - `updateTeam()` broadcast `team_info` with empty data. Receivers checked `msg.d.name` and `msg.d.settings` which were undefined, dropping name/settings updates. Now sends name, description, and settings
+- **Team hourly check-ins ignored** - `getNextCheckIn()` only handled `daily` and `once` frequencies, silently skipping `hourly` entries that `addCheckInTime()` accepted. Next check-in UI showed nothing despite hourly schedule being set
+- **TeamModule not initialized** - `TeamModule.init()` was never called from `app.js`, preventing saved team state restoration on reload and disabling all Meshtastic event handlers for team sync. Added to startup sequence after MeshtasticModule
+
+### Improved
+- **Team encryption upgraded** - Replaced XOR obfuscation (32-bit djb2 hash key with zero bytes at positions 30-31) with AES-256-GCM via Web Crypto API. Uses PBKDF2 key derivation (100k iterations, SHA-256) with random salt and IV. Legacy XOR packages still importable via backward-compatible decryption path
+- **Team QR codes scannable** - Replaced pseudo-QR generator (hash-derived visual pattern no scanner could read) with ISO 18004 compliant encoder. New `qr-generator.js` module (609 lines) implements byte mode, ECC level M, versions 1-13, GF(256) Reed-Solomon, all 8 mask patterns with penalty scoring. Team invite QR codes now scannable by standard readers
+- **Removed hardcoded Yosemite coordinates** - Rally point waypoints included `x/y` pixel values calculated from Yosemite-area constants (37.4215°N, 119.1892°W). Dead code since `lat/lon` is always set, but removed for cleanliness
+
+### Technical
+- New module: `js/modules/qr-generator.js` (609 lines)
+- Modified: `js/modules/map.js` (-130 lines), `js/modules/team.js` (audit + encryption + QR), `js/app.js` (+TeamModule.init), `index.html` (+script tag), `sw.js` (cache bump + new file)
+- Service worker cache: v6.57.25 → v6.57.26
+
+## [6.57.25] - 2025-02-13
+
+### Fixed
+- **RF Sentinel REST data shape mismatch** - Track metadata (callsign, ICAO, squawk, MMSI, etc.) was buried in a nested `metadata` dict when received via REST polling, but at the top level when received via WebSocket. Tracks appeared as anonymous blips in REST mode. Now `handleTrackUpdate` flattens metadata into top-level fields so both connection modes render identically.
+- **REST poll cache-busting** - Added `cache: 'no-store'` to `fetchAllTracks()` and health check fetches to prevent any browser caching of stale track data.
+
+### Technical
+- RF Sentinel module v1.4.0 → v1.5.0
+- Service worker cache: v6.57.24 → v6.57.25
+
+## [6.57.24] - 2025-02-10
+
+### Fixed
+- **RF Sentinel Direct Ethernet Link compatibility** — Full support for RF Sentinel's Direct Ethernet Link feature (10.42.0.x subnet):
+  - Aligned default port from 8000 to 8080 to match RF Sentinel's actual server port across rfsentinel.js CONFIG, panels.js UI placeholder, and all fallback values
+  - Added protocol-aware URL construction — `getBaseUrl()`, `getWsUrl()`, and `getMqttWsUrl()` now use HTTP/WS for local hosts (.local, private IPs) and HTTPS/WSS for remote hosts, preventing mixed-content browser blocks when GridDown is served over HTTPS
+  - New `shouldUseHttps()` auto-detection: uses HTTP for `rfsentinel.local`, `10.42.0.x`, `192.168.x.x`, `localhost`; matches page protocol for non-local hosts
+  - Added Protocol selector (Auto / HTTP / HTTPS) to RF Sentinel connection panel for manual override
+  - `useHttps` setting persisted in `rfsentinel_settings` storage, exposed via `getUseHttps()`/`setUseHttps()` API
+
+### Documentation
+- Provided corrected RF Sentinel `NETWORK_SETUP.md` with port 8000→8080 fixes and new Mode 4 (Direct Ethernet Link) section documenting the API-driven 10.42.0.x subnet feature
+- Provided corrected RF Sentinel `setup_network.sh` with stale `RF_SENTINEL_PORT=8000` updated to 8080
+
+## [6.57.23] - 2025-02-10
+
+### Fixed
+- **RF Sentinel connection reliability** - Fixed issue requiring 5+ Connect button presses before connection establishes:
+  - Health check now retries up to 3 attempts with 8-second timeout per attempt, accommodating slow mDNS hostname resolution (e.g. `rfsentinel.local`) which can take 3-8 seconds on first lookup
+  - Fixed WebSocket timeout/onclose race condition where the timeout handler called both `close()` and `reject()`, causing delayed `onclose` to fire after REST fallback was already active and clobber the connection state back to disconnected
+  - Added `settled` guard flag in `connectWebSocket()` to prevent double resolve/reject from concurrent timeout and onclose events
+  - `connectAuto()` now explicitly cleans up the failed WebSocket reference (`state.ws = null`) before starting REST fallback, preventing stale onclose handlers from interfering
+  - WebSocket `onclose` handler now checks `state.connectionMode === 'rest'` and skips state mutation if connection has already transitioned to REST polling
+
+## [6.57.22] - 2025-02-10
+
+### Improved
+- **RF Sentinel map icons** - Upgraded all track type renderers from basic geometric shapes (chevrons, diamonds, circles) to distinct, recognizable silhouette icons:
+  - Aircraft: Top-down airplane with fuselage, swept wings, and horizontal stabilizer (rotates with heading)
+  - Ships: Vessel hull with pointed bow and bridge superstructure block (rotates with COG)
+  - Drones (Remote ID): Quadcopter with X-arms, central body, 4 rotor circles, and direction indicator (rotates with heading)
+  - Radiosondes: Weather balloon ellipse with shine highlight, tether line, and payload gondola
+  - APRS: Radio tower mast with guy-wire base, antenna diamond, and signal arc emanations
+- All icons maintain existing color coding, heading rotation, emergency pulse, and alpha fade on stale tracks
+
+### Fixed
+- **APRS icon alpha rendering** - Fixed compounding globalAlpha bug in renderAPRS that corrupted transparency for stale tracks. Replaced nested `(ctx.globalAlpha || n) * n / n` pattern with clean parentAlpha capture-and-restore
+- **renderTrack dispatch** - Radiosonde and APRS tracks now dispatch to dedicated renderers instead of falling through to generic circle marker
+- **Label offset** - Adjusted callsign label Y-offset from +20 to +22 to clear taller icon silhouettes
+
+## [6.57.21] - 2025-02-09
+
+### Fixed
+- **Search navigation routing** - Fixed 4 broken panel mappings in global search that sent users to wrong panels or nowhere:
+  - RadiaCode help topic routed to Map panel instead of Team panel where it renders
+  - RadiaCode settings entry used invalid panel ID `'radiacode'` (not a real panel) instead of `'team'`
+  - APRS help topic routed to Radio panel instead of Team panel where it renders
+  - Map Layer settings action targeted non-existent `'layers'` panel instead of `'map'`
+- All 20 panel references in search now validated against actual NAV_ITEMS panel IDs
+
+## [6.57.20] - 2025-02-09
+
+### Added
+- **Cumulative Dose Persistence** - Dose exposure tracked across sessions via persistent dose log. Shows session dose and lifetime cumulative dose in live reading display. Session history records start/end times, dose received, and device serial. Dose accumulation uses time-integrated dose rate with 30-second auto-save. Reset button with confirmation to clear all history
+- **Radiation Heatmap Layer** - IDW (inverse distance weighted) interpolation renders color-coded radiation heatmap overlay on the map from all track data points. Adaptive influence radius based on point density. Toggle on/off from RadiaCode panel. Renders as base layer under track lines and dots
+- **CSV Export for Tracks** - Export radiation survey tracks as CSV with columns: timestamp, datetime_utc, latitude, longitude, altitude_m, dose_rate_uSv_h, count_rate_cps, level. Compatible with Excel, GIS tools, and data analysis workflows
+- **GPX Export for Tracks** - Export tracks as GPX 1.1 with custom `griddown:` XML extensions for dose rate, count rate, and dose level per trackpoint. Compatible with GPS software and mapping tools
+- **Track Detail Modal** - Export footer now shows three format buttons (CSV, GPX, GeoJSON) for one-click download in any format
+
+## [6.57.19] - 2025-02-09
+
+### Enhanced
+- **Spectrum Viewer Upgraded** - Full rewrite of gamma spectrum chart: log/linear scale toggle, calibration-aware energy axis, gradient-filled spectrum trace, responsive hi-DPI canvas, proper Y-axis count labels, background grid
+- **Peak Detection Rewritten** - Replaced flawed window-mean algorithm with Poisson-statistics background estimation from window edges. Peaks now correctly detected with significance scoring (σ > 3.0). Demo reliably finds K-40, Cs-137, Pb-214, Tl-208
+- **Isotope Annotations on Chart** - Identified isotopes displayed as labeled gold markers directly on the spectrum at their energy positions, with overlap avoidance. Peaks marked with dashed red lines and keV labels
+- **Isotope Display Enhanced** - Half-life shown for each match, confidence bar with color coding (green/yellow/orange), improved card layout
+- **Interactive Crosshair** - Hover/tap spectrum chart shows tooltip with energy (keV), channel number, and count value at cursor position
+- **Demo Spectrum Improved** - Realistic peak heights and widths (σ=8 channels matching RadiaCode CdZnTe resolution), added Cs-137 and Tl-208 peaks, lower noise floor
+
+## [6.57.18] - 2025-02-09
+
+### Fixed
+- **Search Help Entries Now Navigate to Panels** - 37 of 40 help entries now navigate directly to their relevant panel when clicked, instead of showing an informational dead-end modal. Toast notification shows feature description. 3 purely informational entries (Keyboard Shortcuts, Night Mode, Compass/Declination) retain modal behavior
+- **Removed "Found in X panel" Text Crutches** - Panel destination now handled by navigation behavior and "→ Panel" subtitle indicator, eliminating redundant text directions from help content
+- **Search Result Panel Indicators** - Help entries with panel destinations show "→ Weather", "→ GPS" etc. in subtitle so users know the result is navigable before clicking
+
+## [6.57.17] - 2025-02-09
+
+### Fixed
+- **Sidebar Scroll Reset** - Scroll position in sidebar nav preserved when clicking panels. Previously, clicking "Team" (or any panel requiring scroll to reach) would reset the sidebar to the top, forcing users to scroll back down to find where they are
+- **Panel Scroll Reset on Tab Switch** - Switching tabs within panels (e.g., Celestial Observe→DR, SSTV tabs) no longer resets the panel scroll to top. Uses requestAnimationFrame to restore scroll position after innerHTML rebuild
+- **Panel Scroll Reset on Internal Re-renders** - All 18 panel render functions now preserve scroll position when re-rendering due to user interactions (toggling settings, updating values, connecting devices, etc.)
+
+### Changed
+- **Sidebar Category Dividers** - Added visual grouping labels (NAVIGATE, PLAN, ENVIRONMENT, COMMS, REFERENCE, HARDWARE) to sidebar navigation. Panels reordered into logical groups. Hidden on mobile bottom nav. Stealth mode compatible
+- **Panel Order Reorganized** - Navigation tools grouped together (Map→Sun/Moon), planning tools together (Waypoints→Planning), communications together (Team→Radio), hardware/SDR together (Offline→SARSAT)
+
+## [6.57.16] - 2025-02-09
+
+### Added
+- **Wind Indicator on Map** - Real-time wind conditions HUD overlay:
+  - Directional arrow showing where wind is blowing TO (rotates smoothly)
+  - Wind speed in mph with Beaufort-scale color coding (green→yellow→red)
+  - Gust speed shown when gusts exceed sustained speed by 5+ mph
+  - 16-point cardinal direction label (N, NNE, NE, etc.)
+  - Auto-updates whenever weather data is fetched
+  - Positioned below offline toggle (top-left), follows stealth mode styling
+  - Full ARIA support with live region updates
+
+- **Dewpoint Display** - Added to weather panel stats grid:
+  - Fetched from Open-Meteo API (dewpoint_2m parameter)
+  - Useful for fog prediction, hypothermia risk, condensation on optics
+  - `calcDewpoint()` utility using Magnus-Tetens approximation
+
+- **UV Index Display** - Added to weather panel stats grid:
+  - Fetched from Open-Meteo API (uv_index parameter)
+  - Relevant for prolonged field ops, altitude burn risk, snow blindness
+
+- **Cloud Cover Display** - Added to weather panel stats grid
+
+- **Wind Direction in Hourly Forecast** - Now fetched from API for route analysis
+
+### Enhanced
+- **Weather Panel** - Expanded from 3-stat to 6-stat grid (feels like, humidity, wind+direction, dewpoint, UV index, cloud cover)
+- **Weather Events** - New `weather:wind` event emitted on each fetch for module integration
+- **Weather API** - `getCurrentWind()`, `windDirectionToCardinal()`, `getBeaufortScale()`, `calcDewpoint()` added to public API
+
+### Tests
+- 29 new weather tests: cardinal direction (11), Beaufort scale (8), dewpoint (6), formatWind (3), getCurrentWind (1)
+- Test suite total: 253 tests, 0 failures
+
+### Fixed
+- **Global Search Help Coverage** - Expanded from 20 to 40 help entries:
+  - Fixed weather entry referencing "NWS" (now correctly says Open-Meteo)
+  - Added: wind indicator, dewpoint/UV, air quality, satellite/radar, stream gauges
+  - Added: hiking mode, terrain analysis, dead reckoning, coordinate converter
+  - Added: logistics, contingency planning, medical reference, field guides
+  - Added: SSTV, RF Sentinel, RadiaCode, TAK bridge, compass/declination
+  - Added: track recording, Meshtastic device setup
+  - Updated barometer entry to note location in GPS panel
+  - All entries include relevant search keywords for discoverability
+
+## [6.57.15] - 2025-02-09
+
+### Added - New Device Setup UI
+- **Device Setup Wizard:** 5-step modal for configuring brand-new pre-flashed Meshtastic devices directly from GridDown — no Meshtastic app needed
+  - Step 1: Connect via Bluetooth or USB with auto-config detection
+  - Step 2: Set device identity (longName/shortName) — written to device hardware
+  - Step 3: Region selection with legal compliance warning
+  - Step 4: Radio settings (modem preset, TX power, hop limit, position broadcast interval)
+  - Step 5: Review & apply with progress indicator — writes all config to device in sequence
+- **MeshtasticClient.setOwner():** New function writes device owner name to hardware (persists across reboots, visible to other mesh nodes)
+- **MeshtasticClient.setPositionConfig():** New function sets position broadcast interval, GPS update rate, and GPS enable on device
+- **MeshtasticClient.rebootDevice():** New function to reboot device after config changes
+- Entry point: "📱 New Device Setup" button in team panel connection section
+
+### Fixed - Team goto button ID mismatch
+- Goto (🎯) buttons for team/mesh members now embed lat/lon/name directly in data attributes
+- Handler reads coordinates from data attributes instead of looking up by member ID
+- Fixes silent failure when TeamModule member IDs (mbr-*) didn't match MeshtasticModule node IDs (!XXXXXXXX)
+
+### Improved - setUserName device sync
+- `MeshtasticModule.setUserName()` now pushes owner name to device hardware when connected
+- `sendConfigToDevice()` extended to handle longName, shortName, position config, and GPS settings
+
+### Added - CSS spin animation
+- `@keyframes spin` for loading spinners used across setup and connection UIs
+
+### Expanded - Test Suite (88 → 224 tests)
+- **Events module:** on/emit, off/unsubscribe, once (7 tests)
+- **Log module:** setLevel/getLevel, getStats, LEVELS hierarchy, restore (6 tests)
+- **ErrorBoundary module:** getErrors/clear, getStats, onError/unsubscribe, formatReport (6 tests)
+- **DeclinationModule:** getDecimalYear, trueToMagnetic, magneticToTrue, formatDeclination, formatInclination, WMM calculate, getModelInfo (25 tests)
+- **TerrainModule:** haversineDistance, calculateBearing, destinationPoint, getCardinalDirection, calculateSlope, classifySlope, assessTrafficability (45 tests)
+- **HikingModule:** formatDuration, formatTimeFromHours, calculateNaismith, calculateTobler, estimateHikingTime, PACE_PRESETS (28 tests)
+- **RadioModule:** formatFreq, calcRepeaterInput, FRS_CHANNELS, EMERGENCY_FREQUENCIES, getByCategory, searchAll, CTCSS_TONES (20 tests)
+- All modules loaded via IIFE extraction with minimal browser mocks — no network or DOM required
+
+## [6.57.14] - 2025-02-09
+
+### Improved - Accessibility / ARIA (Audit 3.1)
+- ARIA attributes increased from 159 → 281 (+77%)
+- **Modal dialogs:** All 23 panels.js modals now have `role="dialog"` and `aria-modal="true"`; 26 backdrops have `role="presentation"`
+- **Modal close buttons:** All 30 icon-only close buttons across panels.js now have `aria-label="Close dialog"`
+- **Generic showModal():** Added accessible `ModalsModule.showModal(title, html)` function with dialog role, labelledby, focus management, and Escape-to-close
+- **Settings controls:** 4 select elements (units, coord format, zoom level, log level) now have `aria-label`
+- **Route actions:** Edit, delete, and elevation profile buttons now have contextual `aria-label` including route name
+- **Coordinate tools:** 5 per-format copy buttons and 4 quick-action buttons now have descriptive `aria-label`
+- **Comm plan:** 8 edit/delete action buttons now have contextual `aria-label` including item name
+- **Map context menu:** Container has `role="menu"` + `aria-label`; 7 items have `role="menuitem"`; 7 decorative emoji icons have `aria-hidden="true"`
+- **Already present (verified):** Skip-nav links, landmark roles (navigation, main, complementary), toast live region, sidebar menubar with menuitem roles, mobile FAB with aria-expanded, canvas accessible name
+
+### Removed - Dead HistoryModule (Audit 4.6)
+
+### Cleaned - CSS Dead Rules (Audit 3.5)
+- Purged 125 unused CSS classes across 159 rule blocks (655 lines, 12.5%)
+- app.css reduced from 5,240 → 4,585 lines (127.5 KB → 108.9 KB)
+- Removed dead styles for: stealth selectors (12 classes), elevation profile (19), grade bars/legends (7), APRS markers (8), segment items (8), steep warnings (6), team-member markers (5), conn-status (4), and misc
+- All 583 active classes retained; brace-balance verified
+
+### Added - Log Level Controller (Audit 3.6)
+- New `js/core/log.js` module — loaded first in boot sequence, before error-boundary
+- Wraps console.log and console.debug to respect configurable log level
+- console.warn and console.error always pass through (safety-critical)
+- Levels: error → warn (default) → info → log → debug (verbose)
+- Default 'warn' suppresses 353 console.log + 42 console.debug calls in production
+- Override via URL param `?loglevel=debug` or Settings → Diagnostics dropdown
+- Persists to localStorage as `griddown_log_level`
+- Emergency escape: `Log.restore()` reverts all console methods to originals
+- Settings → Diagnostics now includes: log level selector, suppression count, error count, error log viewer, report copy
+- Deleted `js/core/history.js` (588 lines) — a superseded undo/redo prototype that was never integrated
+- State.js records actions to `UndoModule` (in `js/modules/undo.js`), not HistoryModule
+- HistoryModule's keyboard shortcuts registered a competing Ctrl+Z handler that raced with UndoModule's, producing spurious "Nothing to undo" toasts from permanently-empty stacks
+- Removed from: index.html script tags, SW pre-cache list, app.js init sequence
+- Ported HistoryModule's input-field guard to UndoModule: Ctrl+Z in text inputs now correctly triggers browser-native text undo instead of app-level undo
+
+### Fixed - Unhandled Promise Chains (Audit 3.3)
+- Added `.catch()` handlers to all 9 unhandled `.then()` chains across 5 files:
+  - **panels.js:** 5 chains — clipboard writes (3x team URL/QR), TeamModule.generateTeamQR, SSTVEnhanceModule.init
+  - **search.js:** 1 chain — landmark coordinate copy
+  - **sos.js:** 1 chain — position report clipboard copy
+  - **networkstatus.js:** 1 chain — connectivity check on offline toggle
+  - **app.js:** 1 chain — serviceWorker.ready for update detection
+- Clipboard failures now show user-facing error toasts instead of silently failing
+- TeamModule QR failure now renders error message in QR container
+- SSTV enhance init failure now logs warning instead of leaving module in limbo
+
+### Added - Centralized Error Boundary (Audit 3.4)
+- New `js/core/error-boundary.js` module — loaded first in boot sequence
+- Captures `window.error` (sync errors in handlers/timers) and `unhandledrejection` (missed promise catches)
+- Ring buffer holds last 100 errors with deduplication throttle (1s window)
+- Auto-ignores benign noise: ResizeObserver loops, cross-origin script errors, chunk load failures
+- Module inference from stack traces (maps errors to source module names)
+- Settings → Diagnostics section with:
+  - Error count display
+  - "View Error Log" — modal with color-coded entries by type/module
+  - "Copy Error Report" — formatted text report to clipboard
+- API: `ErrorBoundary.getErrors()`, `.getStats()`, `.formatReport()`, `.onError(cb)`, `.clear()`
+
+### Fixed - DOM Query Caching (Audit 2.4)
+- **panels.js:** Added `domCache` with lazy `isConnected` validation for 67 getElementById calls across SSTV canvases (8x `sstv-tx-canvas`, 7x `sstv-annotation-canvas`), radio content (7x), zoom controls, and modal elements. Cache auto-clears on panel switch via `render()`.
+- **map.js:** Cached static DOM refs (`coords-text`, `coords-format`, `declination-value`) at init. Most impactful: `coords-text` in mouse-move handler (fires ~60x/sec during map interaction).
+
+### Verified - setTimeout Audit (Audit 2.5)
+- Audited all 96 setTimeout calls across codebase. All unclearable timeouts are verified fire-and-forget one-shots (modal focus, canvas init, wizard steps, retry delays). No stacking risks remain — the actual stacking bugs were in per-render event listener attachment, fixed in v6.57.13.
+
+### Added - PWA Manifest Fields (Audit 4.1)
+- Added `lang`, `dir`, `display_override`, `prefer_related_applications`, `handle_links` fields
+- Added `screenshots` entries for wide (1280×720) and narrow (750×1334) form factors — placeholder paths pending real screenshot capture
+- Created `screenshots/` directory with capture instructions
+
+### Verified - localStorage Key Consistency (Audit 4.4)
+- Both non-standard keys (`airnow_api_key`, `gd_layer_expanded`) already have migration code that reads old key, writes to `griddown_*` prefix, and removes old key. Migration is self-cleaning; no action needed.
+
+## [6.57.13] - 2025-02-09
+
+### Added - Test Coverage & Event Delegation Refactor
+- **Test suite:** 88 tests across 25 suites covering Helpers (escapeHtml, formatDistance, clamp, calcDistance, generateId), Coordinates (DD/DMS/DDM parsing, UTM roundtrip, bearing, compass), and State (get/set, subscribe, Waypoints CRUD, Routes CRUD, Map zoom clamping, Modal, withoutHistory)
+- **Test runner:** `node tests/test-runner.js` — runs in Node.js with minimal browser mocks, zero dependencies
+
+### Fixed - UTM Conversion Bug
+- **Coordinates.utmToLatLon:** Central meridian `lon0` was in degrees but used in radians-based formula, producing wildly incorrect longitudes (e.g., -7046° instead of -122°). Converted to radians before use. Verified with multi-zone roundtrip tests.
+
+### Refactored - Event Listener Delegation
+- **panels.js:** 29 → 6 addEventListener calls. Extended existing delegation to cover all comm plan events (save, export, add/edit/delete channels, callsigns, check-ins, protocols, schedule toggle). Removed 190-line `bindCoordinateConverterEvents()` body (duplicate of delegation). Net: 220 lines removed.
+- **search.js:** 17 → 9 addEventListener calls. Added `setupSearchDelegation()` on stable `#search-results` container. Eliminated per-render listener attachment in `renderResults()`, `renderRecentSearches()`, `renderSuggestions()`, `renderQuickActions()` — these previously leaked listeners on every keystroke.
+
+## [6.57.12] - 2025-02-09
+
+### Fixed - Audit Critical Items
+- **SW cache:** Added `tak.js` to service worker pre-cache (was missing, broke TAK offline)
+- **Version sync:** Aligned manifest.json, CHANGELOG, and RELEASE_NOTES to 6.57.12
+- **Window assignments:** Added `window.` exports for CameraSextantModule, RangefinderModule, StarIDModule (referenced 48 times but never exposed to window)
+- **Map re-render:** Added `teamMembers` to map State subscription (mesh nodes now trigger immediate map updates)
+- **Position protobuf:** Fixed ForeignFieldError in sendPosition by using protobuf-es v2 `create()` with schema discovery
+- **Position field names:** Hardened handlePositionPacket with camelCase/snake_case fallbacks
+
+## [6.57.10] - 2025-02-09
+
+### Changed - Meshtastic BLE Direct Device Request
+
+Added fallback approach that requests Bluetooth device directly using Web Bluetooth API when `Transport.create()` is not available.
+
+**Approach:**
+1. First try `TransportWebBluetooth.create()` (official factory method)
+2. If unavailable, request Bluetooth device directly via `navigator.bluetooth.requestDevice()`
+3. Pass the device to the transport constructor
+
+**Debug Info Added:**
+- Transport static methods listing
+- Transport prototype methods listing
+- Device methods listing
+- Constructor parameter attempts
+
+Uses Meshtastic BLE Service UUID: `6ba1b218-15a8-461f-9fa8-5dcae273eafd`
+
+---
+
+## [6.57.9] - 2025-02-09
+
+### Fixed - Meshtastic Library Factory Pattern
+
+Fixed connection failures by using the correct library API pattern.
+
+**Root Cause:** The @meshtastic transport libraries use a **static factory method** (`create()`), not a constructor.
+
+**Incorrect (what we were doing):**
+```javascript
+const transport = new TransportWebBluetooth();  // ❌ Wrong
+```
+
+**Correct (official API from npm docs):**
+```javascript
+const transport = await TransportWebBluetooth.create();  // ✅ Correct
+const device = new MeshDevice(transport);
+```
+
+**Changes:**
+- `connectBLE()` - Now calls `TransportWebBluetooth.create()` factory method
+- `connectSerial()` - Now calls `TransportWebSerial.create()` factory method
+- Added fallback to constructor if `create()` is not available
+
+This matches the official documentation at https://www.npmjs.com/package/@meshtastic/transport-web-bluetooth
+
+---
+
+## [6.57.8] - 2025-02-09
+
+### Fixed - Meshtastic Connection API
+
+Fixed `transport.connect is not a function` error caused by @meshtastic library API changes.
+
+**Errors Fixed:**
+```
+TypeError: transport.connect is not a function
+TypeError: Cannot read properties of undefined (reading 'device')
+```
+
+**Root Cause:** The @meshtastic/core library changed its connection pattern in recent versions:
+- Old API: `new MeshDevice(transportInstance)` then `transport.connect()`
+- New API: `new MeshDevice()` then `device.connect({ transport: TransportClass })`
+
+**Solution:** Updated connection flow to support both API patterns:
+
+```javascript
+// 1. Try creating MeshDevice without transport (newer API)
+device = new MeshDevice();
+
+// 2. Connect with transport class as option
+await device.connect({ 
+    transport: TransportWebBluetooth,
+    concurrentLogOutput: false 
+});
+
+// 3. Falls back to older API if needed
+```
+
+Changes in `meshtastic-client.js`:
+- `connectBLE()` - Rewritten to try new API first, fallback to old
+- `connectSerial()` - Same pattern applied
+- `disconnect()` - Now tries `device.disconnect()` then `transport.disconnect()`
+
+This ensures compatibility with both the newer @meshtastic/core@2.5+ and older versions.
+
+---
+
+## [6.57.7] - 2025-02-09
+
+### Fixed - Meshtastic Transport Class Names
+
+Fixed Bluetooth and Serial connection failures caused by @meshtastic library renaming transport classes in v2.6.x.
+
+**Error Fixed:**
+```
+WebBluetoothTransport class not found. Library API may have changed.
+```
+
+**Root Cause:** The @meshtastic/transport-web-bluetooth library changed export names:
+- Old: `WebBluetoothTransport`, `WebSerialTransport`
+- New (v2.6.x): `TransportWebBluetooth`, `TransportWebSerial`
+
+**Solution:** Updated detection to try both naming patterns:
+```javascript
+// Now tries: TransportWebBluetooth → WebBluetoothTransport → BleConnection → default
+const Transport = bleTransport.TransportWebBluetooth || 
+                  bleTransport.WebBluetoothTransport || 
+                  bleTransport.BleConnection || 
+                  bleTransport.default;
+```
+
+This ensures compatibility with both older and newer versions of the Meshtastic JavaScript libraries.
+
+---
+
+## [6.57.6] - 2025-02-08
+
+### Updated - Documentation
+
+Comprehensive documentation update to reflect v6.57.x architecture.
+
+#### AUDIT_REPORT.md
+
+Completely rewritten to reflect current state:
+
+- **Module count**: 29 → 59 modules documented
+- **Code statistics**: 42K → 116K lines, 468 try/catch blocks
+- **Accessibility**: Marked as ✅ Pass (160+ ARIA attributes)
+- **Security**: Added demo mode gating documentation
+- **Platform matrix**: Updated browser/device compatibility
+- **File inventory**: Complete module listing with line counts
+
+#### ARCHITECTURE.md
+
+Completely rewritten with:
+
+- **Visual diagrams**: ASCII art showing module relationships
+- **59 modules documented**: Organized into 9 categories
+- **Hardware integration**: Web Bluetooth/Serial architecture
+- **External integrations**: TAK/CoT bridge, Meshtastic mesh diagrams
+- **Data flow**: User action → state → render pipeline
+- **Offline strategy**: Service worker caching, storage hierarchy
+- **Module pattern**: IIFE template with examples
+- **Platform compatibility**: Browser feature support matrix
+
+Module Categories:
+- Communication & Mesh Networking (8)
+- Navigation & Mapping (9)  
+- Celestial Navigation (4)
+- Hardware Integration (5)
+- Weather & Environment (6)
+- Reference & Field Guides (5)
+- SSTV (3)
+- Import/Export (3)
+- UI & System (16)
+
+---
+
+## [6.57.5] - 2025-02-08
+
+### Added - Demo/Training Mode APIs
+
+Added public APIs to support external training tools like SceneForge bridge. These enable realistic training scenarios without modifying core GridDown code.
+
+#### APRSModule
+
+```javascript
+// Inject demo APRS stations (requires demo mode)
+APRSModule.injectDemoStations([
+    { callsign: 'DEMO-1', lat: 34.05, lon: -118.24, symbol: '/-' },
+    { callsign: 'DEMO-2', lat: 34.06, lon: -118.25, symbol: '/>' }
+]);
+
+// Clear only injected demo stations (leaves real stations)
+APRSModule.clearDemoStations();
+```
+
+#### MeshtasticModule
+
+```javascript
+// Inject demo mesh nodes (requires demo mode)
+MeshtasticModule.injectDemoNodes([
+    { nodeNum: 0x12345678, longName: 'Demo User', shortName: 'DEMO' }
+]);
+
+// Inject demo messages
+MeshtasticModule.injectDemoMessages([
+    { from: 0x12345678, text: 'Check-in from sector 7', timestamp: Date.now() }
+], 0);  // Channel 0
+
+// Clear demo data
+MeshtasticModule.clearDemoNodes();
+```
+
+#### MapModule
+
+```javascript
+// Check if tiles are still loading
+MapModule.hasPendingTiles();      // Returns boolean
+MapModule.getPendingTileCount();  // Returns number
+
+// Wait for all tiles to load (useful for screenshots/exports)
+await MapModule.waitForTiles(10000);  // 10s timeout
+```
+
+#### Security
+
+Demo APIs require demo mode flag to be set:
+```javascript
+window.__GRIDDOWN_DEMO_MODE__ = true;
+// or
+window.__SCENEFORGE_DEMO_MODE__ = true;
+```
+
+Injected data is marked with `_injected: true` for identification.
+
+---
+
+## [6.57.4] - 2025-02-08
+
+### Fixed - Meshtastic Library Constructor Compatibility
+
+Fixed constructor errors when connecting to Meshtastic devices (reported with RAK WisMesh Pocket v2).
+
+#### Changes
+
+- **API Compatibility**: Updated `meshtastic-client.js` to handle different export patterns from `@meshtastic/core` library
+  - Now detects `MeshDevice`, `Client`, or default exports dynamically
+  - Supports both constructor and factory patterns for transport classes
+  - Better error messages when library API has changed
+
+- **Event Handler Robustness**: Made `setupEventHandlers()` more resilient
+  - Added null checks for all event subscriptions
+  - Falls back to `.on()` event pattern if `.events.subscribe()` not available
+  - Logs available device properties when expected API is missing
+
+- **Debugging Support**: Added `debugLibraries()` function to window.MeshtasticClient
+  - Inspects loaded library structure
+  - Shows available exports from core, BLE transport, and serial transport
+  - Helps diagnose library compatibility issues
+
+#### Technical Details
+
+The `@meshtastic/core` library has evolved over versions, with different export patterns:
+- Some versions: `export { MeshDevice }`
+- Some versions: `export default { MeshDevice }`
+- Some versions: `export { Client }` (renamed)
+
+The fix now tries multiple patterns to find the correct constructor.
+
+---
+
 ## [6.55.0] - 2025-02-01
 
 ### Added - Telemetry Export

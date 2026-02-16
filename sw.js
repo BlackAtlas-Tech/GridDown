@@ -1,12 +1,11 @@
-const CACHE_NAME = 'griddown-v6.57.3';
+const CACHE_NAME = 'griddown-v6.57.51';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
     'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
     'js/utils/helpers.js', 'js/utils/storage.js', 'js/utils/icons.js',
     'js/utils/coordinates.js', 'js/utils/events-manager.js',
-    'js/core/constants.js', 'js/core/state.js', 'js/core/events.js',
-    'js/core/history.js',
+    'js/core/log.js', 'js/core/error-boundary.js', 'js/core/constants.js', 'js/core/state.js', 'js/core/events.js',
     'js/modules/map.js', 'js/modules/sidebar.js', 'js/modules/panels.js',
     'js/modules/modals.js', 'js/modules/logistics.js', 'js/modules/gpx.js',
     'js/modules/kml.js', 'js/modules/routebuilder.js', 'js/modules/elevation.js', 
@@ -21,6 +20,7 @@ const STATIC_ASSETS = [
     'js/modules/undo.js',
     'js/modules/meshtastic.js',
     'js/modules/meshtastic-client.js',
+    'js/modules/tak.js',
     'js/modules/aprs.js',
     'js/modules/radiacode.js',
     'js/modules/rfsentinel.js',
@@ -42,6 +42,7 @@ const STATIC_ASSETS = [
     'js/modules/update.js',
     'js/modules/storagemonitor.js',
     'js/modules/networkquality.js',
+    'js/modules/qr-generator.js',
     'js/modules/team.js',
     'js/app.js'
 ];
@@ -60,6 +61,59 @@ const TILE_DOMAINS = [
 // Background sync configuration
 const SYNC_TAG = 'griddown-tile-sync';
 const PERIODIC_SYNC_TAG = 'griddown-periodic-sync';
+
+// Complete browser polyfill for Node.js util.types, served in place of esm.sh's
+// broken "unenv" stub. The @meshtastic/core logger calls isNativeError() which
+// the unenv shim throws on instead of implementing. This provides real checks.
+const UTIL_TYPES_POLYFILL = `
+// GridDown polyfill for node:util/types (replaces esm.sh unenv stub)
+export const isNativeError = (v) => v instanceof Error;
+export const isDate = (v) => v instanceof Date;
+export const isRegExp = (v) => v instanceof RegExp;
+export const isMap = (v) => v instanceof Map;
+export const isSet = (v) => v instanceof Set;
+export const isWeakMap = (v) => v instanceof WeakMap;
+export const isWeakSet = (v) => v instanceof WeakSet;
+export const isArrayBuffer = (v) => v instanceof ArrayBuffer;
+export const isDataView = (v) => v instanceof DataView;
+export const isSharedArrayBuffer = (v) => typeof SharedArrayBuffer !== 'undefined' && v instanceof SharedArrayBuffer;
+export const isPromise = (v) => v instanceof Promise;
+export const isTypedArray = (v) => ArrayBuffer.isView(v) && !(v instanceof DataView);
+export const isUint8Array = (v) => v instanceof Uint8Array;
+export const isUint16Array = (v) => v instanceof Uint16Array;
+export const isUint32Array = (v) => v instanceof Uint32Array;
+export const isInt8Array = (v) => v instanceof Int8Array;
+export const isInt16Array = (v) => v instanceof Int16Array;
+export const isInt32Array = (v) => v instanceof Int32Array;
+export const isFloat32Array = (v) => v instanceof Float32Array;
+export const isFloat64Array = (v) => v instanceof Float64Array;
+export const isBigInt64Array = (v) => typeof BigInt64Array !== 'undefined' && v instanceof BigInt64Array;
+export const isBigUint64Array = (v) => typeof BigUint64Array !== 'undefined' && v instanceof BigUint64Array;
+export const isGeneratorFunction = (v) => typeof v === 'function' && v.constructor?.name === 'GeneratorFunction';
+export const isGeneratorObject = (v) => v != null && typeof v.next === 'function' && typeof v.throw === 'function';
+export const isAsyncFunction = (v) => typeof v === 'function' && v.constructor?.name === 'AsyncFunction';
+export const isMapIterator = (v) => Object.prototype.toString.call(v) === '[object Map Iterator]';
+export const isSetIterator = (v) => Object.prototype.toString.call(v) === '[object Set Iterator]';
+export const isArgumentsObject = (v) => Object.prototype.toString.call(v) === '[object Arguments]';
+export const isBoxedPrimitive = (v) => v instanceof Number || v instanceof String || v instanceof Boolean || v instanceof BigInt || v instanceof Symbol;
+export const isNumberObject = (v) => v instanceof Number;
+export const isStringObject = (v) => v instanceof String;
+export const isBooleanObject = (v) => v instanceof Boolean;
+export const isSymbolObject = (v) => Object.prototype.toString.call(v) === '[object Symbol]';
+export const isAnyArrayBuffer = (v) => isArrayBuffer(v) || isSharedArrayBuffer(v);
+export const isProxy = (v) => false; // Cannot detect proxies in userland JS
+
+const _all = {
+    isNativeError, isDate, isRegExp, isMap, isSet, isWeakMap, isWeakSet,
+    isArrayBuffer, isDataView, isSharedArrayBuffer, isPromise, isTypedArray,
+    isUint8Array, isUint16Array, isUint32Array, isInt8Array, isInt16Array,
+    isInt32Array, isFloat32Array, isFloat64Array, isBigInt64Array, isBigUint64Array,
+    isGeneratorFunction, isGeneratorObject, isAsyncFunction, isMapIterator,
+    isSetIterator, isArgumentsObject, isBoxedPrimitive, isNumberObject,
+    isStringObject, isBooleanObject, isSymbolObject, isAnyArrayBuffer, isProxy
+};
+export default _all;
+`;
 const DB_NAME = 'griddown-db';
 const SYNC_QUEUE_STORE = 'syncQueue';
 const MAX_BATCH_SIZE = 50; // Tiles per batch in background
@@ -97,6 +151,33 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
     const url = new URL(e.request.url);
+    
+    // Intercept esm.sh's broken node:util/types polyfill.
+    // The @meshtastic/core logger calls util.types.isNativeError() which esm.sh's
+    // "unenv" shim leaves as a stub that throws "not implemented yet!". We replace
+    // the entire module with a working browser implementation before it ever evaluates.
+    //
+    // esm.sh resolves node:util/types through various versioned paths, e.g.:
+    //   /v136/unenv@1.10.0/runtime/node/util/types.mjs
+    //   /node/util/types.mjs
+    //   /v135/node/.unenv/util/types/index.mjs
+    // We use a broad match: any esm.sh URL whose path contains "util" AND "types"
+    // and serves JavaScript. This is safe because our polyfill is a superset of the
+    // real node:util/types API.
+    if (url.hostname.includes('esm.sh')) {
+        const p = url.pathname.toLowerCase();
+        if (p.includes('util') && p.includes('types') && (p.endsWith('.mjs') || p.endsWith('.js'))) {
+            console.log('[SW] Intercepting util/types polyfill:', url.pathname);
+            e.respondWith(new Response(UTIL_TYPES_POLYFILL, {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/javascript; charset=utf-8',
+                    'Cache-Control': 'public, max-age=86400'
+                }
+            }));
+            return;
+        }
+    }
     
     // Handle tile requests from any tile server - cache first (tiles rarely change)
     if (TILE_DOMAINS.includes(url.hostname)) {
