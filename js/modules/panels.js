@@ -16868,17 +16868,18 @@ ${text}
             analyzeBtn.onclick = async () => {
                 if (!analyzeLocation || terrainAnalyzing) return;
                 
+                // Read UI options BEFORE renderTerrain() rebuilds the DOM
+                const radius = parseInt(container.querySelector('#terrain-radius')?.value || 500);
+                const resolution = parseInt(container.querySelector('#terrain-resolution')?.value || 30);
+                const includeViewshed = container.querySelector('#terrain-opt-viewshed')?.checked !== false;
+                const includeFlood = container.querySelector('#terrain-opt-flood')?.checked !== false;
+                const includeCover = container.querySelector('#terrain-opt-cover')?.checked !== false;
+                
                 terrainAnalyzing = true;
                 terrainProgress = 0;
                 renderTerrain();
                 
                 try {
-                    const radius = parseInt(container.querySelector('#terrain-radius')?.value || 500);
-                    const resolution = parseInt(container.querySelector('#terrain-resolution')?.value || 30);
-                    const includeViewshed = container.querySelector('#terrain-opt-viewshed')?.checked !== false;
-                    const includeFlood = container.querySelector('#terrain-opt-flood')?.checked !== false;
-                    const includeCover = container.querySelector('#terrain-opt-cover')?.checked !== false;
-                    
                     terrainAnalysis = await TerrainModule.analyzeSite(
                         analyzeLocation.lat,
                         analyzeLocation.lon,
