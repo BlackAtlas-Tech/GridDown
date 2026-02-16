@@ -1092,41 +1092,252 @@ const TerrainModule = (function() {
      */
     async function analyzeSite(lat, lon, options = {}) {
         const date = options.date || new Date();
+        const radius = options.radius || 500;
+        const resolution = options.resolution || 30;
+        const includeViewshed = options.includeViewshed !== false;
+        const includeFlood = options.includeFlood !== false;
+        const includeCover = options.includeCover !== false;
         
-        const [slope, solar, flood, cover] = await Promise.all([
-            analyzeSlopeAt(lat, lon),
+        // Core analysis — always runs
+        const slopeData = await analyzeSlopeAt(lat, lon);
+        
+        // Parallel optional analyses
+        const [solarResult, floodResult, coverResult] = await Promise.all([
             analyzeSolarExposure(lat, lon, date),
-            analyzeFloodRisk(lat, lon),
-            assessCover(lat, lon)
+            includeFlood ? analyzeFloodRisk(lat, lon) : Promise.resolve(null),
+            includeCover ? assessCover(lat, lon) : Promise.resolve(null)
         ]);
-
-        // Calculate overall suitability scores for different purposes
-        const campingSuitability = calculateCampingSuitability(slope, solar, flood, cover);
-        const observationSuitability = calculateObservationSuitability(slope, cover);
-        const concealmentSuitability = cover.assessment.overall;
+        
+        // Viewshed (can be expensive, run separately)
+        let viewshedResult = null;
+        if (includeViewshed) {
+            try {
+                viewshedResult = await calculateViewshed(lat, lon, {
+                    maxRange: Math.min(radius, 2000),
+                    observerHeight: 1.7,
+                    resolution: Math.max(resolution, 30)
+                });
+            } catch (e) {
+                console.warn('Viewshed calculation failed:', e);
+            }
+        }
+        
+        // Area slope statistics — sample points across the radius
+        const areaSlopes = await calculateAreaSlopeStats(lat, lon, radius, resolution);
+        
+        // Trafficability for all movement modes
+        const trafficModes = ['foot', 'vehicle_4x4', 'vehicle_standard', 'atv'];
+        const trafficability = {};
+        trafficModes.forEach(mode => {
+            const rating = assessTrafficability(slopeData.slope, mode);
+            trafficability[mode] = {
+                rating,
+                passable: rating !== 'impassable',
+                description: rating === 'easy' ? 'No difficulty' :
+                    rating === 'moderate' ? 'Some difficulty on slopes' :
+                    rating === 'difficult' ? 'Challenging terrain' :
+                    rating === 'extreme' ? 'Extreme difficulty' :
+                    'Impassable for this mode'
+            };
+        });
+        
+        // Build the structure renderTerrainResults expects
+        
+        // --- pointAnalysis ---
+        const pointAnalysis = {
+            slope: slopeData.slope,
+            slopeClass: slopeData.classification,
+            aspectClass: slopeData.aspectCardinal,
+            aspect: slopeData.aspect,
+            elevation: slopeData.elevation
+        };
+        
+        // --- viewshed ---
+        const viewshed = viewshedResult ? {
+            coverage: viewshedResult.summary?.coveragePercent || 0,
+            maxVisibleDistance: viewshedResult.summary?.maxVisibleDistance || 0,
+            visible: viewshedResult.rays?.flatMap(r => r.points.filter(p => p.visible)) || [],
+            hidden: viewshedResult.rays?.flatMap(r => r.points.filter(p => !p.visible)) || [],
+            blindSpots: viewshedResult.blindSpots || []
+        } : {};
+        
+        // --- floodRisk ---
+        const floodRisk = floodResult ? {
+            riskLevel: floodResult.risk?.level || 'unknown',
+            riskScore: floodResult.risk?.score || 0,
+            risks: buildFloodRisks(floodResult),
+            recommendation: floodResult.recommendations?.camping || 'No data available'
+        } : {};
+        
+        // --- coverConcealment ---
+        const coverConcealment = coverResult ? {
+            defilade: deriveDefiladeType(coverResult),
+            concealmentRating: coverResult.assessment?.concealment?.score || 0,
+            terrainMasking: coverResult.terrainMask?.maskingPercent || 0,
+            coverDirections: coverResult.terrainMask?.maskedDirections?.map(d => d.cardinal) || [],
+            exposedDirections: deriveExposedDirections(coverResult),
+            tacticalNotes: coverResult.tacticalNotes || []
+        } : {};
+        
+        // --- solarExposure ---
+        const solarExposure = {
+            exposureScore: solarResult.exposure?.score || 0,
+            exposureClass: solarResult.exposure?.category || 'unknown',
+            estimatedSunHours: estimateSunHours(solarResult),
+            sunDirection: slopeData.aspect >= 135 && slopeData.aspect <= 225 ? 'South-facing' :
+                slopeData.aspect >= 45 && slopeData.aspect < 135 ? 'East-facing' :
+                slopeData.aspect > 225 && slopeData.aspect <= 315 ? 'West-facing' : 'North-facing',
+            aspectAlignment: solarResult.exposure?.aspectScore || 0,
+            idealForCamping: (solarResult.exposure?.score || 0) >= 40 && (solarResult.exposure?.score || 0) <= 70,
+            shaded: (solarResult.exposure?.score || 0) < 30
+        };
+        
+        // Calculate overall suitability scores
+        const campingSuitability = calculateCampingSuitability(slopeData, solarResult, floodResult, coverResult);
+        const observationSuitability = calculateObservationSuitability(slopeData, coverResult);
+        const concealmentSuitability = coverResult?.assessment?.overall || 0;
 
         return {
             location: { lat, lon },
             timestamp: new Date().toISOString(),
-            slope,
-            solar: solar.exposure,
-            flood: flood.risk,
-            cover: cover.assessment,
+            centerElevation: slopeData.elevation,
+            pointAnalysis,
+            slope: {
+                ...slopeData,
+                statistics: areaSlopes
+            },
+            viewshed,
+            floodRisk,
+            coverConcealment,
+            solarExposure,
+            trafficability,
             suitability: {
                 camping: campingSuitability,
                 observation: observationSuitability,
                 concealment: concealmentSuitability
             },
-            summary: generateSiteSummary(slope, solar, flood, cover),
-            recommendations: generateSiteRecommendations(slope, solar, flood, cover)
+            summary: generateSiteSummary(slopeData, solarResult, floodResult, coverResult),
+            recommendations: generateSiteRecommendations(slopeData, solarResult, floodResult, coverResult)
         };
+    }
+    
+    /**
+     * Calculate slope statistics across an area
+     */
+    async function calculateAreaSlopeStats(lat, lon, radius, resolution) {
+        const sampleRadius = Math.min(radius, 500);
+        const step = Math.max(resolution, 50);
+        const slopes = [];
+        
+        // Sample in a grid pattern
+        const gridSteps = Math.min(5, Math.ceil(sampleRadius / step));
+        
+        for (let i = -gridSteps; i <= gridSteps; i++) {
+            for (let j = -gridSteps; j <= gridSteps; j++) {
+                const dist = Math.sqrt(i * i + j * j) * step;
+                if (dist > sampleRadius) continue;
+                
+                const sLat = lat + metersToDegLat(i * step);
+                const sLon = lon + metersToDegLon(j * step, lat);
+                
+                try {
+                    const s = await analyzeSlopeAt(sLat, sLon, 15);
+                    slopes.push(s.slope);
+                } catch {
+                    continue;
+                }
+            }
+        }
+        
+        if (slopes.length === 0) {
+            return { min: 0, max: 0, mean: 0, distribution: {}, percentages: {} };
+        }
+        
+        slopes.sort((a, b) => a - b);
+        const min = slopes[0];
+        const max = slopes[slopes.length - 1];
+        const mean = slopes.reduce((a, b) => a + b, 0) / slopes.length;
+        
+        // Distribution by slope class
+        const distribution = { flat: 0, gentle: 0, moderate: 0, steep: 0, extreme: 0 };
+        slopes.forEach(s => {
+            if (s <= 5) distribution.flat++;
+            else if (s <= 15) distribution.gentle++;
+            else if (s <= 25) distribution.moderate++;
+            else if (s <= 35) distribution.steep++;
+            else distribution.extreme++;
+        });
+        
+        const total = slopes.length;
+        const percentages = {};
+        for (const [key, count] of Object.entries(distribution)) {
+            percentages[key] = Math.round(count / total * 100);
+        }
+        
+        return { min, max, mean, distribution, percentages };
+    }
+    
+    /**
+     * Build flood risk factors array from flood analysis result
+     */
+    function buildFloodRisks(floodResult) {
+        if (!floodResult) return [];
+        const risks = [];
+        
+        if (floodResult.terrain?.position === 'valley') {
+            risks.push({ type: 'valley-position', severity: 'high', description: 'Located in valley floor — susceptible to water accumulation' });
+        } else if (floodResult.terrain?.position === 'lower_slope') {
+            risks.push({ type: 'low-position', severity: 'moderate', description: 'Lower slope position — moderate drainage exposure' });
+        }
+        
+        if (floodResult.drainage?.elevationAbove < 5) {
+            risks.push({ type: 'near-drainage', severity: 'high', description: `Only ${floodResult.drainage.elevationAbove}m above nearest drainage` });
+        } else if (floodResult.drainage?.elevationAbove < 15) {
+            risks.push({ type: 'drainage-proximity', severity: 'moderate', description: `${floodResult.drainage.elevationAbove}m above drainage — monitor in heavy rain` });
+        }
+        
+        if (floodResult.risk?.runoffRisk?.includes('runoff from upslope')) {
+            risks.push({ type: 'runoff', severity: 'moderate', description: 'May receive surface runoff from higher terrain' });
+        }
+        
+        return risks;
+    }
+    
+    /**
+     * Derive defilade type from cover analysis
+     */
+    function deriveDefiladeType(coverResult) {
+        if (!coverResult?.terrainMask) return 'none';
+        const pct = coverResult.terrainMask.maskingPercent || 0;
+        if (pct >= 75) return 'full-defilade';
+        if (pct >= 50) return 'hull-defilade';
+        if (pct >= 25) return 'partial-defilade';
+        return 'none';
+    }
+    
+    /**
+     * Derive exposed directions (complement of masked directions)
+     */
+    function deriveExposedDirections(coverResult) {
+        const allCardinals = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+        const masked = coverResult?.terrainMask?.maskedDirections?.map(d => d.cardinal) || [];
+        return allCardinals.filter(d => !masked.includes(d));
+    }
+    
+    /**
+     * Estimate sun hours from solar analysis
+     */
+    function estimateSunHours(solarResult) {
+        const score = solarResult?.exposure?.score || 0;
+        // Rough estimate: full exposure ~ 10-12h, scale linearly
+        return Math.round(score / 100 * 11 * 10) / 10;
     }
 
     function calculateCampingSuitability(slope, solar, flood, cover) {
         let score = 100;
         const issues = [];
 
-        // Slope penalty
+        // Slope penalty — slope is raw analyzeSlopeAt result
         if (slope.slope > 15) {
             score -= 30;
             issues.push('Too steep for comfortable camping');
@@ -1135,19 +1346,23 @@ const TerrainModule = (function() {
             issues.push('Sloped ground');
         }
 
-        // Flood risk penalty
-        if (flood.risk.level === 'high') {
-            score -= 50;
-            issues.push('HIGH FLOOD RISK');
-        } else if (flood.risk.level === 'moderate') {
-            score -= 25;
-            issues.push('Moderate flood risk');
+        // Flood risk penalty — flood is raw analyzeFloodRisk result or null
+        if (flood && flood.risk) {
+            if (flood.risk.level === 'high') {
+                score -= 50;
+                issues.push('HIGH FLOOD RISK');
+            } else if (flood.risk.level === 'moderate') {
+                score -= 25;
+                issues.push('Moderate flood risk');
+            }
         }
 
-        // Cover bonus/penalty for weather protection
-        if (cover.assessment.concealment.rating === 'poor') {
-            score -= 10;
-            issues.push('Exposed to elements');
+        // Cover bonus/penalty — cover is raw assessCover result or null
+        if (cover && cover.assessment && cover.assessment.concealment) {
+            if (cover.assessment.concealment.rating === 'poor') {
+                score -= 10;
+                issues.push('Exposed to elements');
+            }
         }
 
         return {
@@ -1166,12 +1381,14 @@ const TerrainModule = (function() {
         }
 
         // Concealment is bad for observation post
-        if (cover.assessment.concealment.rating === 'excellent') {
-            score -= 20; // Can't see out either
+        if (cover && cover.assessment && cover.assessment.concealment) {
+            if (cover.assessment.concealment.rating === 'excellent') {
+                score -= 20;
+            }
         }
 
         // Rough terrain can be good for protection while observing
-        if (cover.roughness.roughnessIndex > 40) {
+        if (cover && cover.roughness && cover.roughness.roughnessIndex > 40) {
             score += 15;
         }
 
@@ -1185,9 +1402,11 @@ const TerrainModule = (function() {
         const parts = [];
 
         parts.push(`Elevation ${slope.elevation}m, ${slope.classification} slope (${slope.slope}°) facing ${slope.aspectCardinal}`);
-        parts.push(`Solar: ${solar.exposure.category} (${solar.exposure.score}%)`);
-        parts.push(`Flood risk: ${flood.risk.level}`);
-        parts.push(`Cover: ${cover.assessment.concealment.rating} concealment, ${cover.assessment.cover.rating} protection`);
+        parts.push(`Solar: ${solar?.exposure?.category || 'unknown'} (${solar?.exposure?.score || 0}%)`);
+        parts.push(`Flood risk: ${flood?.risk?.level || 'not assessed'}`);
+        if (cover && cover.assessment) {
+            parts.push(`Cover: ${cover.assessment.concealment?.rating || 'unknown'} concealment, ${cover.assessment.cover?.rating || 'unknown'} protection`);
+        }
 
         return parts.join('. ');
     }
@@ -1195,7 +1414,7 @@ const TerrainModule = (function() {
     function generateSiteRecommendations(slope, solar, flood, cover) {
         const recs = [];
 
-        if (flood.risk.level === 'high') {
+        if (flood && flood.risk && flood.risk.level === 'high') {
             recs.push({ priority: 'critical', text: 'Move to higher ground - flash flood risk' });
         }
 
@@ -1203,11 +1422,11 @@ const TerrainModule = (function() {
             recs.push({ priority: 'moderate', text: 'Consider flatter terrain for camp setup' });
         }
 
-        if (solar.exposure.score < 40) {
+        if (solar && solar.exposure && solar.exposure.score < 40) {
             recs.push({ priority: 'info', text: 'Limited sun - plan for cooler conditions' });
         }
 
-        if (cover.assessment.concealment.score < 30) {
+        if (cover && cover.assessment && cover.assessment.concealment && cover.assessment.concealment.score < 30) {
             recs.push({ priority: 'info', text: 'Exposed position - consider terrain for privacy/security' });
         }
 

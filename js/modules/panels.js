@@ -16881,7 +16881,14 @@ ${text}
                     
                     terrainAnalysis = await TerrainModule.analyzeSite(
                         analyzeLocation.lat,
-                        analyzeLocation.lon
+                        analyzeLocation.lon,
+                        {
+                            radius,
+                            resolution,
+                            includeViewshed,
+                            includeFlood,
+                            includeCover
+                        }
                     );
                     
                     ModalsModule.showToast('Terrain analysis complete', 'success');
