@@ -16952,14 +16952,13 @@ ${text}
     function renderSlopeDistribution(distribution, percentages) {
         if (!distribution) return '<div class="terrain-no-data">No data available</div>';
         
-        const classes = ['flat', 'gentle', 'moderate', 'steep', 'extreme', 'cliff'];
+        const classes = ['flat', 'gentle', 'moderate', 'steep', 'extreme'];
         const colors = {
             flat: '#22c55e',
             gentle: '#84cc16',
             moderate: '#f59e0b',
             steep: '#ef4444',
-            extreme: '#7c2d12',
-            cliff: '#1f2937'
+            extreme: '#7c2d12'
         };
         
         return classes.map(cls => `
@@ -16982,26 +16981,28 @@ ${text}
         const vehicles = [
             { key: 'foot', name: 'On Foot', icon: '🚶' },
             { key: 'atv', name: 'ATV/UTV', icon: '🏍️' },
-            { key: 'jeep', name: '4x4 Vehicle', icon: '🚙' },
-            { key: 'truck', name: 'Truck', icon: '🚛' },
-            { key: 'wheeled', name: 'Standard Vehicle', icon: '🚗' }
+            { key: 'vehicle_4x4', name: '4x4 Vehicle', icon: '🚙' },
+            { key: 'vehicle_standard', name: 'Standard Vehicle', icon: '🚗' }
         ];
         
         return vehicles.map(v => {
             const data = traffic[v.key];
             if (!data) return '';
             
-            const passable = data.passablePercent >= 80;
-            const difficult = data.passablePercent >= 50 && data.passablePercent < 80;
+            const ratingClass = data.passable ? 
+                (data.rating === 'easy' ? 'terrain-traffic--pass' : 'terrain-traffic--diff') :
+                'terrain-traffic--fail';
+            const badge = data.passable ? 
+                (data.rating === 'easy' ? '✓' : '⚠') : '✗';
             
             return `
-                <div class="terrain-traffic-item ${passable ? 'terrain-traffic--pass' : difficult ? 'terrain-traffic--diff' : 'terrain-traffic--fail'}">
+                <div class="terrain-traffic-item ${ratingClass}">
                     <div class="terrain-traffic-icon">${v.icon}</div>
                     <div class="terrain-traffic-info">
                         <div class="terrain-traffic-name">${v.name}</div>
-                        <div class="terrain-traffic-status">${data.passablePercent}% passable</div>
+                        <div class="terrain-traffic-status">${data.rating} — ${data.description}</div>
                     </div>
-                    <div class="terrain-traffic-badge">${passable ? '✓' : difficult ? '⚠' : '✗'}</div>
+                    <div class="terrain-traffic-badge">${badge}</div>
                 </div>
             `;
         }).join('');
@@ -17110,7 +17111,7 @@ ${text}
             report += `\n`;
         }
         
-        if (a.viewshed) {
+        if (a.viewshed?.coverage !== undefined) {
             report += `VIEWSHED\n`;
             report += `--------\n`;
             report += `Coverage: ${a.viewshed.coverage}%\n`;
@@ -17125,7 +17126,7 @@ ${text}
             report += `Best Direction: ${a.solarExposure.sunDirection}\n\n`;
         }
         
-        if (a.floodRisk) {
+        if (a.floodRisk?.riskLevel) {
             report += `FLOOD RISK\n`;
             report += `----------\n`;
             report += `Level: ${a.floodRisk.riskLevel?.toUpperCase()}\n`;
@@ -17133,7 +17134,7 @@ ${text}
             report += `Recommendation: ${a.floodRisk.recommendation}\n\n`;
         }
         
-        if (a.coverConcealment) {
+        if (a.coverConcealment?.defilade) {
             report += `COVER & CONCEALMENT\n`;
             report += `-------------------\n`;
             report += `Rating: ${a.coverConcealment.concealmentRating}%\n`;
@@ -17152,7 +17153,8 @@ ${text}
             report += `TRAFFICABILITY\n`;
             report += `--------------\n`;
             Object.entries(a.trafficability).forEach(([k, v]) => {
-                report += `${k}: ${v.passablePercent}% passable\n`;
+                const label = k.replace(/_/g, ' ');
+                report += `${label}: ${v.rating}${v.passable ? '' : ' (IMPASSABLE)'} — ${v.description}\n`;
             });
         }
         

@@ -1090,6 +1090,120 @@ const TerrainModule = (function() {
      * @param {Object} options - Analysis options
      * @returns {Promise<Object>} Complete site analysis
      */
+    /**
+     * Batch-prefetch elevation data for all coordinates needed by an analysis.
+     * ElevationModule.fetchElevations() supports 100 coords per HTTP request
+     * and caches results, so subsequent getElevation() calls hit cache.
+     */
+    async function prefetchElevationGrid(lat, lon, options = {}) {
+        if (typeof ElevationModule === 'undefined' || !ElevationModule.fetchElevations) return;
+        
+        const radius = options.radius || 500;
+        const includeViewshed = options.includeViewshed !== false;
+        const includeFlood = options.includeFlood !== false;
+        const includeCover = options.includeCover !== false;
+        
+        const coords = new Map(); // dedup by key
+        const addCoord = (lt, ln) => {
+            const key = `${lt.toFixed(4)},${ln.toFixed(4)}`;
+            if (!coords.has(key)) coords.set(key, { lat: lt, lon: ln });
+        };
+        
+        // Center slope (9 points)
+        const slopeRadius = 30;
+        addCoord(lat, lon);
+        for (const [dLat, dLon] of [
+            [1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]
+        ]) {
+            addCoord(
+                lat + dLat * metersToDegLat(slopeRadius),
+                lon + dLon * metersToDegLon(slopeRadius, lat)
+            );
+        }
+        
+        // Flood risk grid (reduced: gridSize=5 → 11×11)
+        if (includeFlood) {
+            const floodRadius = Math.min(radius, CONFIG.flood.drainageSearchRadius);
+            const floodStep = floodRadius / 5;
+            for (let i = -5; i <= 5; i++) {
+                for (let j = -5; j <= 5; j++) {
+                    if (Math.sqrt(i*i + j*j) * floodStep <= floodRadius) {
+                        addCoord(
+                            lat + metersToDegLat(i * floodStep),
+                            lon + metersToDegLon(j * floodStep, lat)
+                        );
+                    }
+                }
+            }
+        }
+        
+        // Cover roughness grid (7×7) + masking (8 dirs)
+        if (includeCover) {
+            const roughWindow = CONFIG.cover.roughnessWindow;
+            const roughStep = roughWindow / 3;
+            for (let i = -3; i <= 3; i++) {
+                for (let j = -3; j <= 3; j++) {
+                    addCoord(
+                        lat + metersToDegLat(i * roughStep),
+                        lon + metersToDegLon(j * roughStep, lat)
+                    );
+                }
+            }
+            // Masking directions
+            for (const bearing of [0, 45, 90, 135, 180, 225, 270, 315]) {
+                const pt = destinationPoint(lat, lon, 100, bearing);
+                addCoord(pt.lat, pt.lon);
+            }
+        }
+        
+        // Viewshed rays (36 rays, 50m resolution, capped range)
+        if (includeViewshed) {
+            const vsRange = Math.min(radius, 2000);
+            const vsResolution = Math.max(50, Math.ceil(vsRange / 15));
+            const vsRays = 36;
+            for (let angle = 0; angle < 360; angle += 360 / vsRays) {
+                const steps = Math.ceil(vsRange / vsResolution);
+                for (let s = 1; s <= steps; s++) {
+                    const pt = destinationPoint(lat, lon, s * vsResolution, angle);
+                    addCoord(pt.lat, pt.lon);
+                }
+            }
+        }
+        
+        // Area slope stats grid (3-step grid × 9 neighbors each)
+        const areaStep = Math.max(50, Math.ceil(radius / 5));
+        const areaGridSteps = Math.min(3, Math.ceil(Math.min(radius, 500) / areaStep));
+        for (let i = -areaGridSteps; i <= areaGridSteps; i++) {
+            for (let j = -areaGridSteps; j <= areaGridSteps; j++) {
+                const dist = Math.sqrt(i*i + j*j) * areaStep;
+                if (dist > Math.min(radius, 500)) continue;
+                const cLat = lat + metersToDegLat(i * areaStep);
+                const cLon = lon + metersToDegLon(j * areaStep, lat);
+                addCoord(cLat, cLon);
+                // Plus 8 neighbors for each slope sample
+                const sr = 15;
+                for (const [dLat, dLon] of [
+                    [1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]
+                ]) {
+                    addCoord(
+                        cLat + dLat * metersToDegLat(sr),
+                        cLon + dLon * metersToDegLon(sr, cLat)
+                    );
+                }
+            }
+        }
+        
+        // Batch fetch all coordinates
+        const allCoords = Array.from(coords.values());
+        console.log(`[Terrain] Prefetching ${allCoords.length} elevation points in ${Math.ceil(allCoords.length / 100)} batch(es)`);
+        
+        try {
+            await ElevationModule.fetchElevations(allCoords);
+        } catch (e) {
+            console.warn('[Terrain] Batch prefetch failed, will fall back to individual requests:', e);
+        }
+    }
+
     async function analyzeSite(lat, lon, options = {}) {
         const date = options.date || new Date();
         const radius = options.radius || 500;
@@ -1098,31 +1212,39 @@ const TerrainModule = (function() {
         const includeFlood = options.includeFlood !== false;
         const includeCover = options.includeCover !== false;
         
-        // Core analysis — always runs
+        // STEP 1: Batch-prefetch ALL elevation data in ~10 HTTP requests
+        // instead of ~7000+ individual requests. ElevationModule caches results,
+        // so subsequent getElevation() calls will be instant cache hits.
+        await prefetchElevationGrid(lat, lon, {
+            radius, includeViewshed, includeFlood, includeCover
+        });
+        
+        // STEP 2: Core analysis — now runs against cached elevation data
         const slopeData = await analyzeSlopeAt(lat, lon);
         
-        // Parallel optional analyses
+        // Parallel optional analyses (all cache hits now)
         const [solarResult, floodResult, coverResult] = await Promise.all([
             analyzeSolarExposure(lat, lon, date),
             includeFlood ? analyzeFloodRisk(lat, lon) : Promise.resolve(null),
             includeCover ? assessCover(lat, lon) : Promise.resolve(null)
         ]);
         
-        // Viewshed (can be expensive, run separately)
+        // Viewshed (reduced: 36 rays instead of 360)
         let viewshedResult = null;
         if (includeViewshed) {
             try {
                 viewshedResult = await calculateViewshed(lat, lon, {
                     maxRange: Math.min(radius, 2000),
                     observerHeight: 1.7,
-                    resolution: Math.max(resolution, 30)
+                    rayCount: 36,
+                    resolution: Math.max(50, Math.ceil(Math.min(radius, 2000) / 15))
                 });
             } catch (e) {
                 console.warn('Viewshed calculation failed:', e);
             }
         }
         
-        // Area slope statistics — sample points across the radius
+        // Area slope statistics
         const areaSlopes = await calculateAreaSlopeStats(lat, lon, radius, resolution);
         
         // Trafficability for all movement modes
@@ -1436,11 +1558,14 @@ const TerrainModule = (function() {
     // ==================== Helper Functions ====================
 
     /**
-     * Get elevation (uses ElevationModule if available)
+     * Get elevation in METERS (ElevationModule returns feet, convert here)
      */
     async function getElevation(lat, lon) {
         if (typeof ElevationModule !== 'undefined') {
-            return await ElevationModule.getElevation(lat, lon);
+            const elev = await ElevationModule.getElevation(lat, lon);
+            if (elev === null || elev === undefined || isNaN(elev)) return 0;
+            // ElevationModule returns FEET — convert to meters
+            return elev / 3.28084;
         }
         // Fallback to mock data
         return 1000 + Math.random() * 500;
