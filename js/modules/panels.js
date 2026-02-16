@@ -69,11 +69,24 @@ const PanelsModule = (function() {
         // Cache hot DOM references
         modalContainer = document.getElementById('modal-container');
         
+        // Inject persistent close button into panel element (above scrolling content)
+        const panelEl = document.getElementById('panel');
+        if (panelEl && !panelEl.querySelector('.panel__close-btn')) {
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'panel__close-btn';
+            closeBtn.setAttribute('aria-label', 'Close panel');
+            closeBtn.setAttribute('title', 'Close panel');
+            closeBtn.innerHTML = Icons.get('close');
+            closeBtn.onclick = () => State.UI.closePanel();
+            panelEl.appendChild(closeBtn);
+        }
+        
         // Setup event delegation for panel interactions
         setupEventDelegation();
         
         render();
         State.subscribe(render, ['activePanel', 'waypoints', 'routes', 'mapLayers', 'selectedWaypoint', 'selectedVehicle', 'waypointFilter', 'mapRegions', 'teamMembers']);
+        State.subscribe(updatePanelVisibility, ['isPanelOpen']);
         const offlineBtn = domCache.get('offline-toggle');
         if (offlineBtn) offlineBtn.onclick = () => { State.UI.toggleOffline(); updateOfflineToggle(); };
         updateOfflineToggle();
@@ -592,9 +605,34 @@ const PanelsModule = (function() {
             container.scrollTop = savedScroll;
         }
         
+        updatePanelVisibility();
+    }
+
+    /**
+     * Manage panel open/collapsed classes based on isPanelOpen state.
+     * Mobile/tablet: toggles panel--open (transform-based slide).
+     * Desktop: toggles panel--collapsed (width-based collapse).
+     * Separated from render() so isPanelOpen changes don't trigger full content re-render.
+     */
+    function updatePanelVisibility() {
         const panelEl = document.getElementById('panel');
-        if (Helpers.isMobile() && State.get('isPanelOpen')) panelEl.classList.add('panel--open');
-        else panelEl.classList.remove('panel--open');
+        if (!panelEl) return;
+        
+        const isPanelOpen = State.get('isPanelOpen');
+        
+        if (Helpers.isMobile()) {
+            // Mobile/tablet: slide in/out via CSS transform
+            if (isPanelOpen) panelEl.classList.add('panel--open');
+            else panelEl.classList.remove('panel--open');
+            panelEl.classList.remove('panel--collapsed');
+        } else {
+            // Desktop: collapse/expand in flex layout
+            if (isPanelOpen) {
+                panelEl.classList.remove('panel--collapsed');
+            } else {
+                panelEl.classList.add('panel--collapsed');
+            }
+        }
     }
 
     /**
