@@ -1121,13 +1121,16 @@ const TerrainModule = (function() {
             );
         }
         
-        // Flood risk grid (reduced: gridSize=5 → 11×11)
+        // Flood risk grid — MUST match analyzeFloodRisk() parameters
+        // analyzeFloodRisk uses gridSize=10 with step = radius/gridSize
         if (includeFlood) {
             const floodRadius = Math.min(radius, CONFIG.flood.drainageSearchRadius);
-            const floodStep = floodRadius / 5;
-            for (let i = -5; i <= 5; i++) {
-                for (let j = -5; j <= 5; j++) {
-                    if (Math.sqrt(i*i + j*j) * floodStep <= floodRadius) {
+            const floodGridSize = 10;
+            const floodStep = floodRadius / floodGridSize;
+            for (let i = -floodGridSize; i <= floodGridSize; i++) {
+                for (let j = -floodGridSize; j <= floodGridSize; j++) {
+                    const distance = Math.sqrt(i*i + j*j) * floodStep;
+                    if (distance <= floodRadius) {
                         addCoord(
                             lat + metersToDegLat(i * floodStep),
                             lon + metersToDegLon(j * floodStep, lat)
@@ -1137,12 +1140,14 @@ const TerrainModule = (function() {
             }
         }
         
-        // Cover roughness grid (7×7) + masking (8 dirs)
+        // Cover roughness grid — MUST match calculateTerrainRoughness() parameters
+        // calculateTerrainRoughness uses gridSize=5 with step = window/gridSize
         if (includeCover) {
             const roughWindow = CONFIG.cover.roughnessWindow;
-            const roughStep = roughWindow / 3;
-            for (let i = -3; i <= 3; i++) {
-                for (let j = -3; j <= 3; j++) {
+            const roughGridSize = 5;
+            const roughStep = roughWindow / roughGridSize;
+            for (let i = -roughGridSize; i <= roughGridSize; i++) {
+                for (let j = -roughGridSize; j <= roughGridSize; j++) {
                     addCoord(
                         lat + metersToDegLat(i * roughStep),
                         lon + metersToDegLon(j * roughStep, lat)
@@ -1170,17 +1175,19 @@ const TerrainModule = (function() {
             }
         }
         
-        // Area slope stats grid (3-step grid × 9 neighbors each)
-        const areaStep = Math.max(50, Math.ceil(radius / 5));
-        const areaGridSteps = Math.min(3, Math.ceil(Math.min(radius, 500) / areaStep));
+        // Area slope stats grid — MUST match calculateAreaSlopeStats() parameters
+        // to ensure all coordinates are pre-cached.
+        const areaStep = Math.max(options.resolution || 30, 50);
+        const areaSampleRadius = Math.min(radius, 500);
+        const areaGridSteps = Math.min(5, Math.ceil(areaSampleRadius / areaStep));
         for (let i = -areaGridSteps; i <= areaGridSteps; i++) {
             for (let j = -areaGridSteps; j <= areaGridSteps; j++) {
                 const dist = Math.sqrt(i*i + j*j) * areaStep;
-                if (dist > Math.min(radius, 500)) continue;
+                if (dist > areaSampleRadius) continue;
                 const cLat = lat + metersToDegLat(i * areaStep);
                 const cLon = lon + metersToDegLon(j * areaStep, lat);
                 addCoord(cLat, cLon);
-                // Plus 8 neighbors for each slope sample
+                // Plus 8 neighbors for each slope sample (analyzeSlopeAt uses radius=15)
                 const sr = 15;
                 for (const [dLat, dLon] of [
                     [1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]
@@ -1225,7 +1232,7 @@ const TerrainModule = (function() {
         // so subsequent getElevation() calls will be instant cache hits.
         report(5, 'Fetching elevation data');
         await prefetchElevationGrid(lat, lon, {
-            radius, includeViewshed, includeFlood, includeCover
+            radius, resolution, includeViewshed, includeFlood, includeCover
         });
         report(35, 'Elevation data cached');
         

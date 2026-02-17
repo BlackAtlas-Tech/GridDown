@@ -12,6 +12,16 @@ const ElevationModule = (function() {
     // API endpoint
     const ELEVATION_API = 'https://api.open-meteo.com/v1/elevation';
     
+    // Rate-limit / retry configuration
+    const MAX_RETRIES = 3;
+    const BASE_BACKOFF_MS = 1000;       // 1s → 2s → 4s
+    const BATCH_DELAY_MS = 100;         // delay between sequential batches
+    
+    // Request coalescing for individual getElevation() calls
+    let _coalesceTimer = null;
+    let _coalescePending = [];           // [{lat, lon, resolve, reject}]
+    const COALESCE_DELAY_MS = 25;        // collect individual requests for 25ms
+    
     let initialized = false;
 
     /**
@@ -31,6 +41,78 @@ const ElevationModule = (function() {
      */
     function getCacheKey(lat, lon) {
         return `${lat.toFixed(CACHE_PRECISION)},${lon.toFixed(CACHE_PRECISION)}`;
+    }
+
+    /**
+     * Sleep helper for backoff delays
+     */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Fetch a single batch with retry + exponential backoff on 429
+     * @param {Array} batch - Array of {index, coord} objects
+     * @param {Array} results - Shared results array to fill
+     */
+    async function fetchBatchWithRetry(batch, results) {
+        const lats = batch.map(b => b.coord.lat.toFixed(6)).join(',');
+        const lons = batch.map(b => b.coord.lon.toFixed(6)).join(',');
+        
+        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const response = await fetch(
+                    `${ELEVATION_API}?latitude=${lats}&longitude=${lons}`
+                );
+                
+                if (response.status === 429) {
+                    // Rate limited — parse Retry-After header if present, else use backoff
+                    const retryAfter = response.headers.get('Retry-After');
+                    const delayMs = retryAfter 
+                        ? parseInt(retryAfter, 10) * 1000 
+                        : BASE_BACKOFF_MS * Math.pow(2, attempt);
+                    
+                    if (attempt < MAX_RETRIES) {
+                        console.warn(`[Elevation] 429 rate limited, retry ${attempt + 1}/${MAX_RETRIES} after ${delayMs}ms`);
+                        await sleep(delayMs);
+                        continue;
+                    } else {
+                        throw new Error(`Elevation API rate limited after ${MAX_RETRIES} retries`);
+                    }
+                }
+                
+                if (!response.ok) {
+                    throw new Error(`Elevation API error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.elevation && Array.isArray(data.elevation)) {
+                    batch.forEach((b, i) => {
+                        const elevation = data.elevation[i];
+                        const elevationFeet = elevation * 3.28084; // Convert meters to feet
+                        results[b.index] = elevationFeet;
+                        
+                        // Cache the result
+                        const key = getCacheKey(b.coord.lat, b.coord.lon);
+                        elevationCache.set(key, elevationFeet);
+                    });
+                }
+                
+                return; // Success — exit retry loop
+                
+            } catch (err) {
+                if (attempt === MAX_RETRIES) {
+                    console.error('Elevation fetch error:', err);
+                    // Fill with null for failed fetches
+                    batch.forEach(b => {
+                        if (results[b.index] === undefined) {
+                            results[b.index] = null;
+                        }
+                    });
+                }
+            }
+        }
     }
 
     /**
@@ -64,41 +146,13 @@ const ElevationModule = (function() {
             batches.push(uncached.slice(i, i + 100));
         }
 
-        // Fetch each batch
-        for (const batch of batches) {
-            try {
-                const lats = batch.map(b => b.coord.lat.toFixed(6)).join(',');
-                const lons = batch.map(b => b.coord.lon.toFixed(6)).join(',');
-                
-                const response = await fetch(
-                    `${ELEVATION_API}?latitude=${lats}&longitude=${lons}`
-                );
-                
-                if (!response.ok) {
-                    throw new Error(`Elevation API error: ${response.status}`);
-                }
-                
-                const data = await response.json();
-                
-                if (data.elevation && Array.isArray(data.elevation)) {
-                    batch.forEach((b, i) => {
-                        const elevation = data.elevation[i];
-                        const elevationFeet = elevation * 3.28084; // Convert meters to feet
-                        results[b.index] = elevationFeet;
-                        
-                        // Cache the result
-                        const key = getCacheKey(b.coord.lat, b.coord.lon);
-                        elevationCache.set(key, elevationFeet);
-                    });
-                }
-            } catch (err) {
-                console.error('Elevation fetch error:', err);
-                // Fill with null for failed fetches
-                batch.forEach(b => {
-                    if (results[b.index] === undefined) {
-                        results[b.index] = null;
-                    }
-                });
+        // Fetch each batch sequentially with retry and inter-batch delay
+        for (let i = 0; i < batches.length; i++) {
+            await fetchBatchWithRetry(batches[i], results);
+            
+            // Add delay between batches to stay within rate limits
+            if (i < batches.length - 1) {
+                await sleep(BATCH_DELAY_MS);
             }
         }
 
@@ -106,14 +160,49 @@ const ElevationModule = (function() {
     }
     
     /**
+     * Flush coalesced individual requests as a single batch
+     */
+    async function _flushCoalesced() {
+        const pending = _coalescePending;
+        _coalescePending = [];
+        _coalesceTimer = null;
+        
+        if (pending.length === 0) return;
+        
+        try {
+            const coords = pending.map(p => ({ lat: p.lat, lon: p.lon }));
+            const results = await fetchElevations(coords);
+            
+            pending.forEach((p, i) => {
+                p.resolve(results[i] ?? null);
+            });
+        } catch (err) {
+            pending.forEach(p => p.reject(err));
+        }
+    }
+    
+    /**
      * Get elevation for a single point
+     * Coalesces rapid individual calls into batched requests
      * @param {number} lat - Latitude
      * @param {number} lon - Longitude
      * @returns {Promise<number|null>} Elevation in feet or null on error
      */
     async function getElevation(lat, lon) {
-        const results = await fetchElevations([{ lat, lon }]);
-        return results.length > 0 ? results[0] : null;
+        // Check cache synchronously first — avoid coalescing overhead for hits
+        const key = getCacheKey(lat, lon);
+        if (elevationCache.has(key)) {
+            return elevationCache.get(key);
+        }
+        
+        // Queue into coalescing batch
+        return new Promise((resolve, reject) => {
+            _coalescePending.push({ lat, lon, resolve, reject });
+            
+            if (!_coalesceTimer) {
+                _coalesceTimer = setTimeout(_flushCoalesced, COALESCE_DELAY_MS);
+            }
+        });
     }
 
     /**
