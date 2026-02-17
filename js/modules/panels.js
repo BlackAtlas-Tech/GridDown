@@ -16492,7 +16492,10 @@ ${text}
                 </button>
                 
                 ${terrainAnalyzing ? `
-                    <div class="terrain-progress">
+                    <div class="terrain-progress" role="progressbar" 
+                        aria-valuenow="${terrainProgress}" aria-valuemin="0" aria-valuemax="100"
+                        aria-label="Terrain analysis progress"
+                        aria-valuetext="Analyzing terrain: ${terrainProgress}%">
                         <div class="terrain-progress__bar" style="width:${terrainProgress}%"></div>
                     </div>
                 ` : ''}
@@ -16888,7 +16891,20 @@ ${text}
                             resolution,
                             includeViewshed,
                             includeFlood,
-                            includeCover
+                            includeCover,
+                            onProgress: (pct, phase) => {
+                                terrainProgress = pct;
+                                // Update progress bar and button text directly (avoid full re-render)
+                                const bar = container.querySelector('.terrain-progress__bar');
+                                if (bar) bar.style.width = pct + '%';
+                                const progressEl = container.querySelector('.terrain-progress');
+                                if (progressEl) {
+                                    progressEl.setAttribute('aria-valuenow', pct);
+                                    progressEl.setAttribute('aria-valuetext', phase || ('Analyzing... ' + pct + '%'));
+                                }
+                                const btn = container.querySelector('#terrain-analyze');
+                                if (btn) btn.textContent = `Analyzing... ${pct}%`;
+                            }
                         }
                     );
                     

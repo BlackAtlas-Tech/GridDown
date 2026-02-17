@@ -1211,27 +1211,41 @@ const TerrainModule = (function() {
         const includeViewshed = options.includeViewshed !== false;
         const includeFlood = options.includeFlood !== false;
         const includeCover = options.includeCover !== false;
+        const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+        
+        // Helper to report progress (phase label + 0-100 percentage)
+        const report = (pct, phase) => {
+            if (onProgress) {
+                try { onProgress(pct, phase); } catch (_) { /* ignore callback errors */ }
+            }
+        };
         
         // STEP 1: Batch-prefetch ALL elevation data in ~10 HTTP requests
         // instead of ~7000+ individual requests. ElevationModule caches results,
         // so subsequent getElevation() calls will be instant cache hits.
+        report(5, 'Fetching elevation data');
         await prefetchElevationGrid(lat, lon, {
             radius, includeViewshed, includeFlood, includeCover
         });
+        report(35, 'Elevation data cached');
         
         // STEP 2: Core analysis — now runs against cached elevation data
+        report(40, 'Analyzing slope');
         const slopeData = await analyzeSlopeAt(lat, lon);
         
         // Parallel optional analyses (all cache hits now)
+        report(45, 'Running solar, flood & cover analysis');
         const [solarResult, floodResult, coverResult] = await Promise.all([
             analyzeSolarExposure(lat, lon, date),
             includeFlood ? analyzeFloodRisk(lat, lon) : Promise.resolve(null),
             includeCover ? assessCover(lat, lon) : Promise.resolve(null)
         ]);
+        report(60, 'Core analyses complete');
         
         // Viewshed (reduced: 36 rays instead of 360)
         let viewshedResult = null;
         if (includeViewshed) {
+            report(65, 'Calculating viewshed');
             try {
                 viewshedResult = await calculateViewshed(lat, lon, {
                     maxRange: Math.min(radius, 2000),
@@ -1243,9 +1257,11 @@ const TerrainModule = (function() {
                 console.warn('Viewshed calculation failed:', e);
             }
         }
+        report(80, 'Calculating area slope statistics');
         
         // Area slope statistics
         const areaSlopes = await calculateAreaSlopeStats(lat, lon, radius, resolution);
+        report(92, 'Assembling results');
         
         // Trafficability for all movement modes
         const trafficModes = ['foot', 'vehicle_4x4', 'vehicle_standard', 'atv'];
@@ -1318,6 +1334,8 @@ const TerrainModule = (function() {
         const campingSuitability = calculateCampingSuitability(slopeData, solarResult, floodResult, coverResult);
         const observationSuitability = calculateObservationSuitability(slopeData, coverResult);
         const concealmentSuitability = coverResult?.assessment?.overall || 0;
+
+        report(100, 'Analysis complete');
 
         return {
             location: { lat, lon },
