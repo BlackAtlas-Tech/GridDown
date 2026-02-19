@@ -222,6 +222,13 @@ const MapModule = (function() {
         const debouncedResize = Helpers.debounce(resize, 250);
         mapEvents.on(window, 'resize', debouncedResize);
         
+        // Safety net: if the browser's visual viewport scale changes (e.g., 
+        // accessibility zoom), re-sync the canvas dimensions to prevent
+        // coordinate misalignment between latLonToPixel and rendered tiles.
+        if (window.visualViewport) {
+            mapEvents.on(window.visualViewport, 'resize', debouncedResize);
+        }
+        
         // Mouse events (use EventManager for all canvas events)
         mapEvents.on(canvas, 'mousedown', handleMouseDown);
         mapEvents.on(canvas, 'mousemove', handleMouseMove);
@@ -3576,9 +3583,10 @@ const MapModule = (function() {
             
             if (zoomChanged || bearingChanged) {
                 // Get the lat/lon at the gesture center before zoom/rotation change
+                // Use CURRENT center (where fingers are now), not initial center
                 const rect = canvas.getBoundingClientRect();
-                const centerPixelX = gestureState.centerX - rect.left;
-                const centerPixelY = gestureState.centerY - rect.top;
+                const centerPixelX = currentCenter.x - rect.left;
+                const centerPixelY = currentCenter.y - rect.top;
                 const centerCoords = pixelToLatLon(centerPixelX, centerPixelY);
                 
                 // Apply zoom
