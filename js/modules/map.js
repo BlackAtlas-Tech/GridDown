@@ -67,6 +67,7 @@ const MapModule = (function() {
     // Multi-touch gesture state for pinch/rotation
     let gestureState = {
         isActive: false,
+        startTime: 0,
         initialDistance: 0,
         initialAngle: 0,
         initialZoom: 0,
@@ -111,6 +112,32 @@ const MapModule = (function() {
         lastTapY: 0,
         suppressClick: false,  // prevents click handler from firing after double-tap zoom
         animationId: null      // tracks running zoom animation
+    };
+    
+    // Double-tap-hold-drag one-finger zoom state
+    let oneFingerZoomState = {
+        isActive: false,
+        screenX: 0,           // tap point (for anchor)
+        screenY: 0,
+        startY: 0,            // finger Y at drag start (for delta)
+        startZoom: 0,
+        didMove: false         // true once finger moves beyond threshold
+    };
+    
+    // Cached canvas bounds — updated on resize/orientation, used in touch handlers
+    // to avoid forced reflow from getBoundingClientRect() on every touchmove (120Hz).
+    let cachedCanvasRect = { left: 0, top: 0, width: 0, height: 0 };
+    
+    // Tracks what the canvas currently shows so we can apply a CSS transform
+    // for instant visual feedback between expensive render() repaints.
+    // During pinch: touch events update mapState AND apply a CSS transform.
+    // On next RAF: render() clears the transform, repaints, updates this state.
+    let gestureRenderState = {
+        active: false,
+        zoom: 0,
+        bearing: 0,
+        pinchCX: 0,   // pinch center X (CSS px relative to canvas) at last repaint
+        pinchCY: 0
     };
     
     // Tile server configuration - multiple providers
@@ -617,6 +644,14 @@ const MapModule = (function() {
         canvas.style.width = rect.width + 'px';
         canvas.style.height = rect.height + 'px';
         ctx.scale(effectiveDpr, effectiveDpr);
+        
+        // Cache canvas bounds for touch handlers (avoids forced reflow per event)
+        const canvasRect = canvas.getBoundingClientRect();
+        cachedCanvasRect.left = canvasRect.left;
+        cachedCanvasRect.top = canvasRect.top;
+        cachedCanvasRect.width = canvasRect.width;
+        cachedCanvasRect.height = canvasRect.height;
+        
         render();
     }
 
@@ -766,9 +801,21 @@ const MapModule = (function() {
     function render() {
         if (!ctx) return;
         
+        // Clear any CSS transform before painting — render() is synchronous so the
+        // browser won't composite the un-transformed canvas; it only sees the final
+        // repainted result at the end of this RAF callback.
+        canvas.style.transform = '';
+        canvas.style.transformOrigin = '';
+        
         const width = canvas.width / effectiveDpr;
         const height = canvas.height / effectiveDpr;
         const layers = State.get('mapLayers');
+        
+        // During pinch/one-finger-zoom, skip expensive overlay rendering.
+        // Tiles + GPS + waypoints + crosshair are kept; everything else deferred
+        // until the gesture ends.  This cuts per-frame work significantly on
+        // complex scenes (hardware overlays, routes, breadcrumbs, etc.).
+        const isPinching = gestureState.isActive || oneFingerZoomState.isActive;
         
         // Update active layers based on state
         updateActiveLayersFromState(layers);
@@ -810,23 +857,31 @@ const MapModule = (function() {
             renderTilesForLayer(rotatedWidth, rotatedHeight, overlay, true);
         }
         
-        if (layers.grid) renderGrid(width, height);
-        renderRoutes(width, height);
-        renderMeasurements(width, height);
-        renderWaypoints(width, height);
-        renderTeamMembers(width, height);
-        renderTAKOverlay(width, height);
-        renderAPRSStations(width, height);
-        renderRadiaCodeOverlay(width, height);
-        renderRFSentinelOverlay(width, height);
-        renderSarsatOverlay(width, height);
-        renderNavigationBreadcrumbs(width, height);
-        renderGPSPosition(width, height);
-        renderCrosshair(width, height);
-        renderDrawingRegion(width, height);
-        renderRFLOSOverlay(width, height);
-        renderStreamGaugeOverlay(width, height);
-        renderOverlayMarkers(width, height);
+        if (!isPinching) {
+            // Full render — all overlays
+            if (layers.grid) renderGrid(width, height);
+            renderRoutes(width, height);
+            renderMeasurements(width, height);
+            renderWaypoints(width, height);
+            renderTeamMembers(width, height);
+            renderTAKOverlay(width, height);
+            renderAPRSStations(width, height);
+            renderRadiaCodeOverlay(width, height);
+            renderRFSentinelOverlay(width, height);
+            renderSarsatOverlay(width, height);
+            renderNavigationBreadcrumbs(width, height);
+            renderGPSPosition(width, height);
+            renderCrosshair(width, height);
+            renderDrawingRegion(width, height);
+            renderRFLOSOverlay(width, height);
+            renderStreamGaugeOverlay(width, height);
+            renderOverlayMarkers(width, height);
+        } else {
+            // Gesture render — essentials only for speed
+            renderWaypoints(width, height);
+            renderGPSPosition(width, height);
+            renderCrosshair(width, height);
+        }
         
         _insideRotatedContext = false;
         
@@ -836,6 +891,16 @@ const MapModule = (function() {
         // Render non-rotated UI elements
         renderAttribution(width, height);
         renderCompassRose(width, height);
+        
+        // Update gesture render state so CSS transform can compute
+        // the delta between "what's painted" and "current mapState"
+        if (gestureState.isActive || oneFingerZoomState.isActive) {
+            gestureRenderState.active = true;
+            gestureRenderState.zoom = mapState.zoom;
+            gestureRenderState.bearing = mapState.bearing;
+            gestureRenderState.pinchCX = gestureState.centerX - cachedCanvasRect.left;
+            gestureRenderState.pinchCY = gestureState.centerY - cachedCanvasRect.top;
+        }
     }
     
     /**
@@ -1021,14 +1086,18 @@ const MapModule = (function() {
                         ctx.drawImage(tileCache.get(cacheKey), screenX, screenY, scaledTileSize, scaledTileSize);
                     }
                 } else {
-                    // Show loading indicator for base layer
-                    if (!isOverlay) {
-                        loadingCount++;
-                        // Draw loading placeholder
-                        ctx.fillStyle = '#1e2433';
-                        ctx.fillRect(screenX, screenY, scaledTileSize, scaledTileSize);
-                        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-                        ctx.strokeRect(screenX, screenY, scaledTileSize, scaledTileSize);
+                    // Tile not cached — try to render from a cached ancestor/descendant
+                    // before falling back to a dark placeholder. This prevents the
+                    // visible flash at integer zoom boundaries during pinch gestures.
+                    if (!drawFallbackTile(layerKey, wrappedTileX, tileY, effectiveZoom, screenX, screenY, scaledTileSize)) {
+                        // No fallback available — show placeholder for base layer
+                        if (!isOverlay) {
+                            loadingCount++;
+                            ctx.fillStyle = '#1e2433';
+                            ctx.fillRect(screenX, screenY, scaledTileSize, scaledTileSize);
+                            ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+                            ctx.strokeRect(screenX, screenY, scaledTileSize, scaledTileSize);
+                        }
                     }
                     
                     loadTile(wrappedTileX, tileY, effectiveZoom, layerKey)
@@ -3571,9 +3640,8 @@ const MapModule = (function() {
      * @param {number} targetZoom - desired integer zoom level
      */
     function animateZoomAt(screenX, screenY, targetZoom) {
-        const rect = canvas.getBoundingClientRect();
-        const px = screenX - rect.left;
-        const py = screenY - rect.top;
+        const px = screenX - cachedCanvasRect.left;
+        const py = screenY - cachedCanvasRect.top;
         
         const startZoom = mapState.zoom;
         targetZoom = Math.max(3, Math.min(19, Math.round(targetZoom)));
@@ -3628,6 +3696,111 @@ const MapModule = (function() {
         
         doubleTapState.animationId = requestAnimationFrame(animate);
     }
+    
+    /**
+     * Draw a fallback tile from a cached ancestor when the exact tile isn't loaded.
+     * Searches up to 3 zoom levels for a parent tile and draws the relevant sub-region
+     * scaled up. Prevents the dark-placeholder flash at integer zoom boundaries.
+     *
+     * @param {string} layerKey - tile layer key
+     * @param {number} tileX    - tile X at tileZoom
+     * @param {number} tileY    - tile Y at tileZoom
+     * @param {number} tileZoom - integer zoom level the tile belongs to
+     * @param {number} screenX  - destination X on canvas
+     * @param {number} screenY  - destination Y on canvas
+     * @param {number} drawSize - destination width/height on canvas
+     * @returns {boolean} true if a fallback was drawn
+     */
+    function drawFallbackTile(layerKey, tileX, tileY, tileZoom, screenX, screenY, drawSize) {
+        const ts = mapState.tileSize; // 256
+        // Search ancestors: parent (z-1), grandparent (z-2), great-grandparent (z-3)
+        for (let dz = 1; dz <= 3; dz++) {
+            const ancestorZ = tileZoom - dz;
+            if (ancestorZ < 0) continue;
+            const divisor = 1 << dz; // 2^dz
+            const ancestorX = Math.floor(tileX / divisor);
+            const ancestorY = Math.floor(tileY / divisor);
+            const key = `${layerKey}/${ancestorZ}/${ancestorX}/${ancestorY}`;
+            if (tileCache.has(key)) {
+                // Which sub-region of the ancestor covers this tile?
+                const subX = tileX % divisor;
+                const subY = tileY % divisor;
+                const srcSize = ts / divisor;
+                const srcX = subX * srcSize;
+                const srcY = subY * srcSize;
+                ctx.drawImage(tileCache.get(key),
+                    srcX, srcY, srcSize, srcSize,
+                    screenX, screenY, drawSize, drawSize);
+                return true;
+            }
+        }
+        // Also check children — if all 4 child tiles at z+1 are cached,
+        // draw them scaled down (helps when zooming out)
+        const childZ = tileZoom + 1;
+        const childBaseX = tileX * 2;
+        const childBaseY = tileY * 2;
+        let allChildren = true;
+        for (let cy = 0; cy < 2 && allChildren; cy++) {
+            for (let cx = 0; cx < 2 && allChildren; cx++) {
+                if (!tileCache.has(`${layerKey}/${childZ}/${childBaseX + cx}/${childBaseY + cy}`)) {
+                    allChildren = false;
+                }
+            }
+        }
+        if (allChildren) {
+            const half = drawSize / 2;
+            for (let cy = 0; cy < 2; cy++) {
+                for (let cx = 0; cx < 2; cx++) {
+                    const childImg = tileCache.get(`${layerKey}/${childZ}/${childBaseX + cx}/${childBaseY + cy}`);
+                    ctx.drawImage(childImg, screenX + cx * half, screenY + cy * half, half, half);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * Apply a CSS transform to the canvas for instant visual feedback during pinch.
+     * The transform bridges the gap between touch events and the next RAF repaint,
+     * giving the compositor (GPU) the ability to scale/rotate/translate the canvas
+     * at zero JavaScript cost. render() clears this on each repaint.
+     */
+    function applyGestureCSSTransform() {
+        if (!gestureRenderState.active) {
+            // First call of this gesture — initialize from current state.
+            // No transform needed yet since the canvas shows the current state.
+            gestureRenderState.active = true;
+            gestureRenderState.zoom = mapState.zoom;
+            gestureRenderState.bearing = mapState.bearing;
+            gestureRenderState.pinchCX = gestureState.centerX - cachedCanvasRect.left;
+            gestureRenderState.pinchCY = gestureState.centerY - cachedCanvasRect.top;
+            return;
+        }
+        
+        const scale = Math.pow(2, mapState.zoom - gestureRenderState.zoom);
+        const rotateDeg = -(mapState.bearing - gestureRenderState.bearing);
+        const curCX = gestureState.centerX - cachedCanvasRect.left;
+        const curCY = gestureState.centerY - cachedCanvasRect.top;
+        const tx = curCX - gestureRenderState.pinchCX;
+        const ty = curCY - gestureRenderState.pinchCY;
+        
+        // Transform-origin at last-painted pinch center; scale+rotate happen there.
+        // Translate tracks the finger midpoint movement since last repaint.
+        canvas.style.transformOrigin = `${gestureRenderState.pinchCX}px ${gestureRenderState.pinchCY}px`;
+        canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale}) rotate(${rotateDeg}deg)`;
+    }
+    
+    /**
+     * Clear gesture CSS transform and mark state inactive.
+     */
+    function clearGestureCSSTransform() {
+        if (gestureRenderState.active) {
+            canvas.style.transform = '';
+            canvas.style.transformOrigin = '';
+            gestureRenderState.active = false;
+        }
+    }
 
     function handleTouchStart(e) {
         // Close context menu if open
@@ -3635,8 +3808,9 @@ const MapModule = (function() {
             hideContextMenu();
         }
         
-        // Cancel any running momentum or zoom animation
+        // Cancel any running momentum or zoom animation, and clear CSS transform
         cancelInertia();
+        clearGestureCSSTransform();
         if (doubleTapState.animationId) {
             cancelAnimationFrame(doubleTapState.animationId);
             doubleTapState.animationId = null;
@@ -3645,9 +3819,8 @@ const MapModule = (function() {
         if (e.touches.length === 1) {
             e.preventDefault();
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
+            const x = touch.clientX - cachedCanvasRect.left;
+            const y = touch.clientY - cachedCanvasRect.top;
             const coords = pixelToLatLon(x, y);
             
             // Check if OfflineModule is in drawing mode
@@ -3662,8 +3835,35 @@ const MapModule = (function() {
                 }
             }
             
+            // --- Double-tap-hold-drag detection ---
+            // If this touch-down is within the double-tap window of the last tap,
+            // enter one-finger zoom mode. If the user lifts quickly it behaves
+            // like a normal double-tap zoom; if they hold and drag it becomes
+            // continuous zoom.
+            const now = Date.now();
+            const dtTap = now - doubleTapState.lastTapTime;
+            const dxTap = touch.clientX - doubleTapState.lastTapX;
+            const dyTap = touch.clientY - doubleTapState.lastTapY;
+            const tapDist = Math.sqrt(dxTap * dxTap + dyTap * dyTap);
+            
+            if (dtTap < 300 && tapDist < 30 && doubleTapState.lastTapTime > 0) {
+                // Second tap detected — enter one-finger zoom mode
+                oneFingerZoomState.isActive = true;
+                oneFingerZoomState.screenX = touch.clientX;
+                oneFingerZoomState.screenY = touch.clientY;
+                oneFingerZoomState.startY = touch.clientY;
+                oneFingerZoomState.startZoom = mapState.zoom;
+                oneFingerZoomState.didMove = false;
+                doubleTapState.lastTapTime = 0; // consume the double-tap
+                doubleTapState.suppressClick = true;
+                // Don't set up long press or drag for this touch
+                cancelLongPress();
+                return;
+            }
+            
             // Reset gesture state
             gestureState.isActive = false;
+            oneFingerZoomState.isActive = false;
             
             // Setup for potential drag
             mapState.isDragging = false;
@@ -3692,6 +3892,7 @@ const MapModule = (function() {
             cancelLongPress();
             mapState.isDragging = false;
             doubleTapState.lastTapTime = 0; // invalidate pending double-tap
+            oneFingerZoomState.isActive = false; // cancel one-finger zoom if active
             
             // Cancel drawing if active
             if (mapState.isDrawingRegion) {
@@ -3708,6 +3909,7 @@ const MapModule = (function() {
             const touch2 = e.touches[1];
             
             gestureState.isActive = true;
+            gestureState.startTime = Date.now();
             gestureState.initialDistance = getTouchDistance(touch1, touch2);
             gestureState.initialAngle = getTouchAngle(touch1, touch2);
             gestureState.initialZoom = mapState.zoom;
@@ -3722,15 +3924,50 @@ const MapModule = (function() {
             // More than 2 touches - cancel everything
             cancelLongPress();
             gestureState.isActive = false;
+            oneFingerZoomState.isActive = false;
         }
     }
 
     function handleTouchMove(e) {
+        // --- One-finger zoom drag (double-tap-hold-drag) ---
+        if (e.touches.length === 1 && oneFingerZoomState.isActive) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const dy = touch.clientY - oneFingerZoomState.startY;
+            
+            // Movement threshold before zoom starts (prevents jitter on tap)
+            if (!oneFingerZoomState.didMove && Math.abs(dy) < 8) return;
+            oneFingerZoomState.didMove = true;
+            
+            // Map vertical drag to zoom: drag up = zoom in, drag down = zoom out.
+            // 150px of drag ≈ 1 zoom level for comfortable control.
+            const zoomDelta = -dy / 150;
+            let newZoom = oneFingerZoomState.startZoom + zoomDelta;
+            const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
+            newZoom = Math.max(3, Math.min(maxZoom, newZoom));
+            
+            // Anchor: keep the geo-coordinate under the initial tap point stationary
+            const px = oneFingerZoomState.screenX - cachedCanvasRect.left;
+            const py = oneFingerZoomState.screenY - cachedCanvasRect.top;
+            const anchorGeo = pixelToLatLon(px, py);
+            
+            mapState.zoom = newZoom;
+            
+            const newGeo = pixelToLatLon(px, py);
+            mapState.lat += anchorGeo.lat - newGeo.lat;
+            mapState.lon += anchorGeo.lon - newGeo.lon;
+            mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+            
+            if (zoomLevelEl) zoomLevelEl.textContent = Math.round(mapState.zoom) + 'z';
+            updateScaleBar();
+            scheduleRender();
+            return;
+        }
+        
         if (e.touches.length === 1 && mapState.dragStart && !gestureState.isActive) {
             const touch = e.touches[0];
-            const rect = canvas.getBoundingClientRect();
-            const x = touch.clientX - rect.left;
-            const y = touch.clientY - rect.top;
+            const x = touch.clientX - cachedCanvasRect.left;
+            const y = touch.clientY - cachedCanvasRect.top;
             
             // Check if we're drawing a region
             if (mapState.isDrawingRegion && mapState.drawStart) {
@@ -3787,7 +4024,6 @@ const MapModule = (function() {
             
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
-            const rect = canvas.getBoundingClientRect();
             
             const currentDistance = getTouchDistance(touch1, touch2);
             const currentAngle = getTouchAngle(touch1, touch2);
@@ -3823,8 +4059,8 @@ const MapModule = (function() {
             // and rotation (angle changes) in a single step.
             
             // Step 1: What geo-coordinate is under the previous pinch center?
-            const prevCX = gestureState.centerX - rect.left;
-            const prevCY = gestureState.centerY - rect.top;
+            const prevCX = gestureState.centerX - cachedCanvasRect.left;
+            const prevCY = gestureState.centerY - cachedCanvasRect.top;
             const anchorGeo = pixelToLatLon(prevCX, prevCY);
             
             // Step 2: Apply zoom (always) and bearing (only if intentional rotation)
@@ -3835,8 +4071,8 @@ const MapModule = (function() {
             }
             
             // Step 3: Where does the CURRENT pinch center point now?
-            const curCX = currentCenter.x - rect.left;
-            const curCY = currentCenter.y - rect.top;
+            const curCX = currentCenter.x - cachedCanvasRect.left;
+            const curCY = currentCenter.y - cachedCanvasRect.top;
             const newGeo = pixelToLatLon(curCX, curCY);
             
             // Step 4: Shift map so the anchor point is under the current center
@@ -3852,6 +4088,9 @@ const MapModule = (function() {
             gestureState.centerX = currentCenter.x;
             gestureState.centerY = currentCenter.y;
             
+            // Apply CSS transform for instant visual feedback (GPU-composited).
+            // The actual canvas repaint follows on the next RAF via scheduleRender().
+            applyGestureCSSTransform();
             scheduleRender();
             updateScaleBar();
             updateCompassRose();
@@ -3866,17 +4105,49 @@ const MapModule = (function() {
 
     function handleTouchEnd(e) {
         cancelLongPress();
+        clearGestureCSSTransform();
         
         if (e.touches.length === 0) {
             // All fingers lifted
+            
+            // --- One-finger zoom drag end ---
+            if (oneFingerZoomState.isActive) {
+                oneFingerZoomState.isActive = false;
+                
+                if (!oneFingerZoomState.didMove) {
+                    // Finger didn't move — this was a quick double-tap, not a drag.
+                    // Animate zoom in one level centered on tap point (same as double-tap).
+                    const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
+                    if (mapState.zoom < maxZoom) {
+                        animateZoomAt(oneFingerZoomState.screenX, oneFingerZoomState.screenY, Math.round(mapState.zoom) + 1);
+                    }
+                } else {
+                    // Finger moved — snap fractional zoom to integer, anchored at tap point
+                    const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
+                    if (snappedZoom !== mapState.zoom) {
+                        const px = oneFingerZoomState.screenX - cachedCanvasRect.left;
+                        const py = oneFingerZoomState.screenY - cachedCanvasRect.top;
+                        const anchorGeo = pixelToLatLon(px, py);
+                        mapState.zoom = snappedZoom;
+                        const newGeo = pixelToLatLon(px, py);
+                        mapState.lat += anchorGeo.lat - newGeo.lat;
+                        mapState.lon += anchorGeo.lon - newGeo.lon;
+                        mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+                    }
+                    if (zoomLevelEl) zoomLevelEl.textContent = Math.round(mapState.zoom) + 'z';
+                    updateScaleBar();
+                    render();
+                    saveMapPosition();
+                }
+                return;
+            }
             
             // Check if we were drawing a region
             if (mapState.isDrawingRegion && mapState.drawStart) {
                 if (typeof OfflineModule !== 'undefined' && e.changedTouches.length > 0) {
                     const touch = e.changedTouches[0];
-                    const rect = canvas.getBoundingClientRect();
-                    const x = touch.clientX - rect.left;
-                    const y = touch.clientY - rect.top;
+                    const x = touch.clientX - cachedCanvasRect.left;
+                    const y = touch.clientY - cachedCanvasRect.top;
                     const coords = pixelToLatLon(x, y);
                     OfflineModule.handleDrawEnd(coords);
                 }
@@ -3892,6 +4163,28 @@ const MapModule = (function() {
             const wasGesture = gestureState.isActive;
             const wasTap = !wasDragging && !longPressState.isLongPress && !wasGesture && elapsed < 300;
             
+            // --- Two-finger tap to zoom out ---
+            // Detect: gesture was active, short duration, no significant zoom/bearing change
+            if (wasGesture) {
+                const gestureElapsed = Date.now() - gestureState.startTime;
+                const zoomUnchanged = Math.abs(mapState.zoom - gestureState.initialZoom) < 0.3;
+                const bearingUnchanged = Math.abs(mapState.bearing - gestureState.initialBearing) < 2;
+                
+                if (gestureElapsed < 300 && zoomUnchanged && bearingUnchanged) {
+                    // Two-finger tap — animate zoom out centered on gesture center
+                    mapState.zoom = gestureState.initialZoom; // reset any micro-drift
+                    mapState.bearing = gestureState.initialBearing;
+                    if (mapState.zoom > 3) {
+                        animateZoomAt(gestureState.centerX, gestureState.centerY, Math.round(mapState.zoom) - 1);
+                    }
+                    mapState.isDragging = false;
+                    mapState.dragStart = null;
+                    gestureState.isActive = false;
+                    inertiaState.history = [];
+                    return;
+                }
+            }
+            
             // --- Inertia: start momentum panning after a flick ---
             if (wasDragging && !wasGesture) {
                 const vel = computeInertiaVelocity();
@@ -3902,7 +4195,7 @@ const MapModule = (function() {
                 }
             }
             
-            // --- Double-tap detection ---
+            // --- Double-tap detection (quick tap-tap, no hold) ---
             if (wasTap && e.changedTouches.length > 0) {
                 const touch = e.changedTouches[0];
                 const now = Date.now();
@@ -3913,13 +4206,15 @@ const MapModule = (function() {
                 
                 if (dtTap < 300 && dist < 30 && doubleTapState.lastTapTime > 0) {
                     // Double-tap detected — zoom in centered on tap point
-                    doubleTapState.lastTapTime = 0; // prevent triple-tap triggering
+                    // (This path handles cases where touchStart didn't catch it,
+                    //  e.g. very fast taps where the second down fires before
+                    //  the first up's state is fully committed.)
+                    doubleTapState.lastTapTime = 0;
                     const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
                     if (mapState.zoom < maxZoom) {
                         doubleTapState.suppressClick = true;
                         animateZoomAt(touch.clientX, touch.clientY, mapState.zoom + 1);
                     }
-                    // At max zoom, let the tap pass through as a normal click
                 } else {
                     // First tap — record for potential double-tap
                     doubleTapState.lastTapTime = now;
@@ -3940,9 +4235,8 @@ const MapModule = (function() {
             if (gestureState.initialZoom !== mapState.zoom || gestureState.initialBearing !== mapState.bearing) {
                 const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
                 if (snappedZoom !== mapState.zoom) {
-                    const rect = canvas.getBoundingClientRect();
-                    const anchorX = gestureState.centerX - rect.left;
-                    const anchorY = gestureState.centerY - rect.top;
+                    const anchorX = gestureState.centerX - cachedCanvasRect.left;
+                    const anchorY = gestureState.centerY - cachedCanvasRect.top;
                     const anchorGeo = pixelToLatLon(anchorX, anchorY);
                     mapState.zoom = snappedZoom;
                     const newGeo = pixelToLatLon(anchorX, anchorY);
@@ -3956,6 +4250,14 @@ const MapModule = (function() {
                 updateScaleBar();
                 render();
                 saveMapPosition();
+                
+                // --- Rotation snap-back to north ---
+                // If bearing ended up within 10° of north after a pinch gesture,
+                // animate it back to 0° for clean north-up alignment.
+                const b = mapState.bearing;
+                if (b !== 0 && (b <= 10 || b >= 350)) {
+                    resetBearing();
+                }
             }
             
         } else if (e.touches.length === 1) {
@@ -3969,9 +4271,8 @@ const MapModule = (function() {
             // Snap zoom to integer after pinch gesture, anchored at last pinch center
             const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
             if (snappedZoom !== mapState.zoom) {
-                const rect = canvas.getBoundingClientRect();
-                const anchorX = gestureState.centerX - rect.left;
-                const anchorY = gestureState.centerY - rect.top;
+                const anchorX = gestureState.centerX - cachedCanvasRect.left;
+                const anchorY = gestureState.centerY - cachedCanvasRect.top;
                 const anchorGeo = pixelToLatLon(anchorX, anchorY);
                 mapState.zoom = snappedZoom;
                 const newGeo = pixelToLatLon(anchorX, anchorY);
@@ -3985,6 +4286,12 @@ const MapModule = (function() {
             updateScaleBar();
             render();
             saveMapPosition();
+            
+            // --- Rotation snap-back to north (2→1 finger transition) ---
+            const b = mapState.bearing;
+            if (b !== 0 && (b <= 10 || b >= 350)) {
+                resetBearing();
+            }
         }
     }
 
