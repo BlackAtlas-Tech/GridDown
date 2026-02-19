@@ -67,6 +67,7 @@ const MapModule = (function() {
     // Multi-touch gesture state for pinch/rotation
     let gestureState = {
         isActive: false,
+        pending: false,         // true when two fingers are down but haven't moved enough
         startTime: 0,
         initialDistance: 0,
         initialAngle: 0,
@@ -2959,6 +2960,13 @@ const MapModule = (function() {
         if (clickedWp) {
             // Open edit modal for this waypoint
             ModalsModule.openWaypointModal(null, clickedWp);
+        } else {
+            // No waypoint — zoom in one level centered on the click/tap point,
+            // matching Google Maps / Apple Maps double-click behavior.
+            const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
+            if (mapState.zoom < maxZoom) {
+                animateZoomAt(e.clientX, e.clientY, Math.round(mapState.zoom) + 1);
+            }
         }
     }
 
@@ -3919,7 +3927,7 @@ const MapModule = (function() {
             const dyTap = touch.clientY - doubleTapState.lastTapY;
             const tapDist = Math.sqrt(dxTap * dxTap + dyTap * dyTap);
             
-            if (dtTap < 300 && tapDist < 30 && doubleTapState.lastTapTime > 0) {
+            if (dtTap < 350 && tapDist < 40 && doubleTapState.lastTapTime > 0) {
                 // Second tap detected — enter one-finger zoom mode
                 oneFingerZoomState.isActive = true;
                 oneFingerZoomState.screenX = touch.clientX;
@@ -3936,6 +3944,7 @@ const MapModule = (function() {
             
             // Reset gesture state
             gestureState.isActive = false;
+            gestureState.pending = false;
             oneFingerZoomState.isActive = false;
             
             // Setup for potential drag
@@ -3977,11 +3986,12 @@ const MapModule = (function() {
                 }
             }
             
-            // Initialize two-finger gesture
+            // Initialize two-finger gesture (pending until fingers actually move)
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
             
-            gestureState.isActive = true;
+            gestureState.pending = true;
+            gestureState.isActive = false;
             gestureState.startTime = Date.now();
             gestureState.initialDistance = getTouchDistance(touch1, touch2);
             gestureState.initialAngle = getTouchAngle(touch1, touch2);
@@ -3997,6 +4007,7 @@ const MapModule = (function() {
             // More than 2 touches - cancel everything
             cancelLongPress();
             gestureState.isActive = false;
+            gestureState.pending = false;
             oneFingerZoomState.isActive = false;
         }
     }
@@ -4106,7 +4117,7 @@ const MapModule = (function() {
                 debouncedSaveMapPosition();
             }
             
-        } else if (e.touches.length === 2 && gestureState.isActive) {
+        } else if (e.touches.length === 2 && (gestureState.isActive || gestureState.pending)) {
             e.preventDefault();
             
             const touch1 = e.touches[0];
@@ -4115,6 +4126,25 @@ const MapModule = (function() {
             const currentDistance = getTouchDistance(touch1, touch2);
             const currentAngle = getTouchAngle(touch1, touch2);
             const currentCenter = getTouchCenter(touch1, touch2);
+            
+            // --- Deadzone: don't activate until fingers actually move ---
+            // Google Maps / Apple Maps require real finger movement before any
+            // visual change.  This prevents overlay stripping and stale renders
+            // when two fingers are simply resting on the screen.
+            if (gestureState.pending) {
+                const distRatio = currentDistance / gestureState.initialDistance;
+                const centerDx = currentCenter.x - gestureState.centerX;
+                const centerDy = currentCenter.y - gestureState.centerY;
+                const centerMove = Math.sqrt(centerDx * centerDx + centerDy * centerDy);
+                
+                // Thresholds: 5% distance change (zoom) OR 8px center shift (pan)
+                if (Math.abs(distRatio - 1.0) < 0.05 && centerMove < 8) {
+                    return; // Still inside deadzone — do nothing
+                }
+                // Crossed threshold — activate the gesture
+                gestureState.pending = false;
+                gestureState.isActive = true;
+            }
             
             // Calculate zoom change (pinch)
             const distanceRatio = currentDistance / gestureState.initialDistance;
@@ -4249,17 +4279,19 @@ const MapModule = (function() {
             
             const elapsed = Date.now() - longPressState.startTime;
             const wasDragging = mapState.isDragging;
-            const wasGesture = gestureState.isActive;
-            const wasTap = !wasDragging && !longPressState.isLongPress && !wasGesture && elapsed < 300;
+            const wasGesture = gestureState.isActive || gestureState.pending;
+            const wasTap = !wasDragging && !longPressState.isLongPress && !wasGesture && elapsed < 400;
             
             // --- Two-finger tap to zoom out ---
-            // Detect: gesture was active, short duration, no significant zoom/bearing change
+            // Detect: two fingers touched (active or pending), short duration,
+            // no significant zoom/bearing change.  With the deadzone, a quick
+            // two-finger tap will still be "pending" (fingers never moved enough).
             if (wasGesture) {
                 const gestureElapsed = Date.now() - gestureState.startTime;
                 const zoomUnchanged = Math.abs(mapState.zoom - gestureState.initialZoom) < 0.3;
                 const bearingUnchanged = Math.abs(mapState.bearing - gestureState.initialBearing) < 2;
                 
-                if (gestureElapsed < 300 && zoomUnchanged && bearingUnchanged) {
+                if (gestureElapsed < 400 && zoomUnchanged && bearingUnchanged) {
                     // Two-finger tap — animate zoom out centered on gesture center
                     mapState.zoom = gestureState.initialZoom; // reset any micro-drift
                     mapState.bearing = gestureState.initialBearing;
@@ -4269,6 +4301,7 @@ const MapModule = (function() {
                     mapState.isDragging = false;
                     mapState.dragStart = null;
                     gestureState.isActive = false;
+                    gestureState.pending = false;
                     inertiaState.history = [];
                     return;
                 }
@@ -4293,7 +4326,7 @@ const MapModule = (function() {
                 const dy = touch.clientY - doubleTapState.lastTapY;
                 const dist = Math.sqrt(dx * dx + dy * dy);
                 
-                if (dtTap < 300 && dist < 30 && doubleTapState.lastTapTime > 0) {
+                if (dtTap < 350 && dist < 40 && doubleTapState.lastTapTime > 0) {
                     // Double-tap detected — zoom in centered on tap point
                     // (This path handles cases where touchStart didn't catch it,
                     //  e.g. very fast taps where the second down fires before
@@ -4315,13 +4348,15 @@ const MapModule = (function() {
             mapState.isDragging = false;
             mapState.dragStart = null;
             gestureState.isActive = false;
+            gestureState.pending = false;
             inertiaState.history = [];
             
             // Snap zoom to nearest integer after pinch gesture completes.
             // Fractional zoom is used during the gesture for smooth visual interpolation,
             // but final zoom must be integer for clean tile rendering.
             // Anchor the snap around the last pinch center to prevent a visible jump.
-            if (gestureState.initialZoom !== mapState.zoom || gestureState.initialBearing !== mapState.bearing) {
+            // Only run this if a gesture actually changed zoom/bearing (wasGesture).
+            if (wasGesture && (gestureState.initialZoom !== mapState.zoom || gestureState.initialBearing !== mapState.bearing)) {
                 const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
                 if (snappedZoom !== mapState.zoom) {
                     const anchorX = gestureState.centerX - cachedCanvasRect.left;
@@ -4352,6 +4387,7 @@ const MapModule = (function() {
         } else if (e.touches.length === 1) {
             // Went from 2 fingers to 1 - transition to single-finger drag
             gestureState.isActive = false;
+            gestureState.pending = false;
             const touch = e.touches[0];
             mapState.dragStart = { x: touch.clientX, y: touch.clientY };
             mapState.isDragging = true;
@@ -4398,7 +4434,7 @@ const MapModule = (function() {
     function handlePointerMoveCoalesced(e) {
         // Only process touch pointers during single-finger drag
         if (e.pointerType !== 'touch' || !mapState.isDragging) return;
-        if (gestureState.isActive || oneFingerZoomState.isActive) return;
+        if (gestureState.isActive || gestureState.pending || oneFingerZoomState.isActive) return;
         
         // Use coalesced events if available (Chrome 59+)
         const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
