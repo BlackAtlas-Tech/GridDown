@@ -86,7 +86,7 @@ const MapModule = (function() {
         startY: 0,
         startTime: 0,
         isLongPress: false,
-        threshold: 10,        // pixels - max movement before canceling
+        threshold: 5,         // pixels - max movement before canceling (lowered from 10 for touch responsiveness)
         duration: 600         // ms - hold duration to trigger
     };
     
@@ -4059,13 +4059,18 @@ const MapModule = (function() {
         }
         
         if (e.touches.length === 1 && mapState.dragStart && !gestureState.isActive) {
+            // Prevent default immediately for ALL single-finger moves on the map canvas.
+            // This stops the browser from consuming events during the drag threshold
+            // dead zone, which previously allowed pull-to-refresh and scroll gestures
+            // to fire before isDragging became true.
+            e.preventDefault();
+            
             const touch = e.touches[0];
             const x = touch.clientX - cachedCanvasRect.left;
             const y = touch.clientY - cachedCanvasRect.top;
             
             // Check if we're drawing a region
             if (mapState.isDrawingRegion && mapState.drawStart) {
-                e.preventDefault();
                 if (typeof OfflineModule !== 'undefined') {
                     const coords = pixelToLatLon(x, y);
                     const bounds = OfflineModule.handleDrawMove(coords);
@@ -4089,7 +4094,6 @@ const MapModule = (function() {
             
             // Handle drag if we're dragging
             if (mapState.isDragging) {
-                e.preventDefault();
                 const moveDx = touch.clientX - mapState.dragStart.x;
                 const moveDy = touch.clientY - mapState.dragStart.y;
                 
