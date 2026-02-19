@@ -73,6 +73,11 @@ const MapModule = (function() {
         initialAngle: 0,
         initialZoom: 0,
         initialBearing: 0,
+        initialLat: 0,          // map center at gesture start (for non-incremental math)
+        initialLon: 0,
+        initialCenterX: 0,      // first pinch midpoint in screen coords
+        initialCenterY: 0,
+        rotationUnlocked: false, // true once fingers rotate > 15° (prevents accidental rotation)
         centerX: 0,
         centerY: 0,
         lastDistance: 0,
@@ -122,6 +127,8 @@ const MapModule = (function() {
         screenY: 0,
         startY: 0,            // finger Y at drag start (for delta)
         startZoom: 0,
+        startLat: 0,          // map center at zoom start (for non-incremental math)
+        startLon: 0,
         didMove: false         // true once finger moves beyond threshold
     };
     
@@ -132,6 +139,7 @@ const MapModule = (function() {
     // Tracks what the canvas currently shows so we can apply a CSS transform
     // for instant visual feedback between expensive render() repaints.
     // During pinch: touch events update mapState AND apply a CSS transform.
+    // During pan: touch events update mapState AND apply CSS translate.
     // On next RAF: render() clears the transform, repaints, updates this state.
     let gestureRenderState = {
         active: false,
@@ -142,6 +150,13 @@ const MapModule = (function() {
         pinchCX: 0,   // pinch center X (CSS px relative to canvas) at last repaint
         pinchCY: 0
     };
+    
+    // Accumulated pixel drift since last render() for CSS translate during pan.
+    // Each touch/mouse move adds the finger delta; render() resets to zero.
+    // The CSS translate gives instant compositor-thread feedback on 120Hz displays
+    // where 2-3 touch events can fire between RAF callbacks.
+    let panDriftX = 0;
+    let panDriftY = 0;
     
     // Tile server configuration - multiple providers
     const TILE_SERVERS = {
@@ -826,16 +841,18 @@ const MapModule = (function() {
             canvas.style.transform = '';
             canvas.style.transformOrigin = '';
         }
+        panDriftX = 0;
+        panDriftY = 0;
         
         const width = canvas.width / effectiveDpr;
         const height = canvas.height / effectiveDpr;
         const layers = State.get('mapLayers');
         
-        // During pinch/one-finger-zoom, skip expensive overlay rendering.
+        // During pinch/one-finger-zoom/pan-drag, skip expensive overlay rendering.
         // Tiles + GPS + waypoints + crosshair are kept; everything else deferred
         // until the gesture ends.  This cuts per-frame work significantly on
         // complex scenes (hardware overlays, routes, breadcrumbs, etc.).
-        const isPinching = gestureState.isActive || oneFingerZoomState.isActive;
+        const isGesturing = gestureState.isActive || oneFingerZoomState.isActive || mapState.isDragging;
         
         // Update active layers based on state
         updateActiveLayersFromState(layers);
@@ -877,7 +894,7 @@ const MapModule = (function() {
             renderTilesForLayer(rotatedWidth, rotatedHeight, overlay, true);
         }
         
-        if (!isPinching) {
+        if (!isGesturing) {
             // Full render — all overlays
             if (layers.grid) renderGrid(width, height);
             renderRoutes(width, height);
@@ -2674,8 +2691,8 @@ const MapModule = (function() {
 
     function handleMouseDown(e) {
         if (e.button === 0) {
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left, y = e.clientY - rect.top;
+            const x = e.clientX - cachedCanvasRect.left;
+            const y = e.clientY - cachedCanvasRect.top;
             const coords = pixelToLatLon(x, y);
             
             // Check if OfflineModule is in drawing mode
@@ -2692,34 +2709,24 @@ const MapModule = (function() {
             mapState.isDragging = true;
             mapState.dragStart = { x: e.clientX, y: e.clientY };
             canvas.style.cursor = 'grabbing';
+            
+            // Reset pan drift and inertia for new drag
+            panDriftX = 0;
+            panDriftY = 0;
+            cancelInertia();
+            inertiaState.history = [];
         }
     }
 
     function handleMouseMove(e) {
-        const rect = canvas.getBoundingClientRect();
-        const pos = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        // Use cached rect to avoid forced layout reflow on every frame.
+        // cachedCanvasRect is updated on resize/orientation change.
+        const pos = { x: e.clientX - cachedCanvasRect.left, y: e.clientY - cachedCanvasRect.top };
         State.Map.setMousePosition(pos);
-        
-        const coords = pixelToLatLon(pos.x, pos.y);
-        if (coordsTextEl) {
-            // Use Coordinates module for formatting
-            if (typeof Coordinates !== 'undefined') {
-                coordsTextEl.textContent = Coordinates.formatShort(coords.lat, coords.lon);
-            } else {
-                // Fallback to basic format
-                const latDir = coords.lat >= 0 ? 'N' : 'S';
-                const lonDir = coords.lon >= 0 ? 'E' : 'W';
-                coordsTextEl.textContent = `${Math.abs(coords.lat).toFixed(4)}° ${latDir}, ${Math.abs(coords.lon).toFixed(4)}° ${lonDir}`;
-            }
-        }
-        
-        // Update measure hover point for preview line
-        if (typeof MeasureModule !== 'undefined' && MeasureModule.isActive()) {
-            MeasureModule.setHoverPoint(coords.lat, coords.lon);
-        }
         
         // Check if drawing region
         if (mapState.isDrawingRegion && mapState.drawStart) {
+            const coords = pixelToLatLon(pos.x, pos.y);
             if (typeof OfflineModule !== 'undefined') {
                 const bounds = OfflineModule.handleDrawMove(coords);
                 if (bounds) {
@@ -2745,10 +2752,40 @@ const MapModule = (function() {
             mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
             while (mapState.lon > 180) mapState.lon -= 360;
             while (mapState.lon < -180) mapState.lon += 360;
-            mapState.dragStart = { x: e.clientX, y: e.clientY };
+            
+            // Reuse object to avoid GC pressure
+            mapState.dragStart.x = e.clientX;
+            mapState.dragStart.y = e.clientY;
+            
+            // Record velocity for mouse inertia (momentum after release)
+            recordInertiaSample(e.clientX, e.clientY);
+            
+            // CSS translate for instant visual feedback
+            panDriftX += dx;
+            panDriftY += dy;
+            canvas.style.transform = `translate(${panDriftX}px, ${panDriftY}px)`;
+            
             scheduleRender();
             debouncedSaveMapPosition();
         } else {
+            // Only update coordinate display when NOT dragging — avoids
+            // DOM text writes on every frame during pan gestures.
+            const coords = pixelToLatLon(pos.x, pos.y);
+            if (coordsTextEl) {
+                if (typeof Coordinates !== 'undefined') {
+                    coordsTextEl.textContent = Coordinates.formatShort(coords.lat, coords.lon);
+                } else {
+                    const latDir = coords.lat >= 0 ? 'N' : 'S';
+                    const lonDir = coords.lon >= 0 ? 'E' : 'W';
+                    coordsTextEl.textContent = `${Math.abs(coords.lat).toFixed(4)}° ${latDir}, ${Math.abs(coords.lon).toFixed(4)}° ${lonDir}`;
+                }
+            }
+            
+            // Update measure hover point for preview line
+            if (typeof MeasureModule !== 'undefined' && MeasureModule.isActive()) {
+                MeasureModule.setHoverPoint(coords.lat, coords.lon);
+            }
+            
             scheduleRender();
         }
     }
@@ -2757,8 +2794,8 @@ const MapModule = (function() {
         // Check if we were drawing a region
         if (mapState.isDrawingRegion && mapState.drawStart) {
             if (typeof OfflineModule !== 'undefined') {
-                const rect = canvas.getBoundingClientRect();
-                const x = e.clientX - rect.left, y = e.clientY - rect.top;
+                const x = e.clientX - cachedCanvasRect.left;
+                const y = e.clientY - cachedCanvasRect.top;
                 const coords = pixelToLatLon(x, y);
                 OfflineModule.handleDrawEnd(coords);
             }
@@ -2771,12 +2808,25 @@ const MapModule = (function() {
         
         mapState.isDragging = false;
         mapState.dragStart = null;
+        panDriftX = 0;
+        panDriftY = 0;
         canvas.style.cursor = 'crosshair';
+        
+        // Launch inertia (momentum) animation from mouse drag velocity
+        const velocity = computeInertiaVelocity();
+        if (velocity) {
+            startInertia(velocity.vx, velocity.vy);
+        } else {
+            saveMapPosition();
+        }
+        render();
     }
     function handleMouseLeave() {
         mapState.isDragging = false;
         mapState.dragStart = null;
         mapState.isDrawingRegion = false;
+        panDriftX = 0;
+        panDriftY = 0;
         State.Map.setMousePosition(null);
         canvas.style.cursor = 'crosshair';
         scheduleRender();
@@ -2784,8 +2834,8 @@ const MapModule = (function() {
 
     function handleWheel(e) {
         e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+        const mouseX = e.clientX - cachedCanvasRect.left;
+        const mouseY = e.clientY - cachedCanvasRect.top;
         const beforeZoom = pixelToLatLon(mouseX, mouseY);
         
         const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
@@ -3659,7 +3709,7 @@ const MapModule = (function() {
         vx = Math.max(-maxV, Math.min(maxV, vx));
         vy = Math.max(-maxV, Math.min(maxV, vy));
         
-        const friction = 0.92; // per-frame decay at 60fps baseline
+        const friction = 0.95; // per-frame decay at 60fps baseline (0.92 was too aggressive)
         let lastTime = performance.now();
         
         function animate(currentTime) {
@@ -3720,10 +3770,12 @@ const MapModule = (function() {
         const py = screenY - cachedCanvasRect.top;
         
         const startZoom = mapState.zoom;
+        const startLat = mapState.lat;
+        const startLon = mapState.lon;
         targetZoom = Math.max(3, Math.min(19, Math.round(targetZoom)));
         if (startZoom === targetZoom) return;
         
-        // Capture the geo-coordinate under the tap point
+        // Capture the geo-coordinate under the tap point at initial state
         const anchorGeo = pixelToLatLon(px, py);
         
         const duration = 250; // ms
@@ -3741,6 +3793,9 @@ const MapModule = (function() {
             // Ease-out cubic for natural deceleration
             const eased = 1 - Math.pow(1 - progress, 3);
             
+            // Non-incremental: restore initial position then apply new zoom
+            mapState.lat = startLat;
+            mapState.lon = startLon;
             mapState.zoom = startZoom + (targetZoom - startZoom) * eased;
             
             // Reposition so anchor geo stays under tap point
@@ -3757,6 +3812,8 @@ const MapModule = (function() {
                 doubleTapState.animationId = requestAnimationFrame(animate);
             } else {
                 // Snap to exact integer zoom on final frame
+                mapState.lat = startLat;
+                mapState.lon = startLon;
                 mapState.zoom = targetZoom;
                 const final = pixelToLatLon(px, py);
                 mapState.lat += anchorGeo.lat - final.lat;
@@ -3881,6 +3938,8 @@ const MapModule = (function() {
             canvas.style.transformOrigin = '';
             gestureRenderState.active = false;
         }
+        panDriftX = 0;
+        panDriftY = 0;
     }
     
     function handleTouchStart(e) {
@@ -3934,6 +3993,8 @@ const MapModule = (function() {
                 oneFingerZoomState.screenY = touch.clientY;
                 oneFingerZoomState.startY = touch.clientY;
                 oneFingerZoomState.startZoom = mapState.zoom;
+                oneFingerZoomState.startLat = mapState.lat;
+                oneFingerZoomState.startLon = mapState.lon;
                 oneFingerZoomState.didMove = false;
                 doubleTapState.lastTapTime = 0; // consume the double-tap
                 doubleTapState.suppressClick = true;
@@ -3997,12 +4058,17 @@ const MapModule = (function() {
             gestureState.initialAngle = getTouchAngle(touch1, touch2);
             gestureState.initialZoom = mapState.zoom;
             gestureState.initialBearing = mapState.bearing;
+            gestureState.initialLat = mapState.lat;
+            gestureState.initialLon = mapState.lon;
+            gestureState.rotationUnlocked = false;
             gestureState.lastDistance = gestureState.initialDistance;
             gestureState.lastAngle = gestureState.initialAngle;
             
             const center = getTouchCenter(touch1, touch2);
             gestureState.centerX = center.x;
             gestureState.centerY = center.y;
+            gestureState.initialCenterX = center.x;
+            gestureState.initialCenterY = center.y;
         } else {
             // More than 2 touches - cancel everything
             cancelLongPress();
@@ -4030,13 +4096,20 @@ const MapModule = (function() {
             const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
             newZoom = Math.max(3, Math.min(maxZoom, newZoom));
             
-            // Anchor: keep the geo-coordinate under the initial tap point stationary
+            // Anchor: keep the geo-coordinate under the initial tap point stationary.
+            // Non-incremental: compute from initial state each frame to prevent
+            // cumulative floating-point drift in Mercator projection math.
             const px = oneFingerZoomState.screenX - cachedCanvasRect.left;
             const py = oneFingerZoomState.screenY - cachedCanvasRect.top;
+            
+            // Temporarily restore initial state to find anchor geo
+            mapState.lat = oneFingerZoomState.startLat;
+            mapState.lon = oneFingerZoomState.startLon;
+            mapState.zoom = oneFingerZoomState.startZoom;
             const anchorGeo = pixelToLatLon(px, py);
             
+            // Apply new zoom and compute where anchor ended up
             mapState.zoom = newZoom;
-            
             const newGeo = pixelToLatLon(px, py);
             mapState.lat += anchorGeo.lat - newGeo.lat;
             mapState.lon += anchorGeo.lon - newGeo.lon;
@@ -4108,14 +4181,23 @@ const MapModule = (function() {
                 mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
                 while (mapState.lon > 180) mapState.lon -= 360;
                 while (mapState.lon < -180) mapState.lon += 360;
-                mapState.dragStart = { x: touch.clientX, y: touch.clientY };
                 
-                // Fallback velocity recording for browsers without pointer coalesced events.
-                // handlePointerMoveCoalesced provides sub-frame positions when available,
-                // but this ensures basic inertia works everywhere.
-                if (!window.PointerEvent || !PointerEvent.prototype.getCoalescedEvents) {
-                    recordInertiaSample(touch.clientX, touch.clientY);
-                }
+                // Reuse object to avoid GC pressure at 120Hz
+                mapState.dragStart.x = touch.clientX;
+                mapState.dragStart.y = touch.clientY;
+                
+                // Record velocity for inertia (always, not just as fallback).
+                // getCoalescedEvents provides higher-resolution samples when
+                // available; this ensures at least one sample per event.
+                recordInertiaSample(touch.clientX, touch.clientY);
+                
+                // Accumulate pixel drift and apply CSS translate for instant
+                // compositor-thread visual feedback.  On 120Hz displays, 2-3
+                // touch events fire between RAF callbacks — without this, the
+                // user sees stale pixels until the next render().
+                panDriftX += moveDx;
+                panDriftY += moveDy;
+                canvas.style.transform = `translate(${panDriftX}px, ${panDriftY}px)`;
                 
                 scheduleRender();
                 debouncedSaveMapPosition();
@@ -4173,30 +4255,49 @@ const MapModule = (function() {
             while (newBearing < 0) newBearing += 360;
             while (newBearing >= 360) newBearing -= 360;
             
-            // --- Unified pan + zoom + rotate (anchor-point approach) ---
-            // The geographic point that was under the PREVIOUS pinch center
-            // must end up under the CURRENT pinch center after all changes.
-            // This naturally handles pan (center moves), zoom (distance changes),
-            // and rotation (angle changes) in a single step.
-            
-            // Step 1: What geo-coordinate is under the previous pinch center?
-            const prevCX = gestureState.centerX - cachedCanvasRect.left;
-            const prevCY = gestureState.centerY - cachedCanvasRect.top;
-            const anchorGeo = pixelToLatLon(prevCX, prevCY);
-            
-            // Step 2: Apply zoom (always) and bearing (only if intentional rotation)
-            mapState.zoom = newZoom;
-            // Bearing deadzone: ignore accidental rotation < 1° during zoom gestures
-            if (Math.abs(newBearing - mapState.bearing) > 1.0) {
-                mapState.bearing = newBearing;
+            // --- Rotation lock ---
+            // Prevent accidental rotation during pinch-zoom.  Fingers naturally
+            // rotate 5-15° during a zoom gesture, which previously caused the map
+            // to rotate, shifting the GPS marker's apparent position.
+            // Require > 15° of deliberate rotation before unlocking, matching
+            // Google Maps behavior.  Once unlocked, track normally.
+            if (!gestureState.rotationUnlocked) {
+                if (Math.abs(angleDelta) > 15) {
+                    gestureState.rotationUnlocked = true;
+                } else {
+                    newBearing = gestureState.initialBearing;
+                }
             }
             
-            // Step 3: Where does the CURRENT pinch center point now?
+            // --- Non-incremental anchor math ---
+            // Each frame computes the final map position from the INITIAL gesture
+            // state rather than incrementally adjusting from the previous frame.
+            // This eliminates cumulative floating-point drift in the Mercator
+            // projection math (log/tan/atan/sinh round-trip errors) that caused
+            // the GPS marker to visibly shift during long pinch gestures.
+            
+            // Step 1: Restore initial state to find anchor geo
+            mapState.lat = gestureState.initialLat;
+            mapState.lon = gestureState.initialLon;
+            mapState.zoom = gestureState.initialZoom;
+            mapState.bearing = gestureState.initialBearing;
+            
+            // Step 2: What geo-coordinate was under the initial pinch center?
+            const initCX = gestureState.initialCenterX - cachedCanvasRect.left;
+            const initCY = gestureState.initialCenterY - cachedCanvasRect.top;
+            const anchorGeo = pixelToLatLon(initCX, initCY);
+            
+            // Step 3: Apply new zoom and bearing, starting from initial lat/lon
+            mapState.zoom = newZoom;
+            mapState.bearing = newBearing;
+            // lat/lon still at initial values from step 1
+            
+            // Step 4: Where does the CURRENT pinch center point now?
             const curCX = currentCenter.x - cachedCanvasRect.left;
             const curCY = currentCenter.y - cachedCanvasRect.top;
             const newGeo = pixelToLatLon(curCX, curCY);
             
-            // Step 4: Shift map so the anchor point is under the current center
+            // Step 5: Shift map so the anchor geo ends up under the current center
             mapState.lat += anchorGeo.lat - newGeo.lat;
             mapState.lon += anchorGeo.lon - newGeo.lon;
             
@@ -4205,7 +4306,7 @@ const MapModule = (function() {
             while (mapState.lon > 180) mapState.lon -= 360;
             while (mapState.lon < -180) mapState.lon += 360;
             
-            // Update tracked center for next frame
+            // Update tracked center for CSS transform and zoom snap
             gestureState.centerX = currentCenter.x;
             gestureState.centerY = currentCenter.y;
             
@@ -4318,6 +4419,10 @@ const MapModule = (function() {
                     startInertia(vel.vx, vel.vy);
                 } else {
                     saveMapPosition();
+                    // Schedule full render to restore overlays hidden during
+                    // the fast-path drag (isGesturing was true during drag).
+                    // isDragging goes false below, so the next render is full.
+                    scheduleRender();
                 }
             }
             
@@ -4379,12 +4484,23 @@ const MapModule = (function() {
                 render();
                 saveMapPosition();
                 
-                // --- Rotation snap-back to north ---
-                // If bearing ended up within 10° of north after a pinch gesture,
-                // animate it back to 0° for clean north-up alignment.
+                // --- Rotation snap-back ---
+                // If rotation was never deliberately unlocked (< 15° total), bearing
+                // is already at initialBearing.  If it was unlocked but the total
+                // change is small (< 20°), snap back to the initial bearing to undo
+                // accidental rotation.  This prevents the GPS marker from appearing
+                // to shift position after a pinch-zoom.
                 const b = mapState.bearing;
-                if (b !== 0 && (b <= 10 || b >= 350)) {
-                    resetBearing();
+                const ib = gestureState.initialBearing;
+                let bearingDelta = Math.abs(b - ib);
+                if (bearingDelta > 180) bearingDelta = 360 - bearingDelta;
+                if (b !== ib && bearingDelta < 20) {
+                    if (ib === 0) {
+                        resetBearing(); // animated snap to north
+                    } else {
+                        mapState.bearing = ib;
+                        render();
+                    }
                 }
             }
             
@@ -4416,10 +4532,18 @@ const MapModule = (function() {
             render();
             saveMapPosition();
             
-            // --- Rotation snap-back to north (2→1 finger transition) ---
+            // --- Rotation snap-back (2→1 finger transition) ---
             const b = mapState.bearing;
-            if (b !== 0 && (b <= 10 || b >= 350)) {
-                resetBearing();
+            const ib = gestureState.initialBearing;
+            let bearingDelta = Math.abs(b - ib);
+            if (bearingDelta > 180) bearingDelta = 360 - bearingDelta;
+            if (b !== ib && bearingDelta < 20) {
+                if (ib === 0) {
+                    resetBearing();
+                } else {
+                    mapState.bearing = ib;
+                    render();
+                }
             }
         }
     }
