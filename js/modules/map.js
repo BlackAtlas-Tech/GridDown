@@ -913,7 +913,10 @@ const MapModule = (function() {
         
         // Update gestureRenderState so the next CSS transform delta is computed
         // relative to what's actually painted on this frame.
-        if (gestureState.isActive || oneFingerZoomState.isActive) {
+        // gestureRenderState is ONLY set here (in render), never in touch handlers,
+        // because only render() knows what's actually on the canvas.
+        if (gestureState.isActive) {
+            // Two-finger pinch — anchor is the pinch midpoint
             gestureRenderState.active = true;
             gestureRenderState.zoom = mapState.zoom;
             gestureRenderState.bearing = mapState.bearing;
@@ -921,6 +924,15 @@ const MapModule = (function() {
             gestureRenderState.lon = mapState.lon;
             gestureRenderState.pinchCX = gestureState.centerX - cachedCanvasRect.left;
             gestureRenderState.pinchCY = gestureState.centerY - cachedCanvasRect.top;
+        } else if (oneFingerZoomState.isActive) {
+            // One-finger zoom drag — anchor is the initial tap point
+            gestureRenderState.active = true;
+            gestureRenderState.zoom = mapState.zoom;
+            gestureRenderState.bearing = mapState.bearing;
+            gestureRenderState.lat = mapState.lat;
+            gestureRenderState.lon = mapState.lon;
+            gestureRenderState.pinchCX = oneFingerZoomState.screenX - cachedCanvasRect.left;
+            gestureRenderState.pinchCY = oneFingerZoomState.screenY - cachedCanvasRect.top;
         }
     }
     
@@ -3821,21 +3833,19 @@ const MapModule = (function() {
      * The transform bridges the gap between touch events (up to 120Hz) and the
      * next RAF repaint (~60Hz).  The browser compositor applies scale/rotate/translate
      * on the GPU at zero JavaScript cost, so the user sees immediate response.
-     * render() clears this transform on each repaint and updates gestureRenderState.
+     *
+     * IMPORTANT: gestureRenderState is ONLY set by render(), never here.
+     * render() knows what's actually painted on the canvas. If we initialized
+     * gestureRenderState here (from post-modification mapState), it wouldn't
+     * match what's on screen, causing the CSS transform delta to be wrong —
+     * which manifests as a visible "warp" where the map doesn't track fingers.
      */
     function applyGestureCSSTransform() {
-        if (!gestureRenderState.active) {
-            // First call of this gesture — snapshot what's currently painted.
-            // No CSS transform needed yet since the canvas already shows current state.
-            gestureRenderState.active = true;
-            gestureRenderState.zoom = mapState.zoom;
-            gestureRenderState.bearing = mapState.bearing;
-            gestureRenderState.lat = mapState.lat;
-            gestureRenderState.lon = mapState.lon;
-            gestureRenderState.pinchCX = gestureState.centerX - cachedCanvasRect.left;
-            gestureRenderState.pinchCY = gestureState.centerY - cachedCanvasRect.top;
-            return;
-        }
+        // Only apply CSS transform after render() has run at least once during
+        // this gesture and snapshotted the painted state. Before that first
+        // render, the canvas repaint is the only visual path (no worse than
+        // pre-optimization behavior — just one RAF of latency).
+        if (!gestureRenderState.active) return;
         
         // Compute the visual delta between what's painted and current mapState
         const scale = Math.pow(2, mapState.zoom - gestureRenderState.zoom);
@@ -4025,17 +4035,12 @@ const MapModule = (function() {
             updateScaleBar();
             
             // CSS transform for instant visual feedback during one-finger zoom.
-            // Scale around the fixed tap anchor point.
+            // Only applies after render() has established the baseline via
+            // gestureRenderState — same principle as the two-finger path.
             if (gestureRenderState.active) {
                 const scale = Math.pow(2, mapState.zoom - gestureRenderState.zoom);
                 canvas.style.transformOrigin = `${px}px ${py}px`;
                 canvas.style.transform = `scale(${scale})`;
-            } else {
-                gestureRenderState.active = true;
-                gestureRenderState.zoom = mapState.zoom;
-                gestureRenderState.bearing = mapState.bearing;
-                gestureRenderState.pinchCX = px;
-                gestureRenderState.pinchCY = py;
             }
             
             scheduleRender();
