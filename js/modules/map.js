@@ -96,6 +96,23 @@ const MapModule = (function() {
         lon: 0
     };
     
+    // Inertia (momentum) panning state
+    let inertiaState = {
+        animationId: null,
+        // Ring buffer of recent touch positions for velocity calculation
+        history: [],   // [{x, y, time}]
+        maxSamples: 5
+    };
+    
+    // Double-tap zoom state
+    let doubleTapState = {
+        lastTapTime: 0,
+        lastTapX: 0,
+        lastTapY: 0,
+        suppressClick: false,  // prevents click handler from firing after double-tap zoom
+        animationId: null      // tracks running zoom animation
+    };
+    
     // Tile server configuration - multiple providers
     const TILE_SERVERS = {
         // ===== BASE LAYERS =====
@@ -2649,6 +2666,13 @@ const MapModule = (function() {
 
     function handleClick(e) {
         if (mapState.isDragging) return;
+        
+        // Suppress click fired by the browser after a double-tap zoom
+        if (doubleTapState.suppressClick) {
+            doubleTapState.suppressClick = false;
+            return;
+        }
+        
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
         const clickCoords = pixelToLatLon(x, y);
@@ -3417,11 +3441,205 @@ const MapModule = (function() {
             y: (touch1.clientY + touch2.clientY) / 2
         };
     }
+    
+    /**
+     * Cancel any running inertia animation
+     */
+    function cancelInertia() {
+        if (inertiaState.animationId) {
+            cancelAnimationFrame(inertiaState.animationId);
+            inertiaState.animationId = null;
+        }
+        inertiaState.history = [];
+    }
+    
+    /**
+     * Record a touch position sample for velocity computation.
+     * Called each frame during single-finger drag.
+     */
+    function recordInertiaSample(x, y) {
+        const now = performance.now();
+        inertiaState.history.push({ x, y, time: now });
+        // Keep only the last N samples
+        if (inertiaState.history.length > inertiaState.maxSamples) {
+            inertiaState.history.shift();
+        }
+    }
+    
+    /**
+     * Compute flick velocity (pixels/sec) from recent touch history.
+     * Uses only samples from the last 100ms for responsiveness.
+     * Returns {vx, vy} or null if insufficient data.
+     */
+    function computeInertiaVelocity() {
+        const h = inertiaState.history;
+        if (h.length < 2) return null;
+        
+        const latest = h[h.length - 1];
+        const cutoff = latest.time - 100; // last 100ms
+        
+        // Find earliest sample within the window
+        let startIdx = h.length - 1;
+        for (let i = h.length - 2; i >= 0; i--) {
+            if (h[i].time >= cutoff) startIdx = i;
+            else break;
+        }
+        
+        const first = h[startIdx];
+        const dt = latest.time - first.time;
+        if (dt < 15) return null; // too short to measure
+        
+        return {
+            vx: (latest.x - first.x) / dt * 1000, // px/sec
+            vy: (latest.y - first.y) / dt * 1000
+        };
+    }
+    
+    /**
+     * Start inertia (momentum) animation after a flick gesture.
+     * Applies exponential friction until velocity drops below threshold.
+     * @param {number} vx - horizontal velocity in pixels/sec
+     * @param {number} vy - vertical velocity in pixels/sec
+     */
+    function startInertia(vx, vy) {
+        // Minimum speed to bother animating (px/sec)
+        const minSpeed = 20;
+        if (Math.abs(vx) < minSpeed && Math.abs(vy) < minSpeed) {
+            saveMapPosition();
+            return;
+        }
+        
+        // Cap max velocity to prevent wild flings
+        const maxV = 8000;
+        vx = Math.max(-maxV, Math.min(maxV, vx));
+        vy = Math.max(-maxV, Math.min(maxV, vy));
+        
+        const friction = 0.92; // per-frame decay at 60fps baseline
+        let lastTime = performance.now();
+        
+        function animate(currentTime) {
+            const dt = (currentTime - lastTime) / 1000; // seconds
+            lastTime = currentTime;
+            
+            // Guard against huge dt (tab in background, etc.)
+            if (dt > 0.1) {
+                inertiaState.animationId = null;
+                saveMapPosition();
+                return;
+            }
+            
+            // Frame-rate-independent exponential decay
+            const decay = Math.pow(friction, dt * 60);
+            vx *= decay;
+            vy *= decay;
+            
+            // Stop when slow enough
+            if (Math.abs(vx) < minSpeed && Math.abs(vy) < minSpeed) {
+                inertiaState.animationId = null;
+                saveMapPosition();
+                return;
+            }
+            
+            // Convert pixel velocity to lat/lon shift
+            const pixelDx = vx * dt;
+            const pixelDy = vy * dt;
+            
+            // Account for map rotation
+            const bearingRad = mapState.bearing * Math.PI / 180;
+            const rotatedDx = pixelDx * Math.cos(bearingRad) + pixelDy * Math.sin(bearingRad);
+            const rotatedDy = -pixelDx * Math.sin(bearingRad) + pixelDy * Math.cos(bearingRad);
+            
+            const n = Math.pow(2, mapState.zoom);
+            mapState.lon -= rotatedDx / mapState.tileSize / n * 360;
+            mapState.lat += rotatedDy / mapState.tileSize / n * 180 * Math.cos(mapState.lat * Math.PI / 180);
+            mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+            while (mapState.lon > 180) mapState.lon -= 360;
+            while (mapState.lon < -180) mapState.lon += 360;
+            
+            scheduleRender();
+            inertiaState.animationId = requestAnimationFrame(animate);
+        }
+        
+        inertiaState.animationId = requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Animated zoom centered on a screen point (used for double-tap zoom).
+     * Smoothly transitions zoom level while keeping the anchor point stationary.
+     * @param {number} screenX - clientX of the tap
+     * @param {number} screenY - clientY of the tap
+     * @param {number} targetZoom - desired integer zoom level
+     */
+    function animateZoomAt(screenX, screenY, targetZoom) {
+        const rect = canvas.getBoundingClientRect();
+        const px = screenX - rect.left;
+        const py = screenY - rect.top;
+        
+        const startZoom = mapState.zoom;
+        targetZoom = Math.max(3, Math.min(19, Math.round(targetZoom)));
+        if (startZoom === targetZoom) return;
+        
+        // Capture the geo-coordinate under the tap point
+        const anchorGeo = pixelToLatLon(px, py);
+        
+        const duration = 250; // ms
+        const startTime = performance.now();
+        
+        // Cancel conflicting animations
+        cancelInertia();
+        if (doubleTapState.animationId) {
+            cancelAnimationFrame(doubleTapState.animationId);
+        }
+        
+        function animate(currentTime) {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            // Ease-out cubic for natural deceleration
+            const eased = 1 - Math.pow(1 - progress, 3);
+            
+            mapState.zoom = startZoom + (targetZoom - startZoom) * eased;
+            
+            // Reposition so anchor geo stays under tap point
+            const cur = pixelToLatLon(px, py);
+            mapState.lat += anchorGeo.lat - cur.lat;
+            mapState.lon += anchorGeo.lon - cur.lon;
+            mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+            
+            if (zoomLevelEl) zoomLevelEl.textContent = Math.round(mapState.zoom) + 'z';
+            updateScaleBar();
+            render();
+            
+            if (progress < 1) {
+                doubleTapState.animationId = requestAnimationFrame(animate);
+            } else {
+                // Snap to exact integer zoom on final frame
+                mapState.zoom = targetZoom;
+                const final = pixelToLatLon(px, py);
+                mapState.lat += anchorGeo.lat - final.lat;
+                mapState.lon += anchorGeo.lon - final.lon;
+                mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+                if (zoomLevelEl) zoomLevelEl.textContent = mapState.zoom + 'z';
+                updateScaleBar();
+                render();
+                saveMapPosition();
+                doubleTapState.animationId = null;
+            }
+        }
+        
+        doubleTapState.animationId = requestAnimationFrame(animate);
+    }
 
     function handleTouchStart(e) {
         // Close context menu if open
         if (contextMenuState.isOpen) {
             hideContextMenu();
+        }
+        
+        // Cancel any running momentum or zoom animation
+        cancelInertia();
+        if (doubleTapState.animationId) {
+            cancelAnimationFrame(doubleTapState.animationId);
+            doubleTapState.animationId = null;
         }
         
         if (e.touches.length === 1) {
@@ -3473,6 +3691,7 @@ const MapModule = (function() {
             // Cancel long press and single-finger drag
             cancelLongPress();
             mapState.isDragging = false;
+            doubleTapState.lastTapTime = 0; // invalidate pending double-tap
             
             // Cancel drawing if active
             if (mapState.isDrawingRegion) {
@@ -3555,6 +3774,10 @@ const MapModule = (function() {
                 while (mapState.lon > 180) mapState.lon -= 360;
                 while (mapState.lon < -180) mapState.lon += 360;
                 mapState.dragStart = { x: touch.clientX, y: touch.clientY };
+                
+                // Record position sample for inertia velocity computation
+                recordInertiaSample(touch.clientX, touch.clientY);
+                
                 scheduleRender();
                 debouncedSaveMapPosition();
             }
@@ -3665,13 +3888,50 @@ const MapModule = (function() {
             }
             
             const elapsed = Date.now() - longPressState.startTime;
-            if (!mapState.isDragging && !longPressState.isLongPress && !gestureState.isActive && elapsed < 300) {
-                // This was a tap - let normal click event handle it
+            const wasDragging = mapState.isDragging;
+            const wasGesture = gestureState.isActive;
+            const wasTap = !wasDragging && !longPressState.isLongPress && !wasGesture && elapsed < 300;
+            
+            // --- Inertia: start momentum panning after a flick ---
+            if (wasDragging && !wasGesture) {
+                const vel = computeInertiaVelocity();
+                if (vel) {
+                    startInertia(vel.vx, vel.vy);
+                } else {
+                    saveMapPosition();
+                }
+            }
+            
+            // --- Double-tap detection ---
+            if (wasTap && e.changedTouches.length > 0) {
+                const touch = e.changedTouches[0];
+                const now = Date.now();
+                const dtTap = now - doubleTapState.lastTapTime;
+                const dx = touch.clientX - doubleTapState.lastTapX;
+                const dy = touch.clientY - doubleTapState.lastTapY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dtTap < 300 && dist < 30 && doubleTapState.lastTapTime > 0) {
+                    // Double-tap detected — zoom in centered on tap point
+                    doubleTapState.lastTapTime = 0; // prevent triple-tap triggering
+                    const maxZoom = TILE_SERVERS[activeLayers.base]?.maxZoom || 19;
+                    if (mapState.zoom < maxZoom) {
+                        doubleTapState.suppressClick = true;
+                        animateZoomAt(touch.clientX, touch.clientY, mapState.zoom + 1);
+                    }
+                    // At max zoom, let the tap pass through as a normal click
+                } else {
+                    // First tap — record for potential double-tap
+                    doubleTapState.lastTapTime = now;
+                    doubleTapState.lastTapX = touch.clientX;
+                    doubleTapState.lastTapY = touch.clientY;
+                }
             }
             
             mapState.isDragging = false;
             mapState.dragStart = null;
             gestureState.isActive = false;
+            inertiaState.history = [];
             
             // Snap zoom to nearest integer after pinch gesture completes.
             // Fractional zoom is used during the gesture for smooth visual interpolation,
@@ -3704,6 +3964,7 @@ const MapModule = (function() {
             const touch = e.touches[0];
             mapState.dragStart = { x: touch.clientX, y: touch.clientY };
             mapState.isDragging = true;
+            inertiaState.history = []; // reset velocity history for the new drag
             
             // Snap zoom to integer after pinch gesture, anchored at last pinch center
             const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
