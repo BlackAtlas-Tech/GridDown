@@ -3564,6 +3564,7 @@ const MapModule = (function() {
             
             const touch1 = e.touches[0];
             const touch2 = e.touches[1];
+            const rect = canvas.getBoundingClientRect();
             
             const currentDistance = getTouchDistance(touch1, touch2);
             const currentAngle = getTouchAngle(touch1, touch2);
@@ -3592,41 +3593,48 @@ const MapModule = (function() {
             while (newBearing < 0) newBearing += 360;
             while (newBearing >= 360) newBearing -= 360;
             
-            // Apply changes
-            const zoomChanged = Math.abs(newZoom - mapState.zoom) > 0.01;
-            const bearingChanged = Math.abs(newBearing - mapState.bearing) > 0.5;
+            // --- Unified pan + zoom + rotate (anchor-point approach) ---
+            // The geographic point that was under the PREVIOUS pinch center
+            // must end up under the CURRENT pinch center after all changes.
+            // This naturally handles pan (center moves), zoom (distance changes),
+            // and rotation (angle changes) in a single step.
             
-            if (zoomChanged || bearingChanged) {
-                // Get the lat/lon at the gesture center before zoom/rotation change
-                // Use CURRENT center (where fingers are now), not initial center
-                const rect = canvas.getBoundingClientRect();
-                const centerPixelX = currentCenter.x - rect.left;
-                const centerPixelY = currentCenter.y - rect.top;
-                const centerCoords = pixelToLatLon(centerPixelX, centerPixelY);
-                
-                // Apply zoom
-                mapState.zoom = newZoom;
-                
-                // Apply rotation
+            // Step 1: What geo-coordinate is under the previous pinch center?
+            const prevCX = gestureState.centerX - rect.left;
+            const prevCY = gestureState.centerY - rect.top;
+            const anchorGeo = pixelToLatLon(prevCX, prevCY);
+            
+            // Step 2: Apply zoom (always) and bearing (only if intentional rotation)
+            mapState.zoom = newZoom;
+            // Bearing deadzone: ignore accidental rotation < 1° during zoom gestures
+            if (Math.abs(newBearing - mapState.bearing) > 1.0) {
                 mapState.bearing = newBearing;
-                
-                // Adjust map center to keep gesture center point stationary
-                // (This creates the "zoom to point" effect)
-                const newCenterCoords = pixelToLatLon(centerPixelX, centerPixelY);
-                mapState.lat += centerCoords.lat - newCenterCoords.lat;
-                mapState.lon += centerCoords.lon - newCenterCoords.lon;
-                
-                // Clamp latitude
-                mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
-                
-                scheduleRender();
-                updateScaleBar();
-                updateCompassRose();
-                
-                // Update zoom display
-                const zoomEl = zoomLevelEl;
-                if (zoomEl) zoomEl.textContent = Math.round(mapState.zoom) + 'z';
             }
+            
+            // Step 3: Where does the CURRENT pinch center point now?
+            const curCX = currentCenter.x - rect.left;
+            const curCY = currentCenter.y - rect.top;
+            const newGeo = pixelToLatLon(curCX, curCY);
+            
+            // Step 4: Shift map so the anchor point is under the current center
+            mapState.lat += anchorGeo.lat - newGeo.lat;
+            mapState.lon += anchorGeo.lon - newGeo.lon;
+            
+            // Clamp latitude
+            mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+            while (mapState.lon > 180) mapState.lon -= 360;
+            while (mapState.lon < -180) mapState.lon += 360;
+            
+            // Update tracked center for next frame
+            gestureState.centerX = currentCenter.x;
+            gestureState.centerY = currentCenter.y;
+            
+            scheduleRender();
+            updateScaleBar();
+            updateCompassRose();
+            
+            // Update zoom display
+            if (zoomLevelEl) zoomLevelEl.textContent = Math.round(mapState.zoom) + 'z';
             
             gestureState.lastDistance = currentDistance;
             gestureState.lastAngle = currentAngle;
@@ -3668,9 +3676,22 @@ const MapModule = (function() {
             // Snap zoom to nearest integer after pinch gesture completes.
             // Fractional zoom is used during the gesture for smooth visual interpolation,
             // but final zoom must be integer for clean tile rendering.
+            // Anchor the snap around the last pinch center to prevent a visible jump.
             if (gestureState.initialZoom !== mapState.zoom || gestureState.initialBearing !== mapState.bearing) {
-                mapState.zoom = Math.round(mapState.zoom);
-                mapState.zoom = Math.max(3, Math.min(19, mapState.zoom));
+                const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
+                if (snappedZoom !== mapState.zoom) {
+                    const rect = canvas.getBoundingClientRect();
+                    const anchorX = gestureState.centerX - rect.left;
+                    const anchorY = gestureState.centerY - rect.top;
+                    const anchorGeo = pixelToLatLon(anchorX, anchorY);
+                    mapState.zoom = snappedZoom;
+                    const newGeo = pixelToLatLon(anchorX, anchorY);
+                    mapState.lat += anchorGeo.lat - newGeo.lat;
+                    mapState.lon += anchorGeo.lon - newGeo.lon;
+                    mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+                } else {
+                    mapState.zoom = snappedZoom;
+                }
                 if (zoomLevelEl) zoomLevelEl.textContent = mapState.zoom + 'z';
                 updateScaleBar();
                 render();
@@ -3684,9 +3705,21 @@ const MapModule = (function() {
             mapState.dragStart = { x: touch.clientX, y: touch.clientY };
             mapState.isDragging = true;
             
-            // Snap zoom to integer after pinch gesture and save position
-            mapState.zoom = Math.round(mapState.zoom);
-            mapState.zoom = Math.max(3, Math.min(19, mapState.zoom));
+            // Snap zoom to integer after pinch gesture, anchored at last pinch center
+            const snappedZoom = Math.max(3, Math.min(19, Math.round(mapState.zoom)));
+            if (snappedZoom !== mapState.zoom) {
+                const rect = canvas.getBoundingClientRect();
+                const anchorX = gestureState.centerX - rect.left;
+                const anchorY = gestureState.centerY - rect.top;
+                const anchorGeo = pixelToLatLon(anchorX, anchorY);
+                mapState.zoom = snappedZoom;
+                const newGeo = pixelToLatLon(anchorX, anchorY);
+                mapState.lat += anchorGeo.lat - newGeo.lat;
+                mapState.lon += anchorGeo.lon - newGeo.lon;
+                mapState.lat = Math.max(-85, Math.min(85, mapState.lat));
+            } else {
+                mapState.zoom = snappedZoom;
+            }
             if (zoomLevelEl) zoomLevelEl.textContent = mapState.zoom + 'z';
             updateScaleBar();
             render();
