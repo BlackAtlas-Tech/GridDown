@@ -386,7 +386,10 @@ const RFSentinelModule = (function() {
 
     function getWsUrl() {
         const protocol = shouldUseHttps() ? 'wss' : 'ws';
-        return `${protocol}://${state.host}:${state.port}/ws`;
+        // Use the external integration endpoint — /ws requires RF Sentinel
+        // session cookie auth which external clients (GridDown) don't have.
+        // /api/integration/ws/external allows unauthenticated or API-key connections.
+        return `${protocol}://${state.host}:${state.port}/api/integration/ws/external`;
     }
 
     function getMqttWsUrl() {
