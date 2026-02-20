@@ -652,6 +652,11 @@ const RFSentinelModule = (function() {
                 // Start health check interval
                 startHealthCheckInterval();
                 
+                // Seed current tracks via one-time REST fetch so the map
+                // isn't empty until each track's next update trickles in.
+                // Fire-and-forget — WebSocket handles real-time from here.
+                seedInitialTracks();
+                
                 emitEvent('connected', { mode: 'websocket' });
                 resolve();
             };
@@ -710,6 +715,42 @@ const RFSentinelModule = (function() {
                 scheduleWebSocketReconnect();
             }
         }, delay);
+    }
+
+    /**
+     * Seed initial track state via one-time REST fetch.
+     *
+     * When GridDown connects via WebSocket (or reconnects), the WS stream
+     * only delivers events published *after* registration.  If RF Sentinel
+     * is already tracking targets, the map starts empty and tracks only
+     * appear as each gets its next update — seconds for ADS-B, minutes for
+     * ships/APRS/radiosondes.
+     *
+     * This one-shot GET /api/tracks backfills everything RF Sentinel is
+     * currently tracking so the map is fully populated immediately.
+     * It is intentionally fire-and-forget; a failure here is harmless
+     * because the WebSocket will deliver updates anyway.
+     */
+    async function seedInitialTracks() {
+        try {
+            const url = `${getBaseUrl()}/api/tracks?max_age=${CONFIG.trackMaxAgeSeconds}`;
+            console.log('RFSentinel: Seeding initial tracks from', url);
+            
+            const response = await fetch(url, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const tracks = await response.json();
+            
+            if (Array.isArray(tracks) && tracks.length > 0) {
+                tracks.forEach(track => handleTrackUpdate(track));
+                console.log(`RFSentinel: Seeded ${tracks.length} tracks`);
+            } else {
+                console.log('RFSentinel: No active tracks to seed');
+            }
+        } catch (e) {
+            // Non-fatal — WebSocket will deliver updates as they arrive
+            console.warn('RFSentinel: Initial track seed failed (non-fatal):', e.message);
+        }
     }
 
     function handleWebSocketMessage(data) {
@@ -1018,6 +1059,10 @@ const RFSentinelModule = (function() {
                 // Start health check interval
                 startHealthCheckInterval();
                 
+                // Seed current tracks via REST (same reason as WebSocket mode —
+                // MQTT only delivers messages published after subscription)
+                seedInitialTracks();
+                
                 emitEvent('connected', { mode: 'mqtt' });
                 resolve();
             });
@@ -1243,7 +1288,42 @@ const RFSentinelModule = (function() {
                 console.warn('RFSentinel: Health check failed');
                 emitEvent('health:degraded', health);
             }
+            
+            // Purge stale tracks from the Map so counts stay accurate
+            // and memory doesn't grow unbounded in WebSocket/MQTT mode.
+            // (REST polling already reconciles via fetchAllTracks.)
+            if (state.connectionMode !== 'rest') {
+                purgeStaleTrack();
+            }
         }, CONFIG.healthCheckIntervalMs);
+    }
+
+    /**
+     * Remove tracks from state.tracks that have exceeded trackMaxAgeSeconds.
+     *
+     * In WebSocket and MQTT modes, tracks are only added/updated — never
+     * removed — unless a track_lost event arrives.  Without periodic purging
+     * the Map grows indefinitely, causing dashboard counts to drift above
+     * what the renderer actually displays on the map.
+     */
+    function purgeStaleTrack() {
+        const now = Date.now();
+        const maxAge = CONFIG.trackMaxAgeSeconds * 1000;
+        let purged = 0;
+        
+        for (const [id, track] of state.tracks) {
+            const age = now - (track.lastUpdate || track.timestamp || 0);
+            if (age > maxAge) {
+                state.tracks.delete(id);
+                purged++;
+            }
+        }
+        
+        if (purged > 0) {
+            console.debug(`RFSentinel: Purged ${purged} stale tracks`);
+            updateTrackCounts();
+            requestMapRefresh();
+        }
     }
 
     async function checkHealth(retries = 1, timeoutMs = 5000) {
@@ -1374,7 +1454,17 @@ const RFSentinelModule = (function() {
     function updateTrackCounts() {
         state.trackCounts = { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
         
+        const now = Date.now();
+        const maxAge = CONFIG.trackMaxAgeSeconds * 1000;
+        
         for (const [id, track] of state.tracks) {
+            // Apply same filters as renderOnMap so counts match what's displayed
+            const age = now - (track.lastUpdate || track.timestamp || 0);
+            if (age > maxAge) continue;
+            
+            if (!track.lat && !track.latitude) continue;
+            if (!track.lon && !track.longitude) continue;
+            
             if (state.trackCounts.hasOwnProperty(track.type)) {
                 state.trackCounts[track.type]++;
             }
