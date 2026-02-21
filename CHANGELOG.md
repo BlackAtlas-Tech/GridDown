@@ -2,6 +2,13 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.71] - 2025-02-21
+
+### Added
+- **GridDown Termux Setup Guide** (PDF, 13 pages) — Complete documentation for self-hosting GridDown on Samsung Galaxy Tab Active5 Pro using Termux. Covers F-Droid installation, repository cloning, local Python HTTP server, PWA installation, one-command GitHub updates via shell alias, autostart on boot with Termux:Boot, RF Sentinel USB-C OTG integration, Android wake lock and battery optimization settings, three network architecture patterns (single-device, tablet+Pi, GitHub Pages), troubleshooting table, and quick reference card.
+- **scripts/termux-setup.sh** — One-command Termux environment setup. Installs all shell aliases to ~/.bashrc via source link, optionally creates Termux:Boot autostart script, verifies environment (Python, Git, rtl-sdr). Idempotent and safe to re-run after updates. Colored terminal output with step-by-step progress.
+- **scripts/griddown-aliases.sh** — 15 shell aliases for Termux: gd, gd-bg, gd-stop, gd-status, gd-restart, gd-start (wake lock + server), gd-shutdown (stop + unlock), griddown-update, gd-version, gd-log, gd-force-update, gd-size, gd-clean, wl/wlu (wake lock shortcuts). Sourced from ~/.bashrc so aliases auto-update when GridDown is updated from GitHub.
+
 ## [6.57.70] - 2025-02-21
 
 ### Fixed
