@@ -2,6 +2,162 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.64] - 2025-02-21
+
+### Added — SARSAT: GPIO Status LED Driver
+
+**Feature 10: Pi CPU Temperature Monitoring + GPIO Status LED**
+
+Adds a two-LED (red + green) GPIO indicator for field-visible receiver state. Five distinct visual states from two LEDs by combining colors and blink patterns.
+
+**Hardware:** 2× 5mm LEDs (red + green), 2× 220Ω resistors, jumper wires. Total cost under $2.
+- GPIO 17 (pin 11) → 220Ω → Red LED → GND (pin 14)
+- GPIO 27 (pin 13) → 220Ω → Green LED → GND (pin 14)
+
+**LED States:**
+
+| State | Red | Green | Meaning |
+|---|---|---|---|
+| OFF | — | — | Receiver not running |
+| STARTING | — | blink | Initializing SDR |
+| RUNNING | — | solid | Normal operation |
+| BEACON | — | flash | Beacon decoded (1.5s flash, returns to RUNNING) |
+| EMERGENCY | blink | — | Non-test emergency beacon detected (fast 200ms blink) |
+| WARNING | solid | solid | CPU temp > 75°C (amber = both LEDs, auto-recovers at 70°C) |
+| FAULT | solid | — | SDR error or receive failure (auto-recovers) |
+| SEARCHING | — | slow blink | Scanning for signals (1s on/off) |
+
+**Implementation:**
+- `StatusLED` class (190 lines): GPIO initialization with RPi.GPIO, daemon background thread at 50Hz tick rate for blink patterns, graceful no-op fallback on non-Pi hardware
+- Transient states: BEACON flash auto-returns to previous steady state after 1.5s
+- Temperature hysteresis: WARNING triggers at 75°C, recovers at 70°C (no flutter)
+- Heartbeat includes `ledState: {state, gpioAvailable, pins}` for remote monitoring
+- GridDown panel shows LED state with colored emoji indicator (🟢 Running, 🔴 EMERGENCY, 🟡 Warning)
+
+**CLI:**
+- `--led` — Enable GPIO status LED (off by default)
+- `--led-pins R,G` — Custom GPIO pins in BCM numbering (default: 17,27)
+
+**Example:** `python3 sarsat_receiver_robust.py --websocket 8406 --led`
+
+### Technical
+- Modified: `sarsat_receiver_robust.py` (v2.1→v2.2, +263 lines) — Added `threading` import. `ReceiverConfig`: +3 fields (led_enabled, led_pin_red, led_pin_green). New `StatusLED` class with 8 states, daemon blink thread, GPIO init/cleanup, to_status_dict(). `SarsatReceiver`: LED init, STARTING→RUNNING on start(), OFF+stop on stop(), FAULT/recovery in run() error handler, BEACON/EMERGENCY flash in _process_samples(), WARNING/recovery based on CPU temp in get_status(). Heartbeat: +ledState field. CLI: +2 args (--led, --led-pins)
+- Modified: `js/modules/panels.js` — New `_ledStateDisplay()` helper (8 states → emoji + colored label). LED state row in receiver health grid
+- Modified: `sw.js` — Cache version bump to v6.57.64
+
+## [6.57.63] - 2025-02-21
+
+### Enhanced — SARSAT: SNR/Signal Display, Multi-Frequency Status, Beacon Replay
+
+**Feature 6: SNR/Noise Floor Display**
+- Receiver health grid now shows "Last SNR" and "Last RSSI" from the most recent signal detection, color-coded by quality (green ≥15 dB, lime ≥10, amber ≥5, red <5)
+- Beacon list cards now display SNR, RSSI, frequency, and receive count in a compact signal row beneath each beacon's header
+- Emergency beacon cards also show signal metrics for situational awareness during active alerts
+- Python receiver now tracks `_last_detection_snr` and `_last_detection_rssi`, broadcast in every heartbeat as `lastDetectionSnr` and `lastDetectionRssi`
+- sarsat.js now stores `beacon.snr` from incoming messages alongside the existing rssi and frequency fields
+
+**Feature 7: Multi-Frequency Status** *(implemented in v6.57.61)*
+- Collapsible "Frequency Channels" section shows all 4 monitored frequencies (406.025, .028, .037, .040 MHz)
+- Each frequency displays detection and decode counts; current active frequency marked with ◀ and bold text
+
+**Feature 9: Beacon Replay on Connect** *(implemented in v6.57.62)*
+- GridDown auto-sends `get_recent_beacons` 500ms after WebSocket connect to populate beacon list from receiver's persistent database
+- Replayed beacons processed silently — no toast notifications, alert sounds, or waypoint creation for historical data
+
+### Technical
+- Modified: `sarsat_receiver_robust.py` — Added `_last_detection_snr`/`_last_detection_rssi` state fields, populated in `_process_samples`, included in `get_status()` heartbeat
+- Modified: `js/modules/sarsat.js` — Store `beacon.snr` from incoming message data
+- Modified: `js/modules/panels.js` — Last SNR/RSSI rows in health grid (color-coded), signal info row in beacon list cards (SNR/RSSI/freq/count), signal info in emergency beacon cards
+- Modified: `sw.js` — Cache version bump to v6.57.63
+
+## [6.57.62] - 2025-02-21
+
+### Enhanced — SARSAT: mDNS Discovery, WiFi AP Mode, and Persistent Beacon Logging
+
+**Feature 3: mDNS/Avahi Service Advertisement**
+- New `sarsat-receiver.service` Avahi service definition file advertises the receiver as `_sarsat._tcp` on port 8406 with TXT records for version, product name, and protocol type
+- Install via `sudo python3 sarsat_receiver_robust.py --install-mdns` or manually with `sudo cp sarsat-receiver.service /etc/avahi/services/`
+- New `install_mdns_service()` Python function handles Avahi detection, root check, service file generation, and daemon restart
+- Enables GridDown network discovery to find SARSAT receivers automatically without knowing IP addresses
+- Verify with: `avahi-browse -r _sarsat._tcp`
+
+**Feature 4: WiFi Access Point Setup Script**
+- New `setup_ap.sh` — complete WiFi AP configuration for field deployment without existing infrastructure
+- Default AP: SSID `SARSAT-RX-01`, password `griddown406`, IP `192.168.4.1`
+- Configurable via flags: `--ssid`, `--password`, `--no-password` (open network), `--channel`, `--ip`, `--country`
+- Installs and configures hostapd (AP), dnsmasq (DHCP + DNS), and iptables (NAT for internet sharing via ethernet)
+- DNS aliases: `sarsat-rx.local`, `sarsat.local`, `griddown-sarsat.local` all resolve to AP IP
+- DHCP range: 192.168.4.10-50 with 12h leases
+- Backs up all original configs to `~/.griddown-ap-backup/` before modifying
+- `--remove` flag cleanly restores original WiFi configuration
+- NAT forwarding shares ethernet internet with WiFi clients when cable is connected
+- Post-setup verification with status display showing SSID, password, IP, WebSocket URL, and internet status
+
+**Feature 5: Persistent Beacon Logging (SQLite)**
+- New `BeaconLogger` class: SQLite database for persistent beacon storage across receiver sessions
+- Default database location: `~/griddown/sarsat_beacons.db` (configurable via `--db-path`, disable with `--no-db`)
+- Schema: `beacons` table with full beacon fields plus session_id, created_at, and indexes on timestamp, hex_id, and session
+- WAL journal mode and NORMAL synchronous for performance in field conditions
+- Each receiver run gets a unique session_id for grouping
+- Methods: `log_beacon()`, `get_recent(hours, limit)`, `get_session_beacons()`, `get_count()`
+- `get_count()` returns `{total, session, last24h}` — included in every heartbeat status broadcast
+- New `SarsatReceiver.get_beacon_log()` method: returns database beacons as GridDown-compatible dicts with in-memory fallback
+- New WebSocket command `get_beacon_log` with configurable `hours` (0.1-8760) and `limit` (1-2000) parameters
+- Updated `get_recent_beacons` command: now pulls from database (cross-session) instead of in-memory list
+- On WebSocket client connect, GridDown automatically sends `get_recent_beacons` to populate beacon list from receiver's database
+- Replayed beacons tagged with `replay: true` are processed silently — no toast notifications, no alert sounds, no waypoint creation for historical beacons
+- Beacon log stats displayed in connected panel: "3 this session · 7 last 24h · 42 total"
+
+### Technical
+- Modified: `sarsat_receiver_robust.py` (v2.0→v2.1) — +3 imports (sqlite3, os, uuid), +1 config field (db_path), +BeaconLogger class (195 lines, 10 methods), SarsatReceiver: beacon_logger init with None support, log_beacon in _process_samples, beaconLog in status heartbeat, get_beacon_log() method, logger.close() in stop(). WebSocket: get_beacon_log command with hours/limit params, get_recent_beacons updated to use database. New install_mdns_service() function. CLI: +3 args (--db-path, --no-db, --install-mdns)
+- Modified: `js/modules/sarsat.js` — Auto-request beacon replay on WebSocket connect (500ms delay). processBeaconMessage: isReplay flag, skip stats/toasts/alerts/waypoints for replayed beacons. New requestBeaconLog(hours, limit) function and public API export
+- Modified: `js/modules/panels.js` — Beacon log stats row in connected state (session/24h/total counts)
+- New: `sarsat-receiver.service` — Avahi mDNS service definition for _sarsat._tcp
+- New: `setup_ap.sh` — WiFi AP configuration script (314 lines)
+- Modified: `sw.js` — Cache version bump to v6.57.62
+
+## [6.57.61] - 2025-02-21
+
+### Enhanced — SARSAT: Receiver Status Heartbeat & Remote Control Protocol
+Implements a bidirectional communication protocol between the GridDown app and the Raspberry Pi SARSAT receiver, enabling real-time receiver health monitoring and remote control from the tablet.
+
+**Status Heartbeat (Receiver → GridDown):**
+- Receiver broadcasts a comprehensive status message every 15 seconds (configurable via `--heartbeat` CLI flag) to all connected GridDown clients
+- Status includes: SDR connected state, uptime, noise floor (dBm, rolling EMA), gain, sample rate, PPM correction, signals detected, syncs found, messages decoded, BCH corrections, last detection time, per-frequency channel stats (detections/decodes per channel), active beacon count, Pi CPU temperature, and Unix timestamp
+- GridDown displays receiver health in the connected panel: SDR status, uptime, noise floor, gain, CPU temp (with heat warnings at 65°C/75°C), last signal time, and per-frequency channel breakdown
+- Signal quality progress bar derived from noise floor level (Excellent/Good/Fair/Poor)
+- Heartbeat timeout detection: if no status received within 45 seconds (3× heartbeat interval), receiver marked offline with visual indicator. Fires `sarsat:receiver_offline` event
+- Welcome status sent immediately on client connect with `welcome: true` flag
+- Panel auto-rerenders on each heartbeat to keep stats live
+
+**Bidirectional Commands (GridDown → Receiver):**
+- New command protocol: GridDown sends `{"cmd": "...", "requestId": "..."}`, receiver responds with `{"msgType": "response", "cmd": "...", "requestId": "...", ...}`
+- `get_status` — Request immediate status (bypasses heartbeat interval)
+- `get_config` — Returns full receiver configuration
+- `set_gain` — Remote gain adjustment (auto or specific dB). Gain dropdown in panel UI with common RTL-SDR values (Auto, 10/20/30/40/49.6 dB). Applies to live SDR immediately
+- `set_frequency` — Remote primary frequency change (validates within 405-407 MHz band). Adds new frequency to monitoring cycle
+- `self_test` — Triggers full DSP self-test on the receiver. Test button in panel UI with async result reporting and 30s safety timeout
+- `get_recent_beacons` — Replays all beacons from current session to the requesting client (for late-joining team members)
+- Command timeout handling (10s default) with Promise-based API and requestId correlation
+- Pending commands automatically rejected on disconnect
+
+**Message Routing:**
+- `handleIncomingData` now routes JSON messages by `msgType` field: `status` → heartbeat handler, `beacon` → beacon processor, `response` → command response handler
+- Backward compatible: messages without `msgType` but with `hexId` still route to beacon processor (supports legacy/serial format)
+
+**Python Receiver (`sarsat_receiver_robust.py`):**
+- `SarsatReceiver` class: Added noise floor tracking (rolling EMA), per-frequency detection/decode stats, recent beacon buffer (replay on connect), CPU temperature reading from sysfs, comprehensive `get_status()` method
+- Remote control methods: `set_gain()`, `set_frequency()`, `get_config_dict()`, `get_recent_beacons()` with input validation and error responses
+- `websocket_server_main`: Complete rewrite — bidirectional message handling replaces silent `async for _ in websocket: pass`. Heartbeat loop runs as concurrent asyncio task. Welcome status on connect. Command router with per-command handlers. Dead client cleanup on broadcast
+- New `--heartbeat SECONDS` CLI argument (default: 15)
+
+### Technical
+- Modified: `js/modules/sarsat.js` — New state fields: receiverStatus, lastStatusTime, statusTimeoutTimer, receiverOnline, pendingCommands, commandIdCounter. New functions: _routeMessage, _handleStatus, _handleCommandResponse, _resetStatusTimeout, _clearStatusTimeout, sendCommand, requestStatus, requestConfig, setRemoteGain, setRemoteFrequency, triggerSelfTest, requestRecentBeacons. Updated handleIncomingData with msgType routing. Updated onDisconnected/destroy to clean up status timers and pending commands. 10 new public API methods
+- Modified: `js/modules/panels.js` — Connected state completely rebuilt with: receiver health grid (SDR/uptime/noise floor/gain/CPU temp/last signal), signal quality bar with color coding, per-frequency channel stats in collapsible details, remote gain dropdown, self-test button with async result listener. New helpers: _formatUptime, _signalQualityLabel, _signalQualityPercent, _signalQualityColor. New event listeners: sarsat:status_update, sarsat:receiver_offline
+- Modified: `sarsat_receiver_robust.py` — SarsatReceiver: +8 new instance fields, +7 new methods. websocket_server_main: complete rewrite (+120 lines). ReceiverConfig: +1 new field (heartbeat_interval). New CLI argument --heartbeat
+- Modified: `sw.js` — Cache version bump to v6.57.61
+- Zero impact on other panels or modules
+
 ## [6.57.60] - 2025-02-21
 
 ### Enhanced — SARSAT Panel: WiFi-First Receiver Connection
