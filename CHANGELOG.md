@@ -2,6 +2,22 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.72] - 2025-02-21
+
+### Added
+- **scripts/griddown-server.py** — Custom HTTP server that serves `sw.js` and `manifest.json` with `Cache-Control: no-cache, no-store, must-revalidate` headers. This fixes the root cause of users needing to manually clear browser cache after updates: the default Python HTTP server sends no Cache-Control headers, allowing the browser to heuristically cache `sw.js` for hours. The browser would then compare the stale cached `sw.js` against itself, never detect the new `CACHE_NAME`, and never trigger the service worker install/activate lifecycle. All existing update infrastructure (skipWaiting, clients.claim, cache purge, update toast) was unreachable without this fix.
+
+### Changed
+- **scripts/griddown-aliases.sh** — All server aliases (`gd`, `gd-bg`, `gd-start`, `gd-stop`, `gd-status`, `gd-restart`, `gd-shutdown`) now use `griddown-server.py` instead of `python3 -m http.server 8080`. Process matching updated from `http.server 8080` to `griddown-server` for pkill/pgrep.
+- **scripts/termux-setup.sh** — Boot script template now launches `griddown-server.py`. Added `chmod +x` for `griddown-server.py` in permission repair step.
+- **sw.js** — Message handler now responds on `MessageChannel` port when provided (`e.ports[0]`), falling back to `e.source`. This fixes the version query from `UpdateModule.handleWaitingWorker()` which sends `GET_VERSION` via a `MessageChannel` — previously the response went to the window's general message handler instead of the port callback, causing the version display in the update toast to always fall through to the generic "new version" label.
+- **js/modules/update.js** — Single source of truth for all service worker update detection, UI notification, and activation. Consolidated from three duplicate implementations previously spread across `update.js`, `app.js`, and `index.html`.
+- **js/app.js** — Removed dead `showUpdateNotification` export (function was never defined, would throw if called).
+
+### Removed
+- **js/modules/update.js.bak** — Stale backup of previous update module.
+- **js/modules/rfsentinel.js.bak** — Stale backup.
+
 ## [6.57.71] - 2025-02-21
 
 ### Added

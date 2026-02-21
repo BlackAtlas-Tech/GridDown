@@ -490,9 +490,6 @@ const App = (function() {
             
             // Setup background sync event listeners
             setupSyncListeners();
-            
-            // Setup service worker update listener
-            setupServiceWorkerListener();
 
             // Hide loading screen
             setTimeout(() => {
@@ -511,103 +508,6 @@ const App = (function() {
     function updateLoadingStatus(text) {
         const el = document.getElementById('loading-status');
         if (el) el.textContent = text;
-    }
-    
-    /**
-     * Setup listener for service worker messages (updates, etc.)
-     */
-    function setupServiceWorkerListener() {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.addEventListener('message', (event) => {
-                if (event.data && event.data.type === 'SW_UPDATED') {
-                    console.log('Service worker updated to:', event.data.version);
-                    // Show update notification
-                    showUpdateNotification();
-                }
-            });
-            
-            // Also detect when a new service worker is waiting
-            navigator.serviceWorker.ready.then(registration => {
-                registration.addEventListener('updatefound', () => {
-                    const newWorker = registration.installing;
-                    if (newWorker) {
-                        newWorker.addEventListener('statechange', () => {
-                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                // New version available
-                                console.log('New app version available');
-                                showUpdateNotification();
-                            }
-                        });
-                    }
-                });
-            }).catch(err => {
-                console.warn('[App] Service worker ready failed:', err.message);
-            });
-        }
-    }
-    
-    /**
-     * Show notification that app has been updated
-     */
-    function showUpdateNotification() {
-        // Create update banner
-        const banner = document.createElement('div');
-        banner.id = 'update-banner';
-        banner.style.cssText = `
-            position: fixed;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: linear-gradient(135deg, #f97316, #ea580c);
-            color: white;
-            padding: 12px 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-family: inherit;
-            font-size: 14px;
-        `;
-        banner.innerHTML = `
-            <span>🔄 App updated!</span>
-            <button id="refresh-btn" style="
-                background: white;
-                color: #ea580c;
-                border: none;
-                padding: 6px 14px;
-                border-radius: 6px;
-                font-weight: 600;
-                cursor: pointer;
-                font-size: 13px;
-            ">Refresh Now</button>
-            <button id="dismiss-btn" style="
-                background: transparent;
-                color: white;
-                border: 1px solid rgba(255,255,255,0.4);
-                padding: 6px 10px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            ">Later</button>
-        `;
-        document.body.appendChild(banner);
-        
-        document.getElementById('refresh-btn').onclick = () => {
-            window.location.reload();
-        };
-        
-        document.getElementById('dismiss-btn').onclick = () => {
-            banner.remove();
-        };
-        
-        // Auto-dismiss after 30 seconds
-        setTimeout(() => {
-            if (document.getElementById('update-banner')) {
-                banner.remove();
-            }
-        }, 30000);
     }
     
     /**
@@ -702,6 +602,6 @@ const App = (function() {
         init();
     }
 
-    return { init, destroy, getResourceStats, showUpdateNotification };
+    return { init, destroy, getResourceStats };
 })();
 window.App = App;

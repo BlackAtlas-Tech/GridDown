@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.57.71';
+const CACHE_NAME = 'griddown-v6.57.72';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -260,7 +260,13 @@ self.addEventListener('message', e => {
         self.skipWaiting();
     }
     if (data === 'getVersion' || (data && data.type === 'GET_VERSION')) {
-        e.source.postMessage({ type: 'SW_VERSION', version: CACHE_NAME });
+        const reply = { type: 'SW_VERSION', version: CACHE_NAME };
+        // Respond on MessageChannel port if provided, otherwise via source
+        if (e.ports && e.ports[0]) {
+            e.ports[0].postMessage(reply);
+        } else if (e.source) {
+            e.source.postMessage(reply);
+        }
     }
 });
 

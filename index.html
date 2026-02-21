@@ -145,42 +145,15 @@
     <!-- App entry point -->
     <script src="js/app.js"></script>
     <script>
-        // Service Worker Registration with proper update handling
+        // Service Worker Registration
+        // Update detection, polling, and UI are handled by UpdateModule (js/modules/update.js)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('sw.js')
                     .then(registration => {
                         console.log('SW registered:', registration.scope);
-                        
-                        // Check for updates periodically
-                        setInterval(() => {
-                            registration.update();
-                        }, 60000); // Check every minute
-                        
-                        // Handle updates
-                        registration.addEventListener('updatefound', () => {
-                            const newWorker = registration.installing;
-                            console.log('New SW installing...');
-                            
-                            newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed') {
-                                    if (navigator.serviceWorker.controller) {
-                                        // New update available
-                                        console.log('New version available');
-                                    } else {
-                                        // First install
-                                        console.log('App cached for offline use');
-                                    }
-                                }
-                            });
-                        });
                     })
                     .catch(err => console.log('SW registration failed:', err));
-                    
-                // Handle controller change (new SW activated)
-                navigator.serviceWorker.addEventListener('controllerchange', () => {
-                    console.log('New service worker activated');
-                });
             });
         }
     </script>

@@ -1,8 +1,25 @@
 /**
  * GridDown Update Module
- * Handles service worker updates and notifies users when new versions are available
  * 
- * Listens for SW_UPDATED messages from service worker and shows update prompts
+ * Single source of truth for service worker update detection, UI notification,
+ * and activation. Consolidates update logic that was previously split across
+ * index.html, app.js, and this module.
+ * 
+ * Lifecycle:
+ *   1. Browser fetches sw.js (no-cache headers ensure fresh copy from disk)
+ *   2. Browser compares new sw.js byte-for-byte against active sw.js
+ *   3. If different: install event fires, new SW enters 'installed' (waiting) state
+ *   4. This module detects the waiting worker via 'updatefound' event
+ *   5. Shows persistent toast: "Update Available — Refresh Now / Later"
+ *   6. User taps "Refresh Now" → sends SKIP_WAITING to waiting worker
+ *   7. Waiting worker calls self.skipWaiting() → activates → old worker replaced
+ *   8. 'controllerchange' fires → this module reloads the page under the new worker
+ * 
+ * Detection triggers:
+ *   - registration.update() every 60 seconds (forced byte check)
+ *   - registration.update() on tab visibility change (user returns to app)
+ *   - SW_UPDATED message from activate event in sw.js
+ *   - Existing waiting worker on init (update arrived while app was closed)
  */
 const UpdateModule = (function() {
     'use strict';
@@ -10,7 +27,8 @@ const UpdateModule = (function() {
     // ==================== CONSTANTS ====================
     
     const STORAGE_KEY = 'griddown_last_version';
-    const TOAST_DURATION = 0; // Persistent until dismissed or refreshed
+    const UPDATE_CHECK_INTERVAL = 60 * 1000;     // 60 seconds
+    const CONTROLLER_CHANGE_TIMEOUT = 3000;       // 3s fallback if controllerchange doesn't fire
     
     // ==================== STATE ====================
     
@@ -19,125 +37,174 @@ const UpdateModule = (function() {
     let updateAvailable = false;
     let toastElement = null;
     let registration = null;
+    let refreshing = false;   // Guard against double-reload
 
     // ==================== CORE FUNCTIONS ====================
     
     /**
-     * Initialize the module
+     * Initialize the update module. Called once during app startup.
      */
     function init() {
-        // Get current version from localStorage
         currentVersion = localStorage.getItem(STORAGE_KEY);
         
-        // Listen for messages from service worker
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.addEventListener('message', handleSWMessage);
-            
-            // Check for updates on init
-            checkForUpdates();
-            
-            // Also check periodically (every 5 minutes when tab is active)
-            setInterval(checkForUpdates, 5 * 60 * 1000);
-            
-            // Check on visibility change (when user returns to tab)
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'visible') {
-                    checkForUpdates();
-                }
-            });
+        if (!('serviceWorker' in navigator)) {
+            console.log('[Update] Service workers not supported');
+            return true;
         }
+
+        // ── Message listener (SW_UPDATED, SW_VERSION from sw.js) ──
+        navigator.serviceWorker.addEventListener('message', handleSWMessage);
         
-        console.log('UpdateModule initialized, current version:', currentVersion || 'unknown');
+        // ── Controller change listener ──
+        // Fires when a new SW takes over via skipWaiting(). Reload under the
+        // new worker to ensure all assets are consistent with the new cache.
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;  // Prevent double reload
+            refreshing = true;
+            console.log('[Update] New service worker activated — reloading');
+            window.location.reload();
+        });
+        
+        // ── Attach to registration for update polling ──
+        setupUpdateDetection();
+        
+        console.log('[Update] Initialized, current version:', currentVersion || 'first run');
         return true;
     }
     
     /**
-     * Handle messages from service worker
+     * Set up update detection on the SW registration.
+     */
+    async function setupUpdateDetection() {
+        try {
+            registration = await navigator.serviceWorker.ready;
+            
+            // Ask the active SW for its version on first load
+            if (navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' });
+            }
+            
+            // If a worker is already waiting (update arrived while app was closed)
+            if (registration.waiting) {
+                handleWaitingWorker(registration.waiting);
+            }
+            
+            // Detect future updates
+            registration.addEventListener('updatefound', () => {
+                const installingWorker = registration.installing;
+                if (!installingWorker) return;
+                
+                console.log('[Update] New service worker installing...');
+                
+                installingWorker.addEventListener('statechange', () => {
+                    if (installingWorker.state === 'installed') {
+                        if (navigator.serviceWorker.controller) {
+                            // There's already an active worker, so this is an update
+                            handleWaitingWorker(installingWorker);
+                        } else {
+                            // First install — app is now cached for offline use
+                            console.log('[Update] App cached for offline use');
+                        }
+                    }
+                });
+            });
+            
+            // ── Periodic update checks ──
+            // Force the browser to re-fetch sw.js and compare byte-for-byte.
+            // With Prong 2 (no-cache headers on sw.js), this always hits disk.
+            setInterval(() => {
+                registration.update().catch(() => {});  // Silent fail if offline
+            }, UPDATE_CHECK_INTERVAL);
+            
+            // Check immediately when user returns to the tab
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible' && registration) {
+                    registration.update().catch(() => {});
+                }
+            });
+            
+        } catch (e) {
+            console.warn('[Update] Setup failed:', e);
+        }
+    }
+    
+    /**
+     * Handle a service worker that is installed and waiting to activate.
+     */
+    function handleWaitingWorker(worker) {
+        if (updateAvailable) return;  // Already showing toast
+        
+        // Try to get the version from the waiting worker
+        const messageChannel = new MessageChannel();
+        messageChannel.port1.onmessage = (event) => {
+            if (event.data && event.data.type === 'SW_VERSION') {
+                showUpdateAvailable(event.data.version);
+            }
+        };
+        
+        try {
+            worker.postMessage({ type: 'GET_VERSION' }, [messageChannel.port2]);
+        } catch (e) {
+            // Worker might not support MessageChannel yet, show generic toast
+            showUpdateAvailable('new version');
+        }
+        
+        // Fallback: if no version reply in 500ms, show generic toast
+        setTimeout(() => {
+            if (!updateAvailable) {
+                showUpdateAvailable('new version');
+            }
+        }, 500);
+    }
+    
+    /**
+     * Handle messages from the active service worker.
      */
     function handleSWMessage(event) {
         const { type, version } = event.data || {};
         
         if (type === 'SW_UPDATED') {
-            console.log('Service worker updated to:', version);
-            handleUpdateAvailable(version);
+            // The new SW just activated and sent this message.
+            // The controllerchange listener will reload the page.
+            console.log('[Update] SW activated, version:', version);
+            if (version) {
+                localStorage.setItem(STORAGE_KEY, version);
+                currentVersion = version;
+            }
         } else if (type === 'SW_VERSION') {
-            // Store current version
-            if (version && version !== currentVersion) {
-                if (currentVersion) {
-                    // Version changed - this is an update
-                    handleUpdateAvailable(version);
-                } else {
-                    // First time - just store version
-                    currentVersion = version;
-                    localStorage.setItem(STORAGE_KEY, version);
-                }
+            if (version && !currentVersion) {
+                // First time — store version
+                currentVersion = version;
+                localStorage.setItem(STORAGE_KEY, version);
+            } else if (version && version !== currentVersion) {
+                // Version mismatch — update happened externally
+                showUpdateAvailable(version);
             }
         }
     }
     
     /**
-     * Check for service worker updates
+     * Show the update toast.
      */
-    async function checkForUpdates() {
-        if (!('serviceWorker' in navigator)) return;
-        
-        try {
-            registration = await navigator.serviceWorker.ready;
-            
-            // Ask SW for current version
-            if (navigator.serviceWorker.controller) {
-                navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' });
-            }
-            
-            // Check for new SW waiting
-            if (registration.waiting) {
-                handleUpdateAvailable('new version');
-            }
-            
-            // Listen for new SW installing
-            registration.addEventListener('updatefound', () => {
-                const newWorker = registration.installing;
-                if (newWorker) {
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                            handleUpdateAvailable('new version');
-                        }
-                    });
-                }
-            });
-            
-            // Trigger update check
-            registration.update().catch(() => {
-                // Silent fail - network might be offline
-            });
-            
-        } catch (e) {
-            console.warn('Update check failed:', e);
-        }
-    }
-    
-    /**
-     * Handle update available
-     */
-    function handleUpdateAvailable(version) {
-        if (updateAvailable) return; // Already showing
+    function showUpdateAvailable(version) {
+        if (updateAvailable) return;
         
         newVersion = version;
         updateAvailable = true;
         
+        console.log('[Update] Update available:', version);
         showUpdateToast(version);
     }
 
     // ==================== UI ====================
     
     /**
-     * Show update available toast
+     * Show update available toast notification.
      */
     function showUpdateToast(version) {
-        // Remove existing toast if any
         hideUpdateToast();
         
-        // Extract version number if it's in format "griddown-v6.15.0"
+        // Extract readable version (e.g., "griddown-v6.57.72" → "6.57.72")
         const versionDisplay = version.replace('griddown-', '').replace(/^v/, '');
         
         toastElement = document.createElement('div');
@@ -162,25 +229,13 @@ const UpdateModule = (function() {
                 }
                 
                 @keyframes updateToastIn {
-                    from { 
-                        transform: translateY(100px); 
-                        opacity: 0; 
-                    }
-                    to { 
-                        transform: translateY(0); 
-                        opacity: 1; 
-                    }
+                    from { transform: translateY(100px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
                 }
                 
                 @keyframes updateToastOut {
-                    from { 
-                        transform: translateY(0); 
-                        opacity: 1; 
-                    }
-                    to { 
-                        transform: translateY(100px); 
-                        opacity: 0; 
-                    }
+                    from { transform: translateY(0); opacity: 1; }
+                    to { transform: translateY(100px); opacity: 0; }
                 }
                 
                 #update-toast .toast-header {
@@ -190,14 +245,8 @@ const UpdateModule = (function() {
                     margin-bottom: 12px;
                 }
                 
-                #update-toast .toast-icon {
-                    font-size: 24px;
-                }
-                
-                #update-toast .toast-title {
-                    font-size: 15px;
-                    font-weight: 600;
-                }
+                #update-toast .toast-icon { font-size: 24px; }
+                #update-toast .toast-title { font-size: 15px; font-weight: 600; }
                 
                 #update-toast .toast-version {
                     margin-left: auto;
@@ -251,7 +300,7 @@ const UpdateModule = (function() {
             </style>
             
             <div class="toast-header">
-                <span class="toast-icon">🔄</span>
+                <span class="toast-icon">\u{1F504}</span>
                 <span class="toast-title">Update Available</span>
                 <span class="toast-version">${versionDisplay}</span>
             </div>
@@ -272,7 +321,6 @@ const UpdateModule = (function() {
         
         document.body.appendChild(toastElement);
         
-        // Event handlers
         document.getElementById('update-refresh').onclick = () => {
             applyUpdate();
         };
@@ -283,7 +331,7 @@ const UpdateModule = (function() {
     }
     
     /**
-     * Hide update toast
+     * Hide the update toast with animation.
      */
     function hideUpdateToast() {
         if (toastElement) {
@@ -298,35 +346,63 @@ const UpdateModule = (function() {
     }
     
     /**
-     * Apply the update (refresh page)
+     * Apply the update: tell the waiting worker to activate, then reload.
+     * 
+     * The controllerchange listener (set up in init) handles the reload.
+     * A fallback timeout ensures reload happens even if controllerchange
+     * doesn't fire (e.g., the worker activated before we sent the message).
      */
     function applyUpdate() {
-        // Update stored version
+        // Store the new version so we don't re-prompt after reload
         if (newVersion) {
             localStorage.setItem(STORAGE_KEY, newVersion);
         }
         
-        // If there's a waiting service worker, tell it to take over
+        // Tell the waiting worker to take over
         if (registration && registration.waiting) {
             registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            
+            // The controllerchange listener will reload the page.
+            // Set a fallback in case it doesn't fire (worker already activated,
+            // or the message was lost).
+            setTimeout(() => {
+                if (!refreshing) {
+                    console.log('[Update] controllerchange timeout — forcing reload');
+                    refreshing = true;
+                    window.location.reload();
+                }
+            }, CONTROLLER_CHANGE_TIMEOUT);
+        } else {
+            // No waiting worker (update already activated), just reload
+            refreshing = true;
+            window.location.reload();
+        }
+    }
+    
+    /**
+     * Manually trigger an update check.
+     * Exposed for a "Check for Updates" button in settings.
+     */
+    async function checkForUpdates() {
+        if (!registration) {
+            try {
+                registration = await navigator.serviceWorker.ready;
+            } catch (e) {
+                console.warn('[Update] Cannot check for updates:', e);
+                return;
+            }
         }
         
-        // Refresh the page
-        window.location.reload();
-    }
-    
-    /**
-     * Get current app version
-     */
-    function getCurrentVersion() {
-        return currentVersion;
-    }
-    
-    /**
-     * Check if update is available
-     */
-    function isUpdateAvailable() {
-        return updateAvailable;
+        try {
+            await registration.update();
+            
+            // Check if a worker is now waiting
+            if (registration.waiting) {
+                handleWaitingWorker(registration.waiting);
+            }
+        } catch (e) {
+            console.warn('[Update] Update check failed:', e);
+        }
     }
 
     // ==================== PUBLIC API ====================
@@ -336,8 +412,8 @@ const UpdateModule = (function() {
         checkForUpdates,
         applyUpdate,
         hideUpdateToast,
-        getCurrentVersion,
-        isUpdateAvailable,
+        getCurrentVersion: () => currentVersion,
+        isUpdateAvailable: () => updateAvailable,
         getNewVersion: () => newVersion
     };
 })();
