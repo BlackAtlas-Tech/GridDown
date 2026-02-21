@@ -78,6 +78,7 @@ const MapModule = (function() {
         initialCenterX: 0,      // first pinch midpoint in screen coords
         initialCenterY: 0,
         rotationUnlocked: false, // true once fingers rotate > 25° (prevents accidental rotation)
+        zoomLocked: false,       // true once rotation unlocks; prevents accidental zoom during rotation
         centerX: 0,
         centerY: 0,
         lastDistance: 0,
@@ -4077,6 +4078,7 @@ const MapModule = (function() {
             gestureState.initialLat = mapState.lat;
             gestureState.initialLon = mapState.lon;
             gestureState.rotationUnlocked = false;
+            gestureState.zoomLocked = false;
             gestureState.lastDistance = gestureState.initialDistance;
             gestureState.lastAngle = gestureState.initialAngle;
             
@@ -4271,18 +4273,36 @@ const MapModule = (function() {
             while (newBearing < 0) newBearing += 360;
             while (newBearing >= 360) newBearing -= 360;
             
-            // --- Rotation lock ---
-            // Prevent accidental rotation during pinch-zoom.  Fingers naturally
-            // rotate 5-15° during a zoom gesture, which would cause the map
-            // to rotate, shifting the GPS marker's apparent position.
-            // Require > 25° of deliberate rotation before unlocking, resisting
-            // accidental unlock on high-sensitivity touchscreens (Samsung
-            // glove mode, 120Hz digitizers).  Once unlocked, track normally.
+            // --- Dual axis lock: rotation lock + zoom lock ---
+            // Prevents accidental cross-contamination between rotation and zoom.
+            // On touchscreens, finger distance inevitably changes during rotation
+            // (10-30% on a 10" tablet) and fingers naturally rotate 5-15° during
+            // a pinch-zoom.  Without locks, "pure rotation" causes blurry tiles
+            // (wrong zoom level) and GPS marker drift (anchor math at wrong zoom).
+            //
+            // Rotation lock: bearing stays at initial until > 25° deliberate rotation
+            // Zoom lock:     once rotation unlocks, zoom pins to initial until
+            //                distance changes > 40% (|zoomDelta| > 0.5)
+            
             if (!gestureState.rotationUnlocked) {
                 if (Math.abs(angleDelta) > 25) {
                     gestureState.rotationUnlocked = true;
+                    gestureState.zoomLocked = true;  // lock zoom when rotation begins
                 } else {
                     newBearing = gestureState.initialBearing;
+                }
+            }
+            
+            // Zoom lock: pin zoom to initial value during rotation-dominant gestures.
+            // Only release if distance change clearly indicates intentional zooming
+            // (> 40% change ≈ 0.5 zoom levels).  This prevents finger-distance
+            // fluctuations during rotation from causing tile-level changes and
+            // blurry rendering.
+            if (gestureState.zoomLocked) {
+                if (Math.abs(zoomDelta) > 0.5) {
+                    gestureState.zoomLocked = false;  // release — user is deliberately zooming too
+                } else {
+                    newZoom = gestureState.initialZoom;  // pin to initial zoom
                 }
             }
             

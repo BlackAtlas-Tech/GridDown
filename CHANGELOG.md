@@ -2,6 +2,11 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.67] - 2025-02-21
+
+### Fixed
+- **GPS marker drift and map blur during two-finger rotation** — During pure rotation gestures (no intentional pinching), finger distance inevitably fluctuates 10-30% on a 10" tablet. This caused: (1) frame-by-frame tile blur as `Math.floor(zoom)` dropped to one level below, rendering coarser tiles scaled up 1.5-1.8×, (2) wrong zoom snap at gesture end when distance changed >30% crossing the 0.5 rounding boundary, and (3) anchor math computing lat/lon for the wrong zoom level, shifting the GPS marker off-position. Fixed with a dual-axis gesture lock system: rotation lock prevents accidental bearing changes during zoom (existing), and new zoom lock pins zoom to the initial integer value when rotation is the dominant gesture. Zoom only releases if distance changes >40%, indicating deliberate combined zoom+rotate.
+
 ## [6.57.66] - 2025-02-21
 
 ### Fixed
