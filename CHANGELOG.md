@@ -2,6 +2,69 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.75] - 2025-02-21
+
+### Added — RF LOS Phase 5: Viewshed / Coverage Map
+- **js/modules/rflos.js** — Full radial coverage analysis from a single transmitter location:
+  - **Mode toggle**: "📏 Path Analysis" vs "📡 Coverage Map" buttons switch between point-to-point and viewshed modes. All existing path analysis features remain unchanged.
+  - **Transmitter selection**: GPS button or click-to-place on map, with configurable antenna height.
+  - **Radius slider**: 1–50 km coverage radius with live label update.
+  - **Resolution selector**: Coarse (20°, 18 radials), Medium (10°, 36 radials), Fine (5°, 72 radials). Higher resolution = more accuracy, longer computation.
+  - **`analyzeViewshed()`**: Collects all sample points across all radials, fetches elevations in a single batched call (leveraging ElevationModule's built-in 100-point batching and caching), then analyzes LOS clearance and Fresnel zone status per sample.
+  - **Map overlay**: Semi-transparent color-coded dots for each sample — green (clear), yellow (marginal), red (blocked). Transmitter shown as purple TX marker.
+  - **Coverage results panel**: Overall coverage percentage with progress bar, breakdown by clear/marginal/blocked counts, transmitter elevation, frequency, resolution details, and color legend.
+  - **Per-radial data**: Each radial tracks azimuth, LOS reach distance, and per-sample status for downstream analysis.
+  - **Progress events**: `viewshedProgress` events emitted during computation with percent and message for UI feedback.
+
+### Added — Module Integration (Meshtastic, Waypoints, Route Builder)
+- **js/modules/rflos.js** — Automatic source detection and one-tap import from external modules:
+  - **`getImportSources()`**: Scans for available point sources at render time:
+    - **Meshtastic nodes** (via `MeshtasticModule.getNodes()`): Filters nodes with valid GPS positions (excludes 0,0). Shows node short name as label.
+    - **Waypoints** (via `State.get('waypoints')`): All waypoints with lat/lon. Shows waypoint name as label.
+    - **Route Builder** (via `RouteBuilderModule.getState()`): Current route points if 2+ exist. Shows as "Route Pt N".
+  - **Import UI**: Blue "Import from:" bar appears when sources are available, with buttons for each source showing point count. Buttons are context-aware — in viewshed mode, import sets the viewshed center; in relay mode with 3+ points, import creates a full relay chain; otherwise imports as A/B endpoints.
+  - **`importFromSource(sourceId, mode)`**: Supports three modes:
+    - `'endpoints'`: First point → A, last point → B.
+    - `'relays'`: First → A, last → B, middle points → relay chain. Auto-enables relay mode.
+    - `'viewshed'`: First point → viewshed center. Auto-enables viewshed mode.
+  - **Practical examples**: If a user has 3 Meshtastic nodes positioned, clicking "📻 Mesh Nodes (3)" instantly populates A→R1→B relay chain. If they have two waypoints placed, clicking "📌 Waypoints (2)" sets up A and B for immediate LOS analysis. Works across all three sources and all three import modes.
+
+### Changed
+- **js/modules/rflos.js** — Clear button now also clears viewshed results and center. `isSelecting()` returns true when selecting viewshed center. `getState()` includes all viewshed fields (viewshedMode, viewshedCenter, viewshedRadius, viewshedResolution, viewshedAntennaHeight, viewshedResult, viewshedComputing).
+
+## [6.57.74] - 2025-02-21
+
+### Added — RF LOS Phase 3: Link Budget Calculator
+- **js/modules/rflos.js** — Full link budget calculator integrated into the RF LOS panel:
+  - **Extended radio presets** with TX power (dBm), TX antenna gain (dBi), RX antenna gain (dBi), and RX sensitivity (dBm) for all 10 radio types: Meshtastic US (+22 dBm, -136 dBm sens), Meshtastic EU (+14 dBm), 2m/70cm Amateur (+37 dBm, 5W), GMRS (+37 dBm, 3 dBi gain), FRS (+30 dBm, integral antenna), MURS, Marine VHF, CB Radio.
+  - **Collapsible Link Budget input section** between frequency selector and Analyze button. Collapsed by default showing TX power summary; expands to reveal editable TX Power, TX Antenna Gain, RX Antenna Gain, and RX Sensitivity fields. All inputs pre-populated from the selected radio preset and auto-update on preset change.
+  - **Link budget chain display** in analysis results: `TX Power + TX Gain = EIRP → − Path Loss + RX Gain = RX Signal → vs RX Sensitivity = Margin`. Color-coded green/red border based on link viability.
+  - **Margin indicator**: shows `✅ +14.2 dB margin` or `❌ -3.1 dB margin` with clear pass/fail.
+  - **`computeLinkBudget(totalPathLoss)`** function computes EIRP, received signal strength, and link margin from current state. Consumes the real diffraction-based path loss from Phase 2 for accurate predictions.
+  - Analysis result object now includes `linkBudget` field with: txPower, txGain, rxGain, rxSens, eirp, rxSignal, margin, viable.
+  - `getState()` now returns link budget parameters (txPower, txAntennaGain, rxAntennaGain, rxSensitivity).
+  - `computeLinkBudget` exposed in `utils` for external use and testing.
+
+## [6.57.73] - 2025-02-21
+
+### Added — RF LOS Phase 1: GPS as Point A
+- **js/modules/rflos.js** — Added "📡 GPS" button next to Point A's "Select" button. One-tap pulls current position from `GPSModule.getPosition()` (supports internal GPS, serial GPS, manual position, and INS). Automatically sets antenna height to 1.5m (handheld height) when using GPS. Alerts user if no GPS position is available. Eliminates the most common friction: two-tap map click dance when checking LOS from current location.
+
+### Added — RF LOS Phase 2: Knife-Edge Diffraction (Deygout Method)
+- **js/modules/rflos.js** — Replaced rough obstruction loss estimate (`obstructions × 6 dB, capped at 30`) with physically correct knife-edge diffraction model:
+  - **ITU-R P.526-15 formula**: `J(v) = 6.9 + 20·log10(√((v−0.1)² + 1) + v − 0.1)` — continuous, monotonic, no piecewise discontinuities. Returns 0 dB for v ≤ −0.78 (well below LOS), ~6 dB at grazing (v=0), increasing asymptotically in deep shadow.
+  - **Fresnel-Kirchhoff v parameter**: `v = h × √(2(d1+d2) / (λ×d1×d2))` — computed per-obstacle with proper height above LOS line, distance from each endpoint, and wavelength.
+  - **Deygout method**: Recursive multi-obstacle diffraction. Finds the dominant obstacle (highest v), computes its loss, then recursively evaluates sub-paths on each side. Recursion capped at depth 3.
+  - **Analysis results** now include `diffraction` object: method, total loss, obstacle count, per-obstacle details (index, v parameter, height above LOS, individual loss, distance, elevation, isDominant flag).
+  - **Path loss** split into `freeSpace`, `diffraction`, and `estimated` (sum of both) for clear link budget visibility.
+  - **Profile renderer** updated: dominant obstacle shown as amber diamond with v-parameter label; secondary obstacles as small amber triangles. Diffraction loss shown in profile header.
+  - **Results panel** updated: shows diffraction loss row when non-zero, total path loss row, and expandable knife-edge detail box listing each obstacle with distance, elevation, v parameter, and individual loss. Dominant obstacle marked with ▸.
+  - **Frequency dependence**: higher frequencies produce higher v values for the same geometry, correctly yielding more diffraction loss (verified: 27 MHz < 150 MHz < 915 MHz).
+  - New utility functions exposed for testing: `fresnelKirchhoffV()`, `knifeEdgeLoss()`, `findDominantObstacle()`, `deygoutDiffraction()`.
+
+### Fixed
+- **js/modules/rflos.js** — Removed dead `rflos.js.pre-phase12` backup file from repo.
+
 ## [6.57.72] - 2025-02-21
 
 ### Added
