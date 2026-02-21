@@ -2,6 +2,18 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.69] - 2025-02-21
+
+### Fixed
+- **Map position shifts to different location during two-finger rotation** — Root cause: the pinch-center anchor math (designed for zoom) was also running during rotation. It shifts lat/lon so the geo point under the user's fingers stays stationary while zoom changes — correct for pinch-zoom, but during rotation this means the map rotates around the FINGER midpoint instead of the SCREEN center. With fingers 200px from screen center and 90° rotation, the map center drifted 300+ meters (300+ pixels at z17), showing a completely different location. Fixed by splitting the gesture math into two paths: rotation-dominant (zoomLocked) rotates around the canvas center with zero lat/lon change, matching Google/Apple Maps behavior. Zoom-dominant continues using pinch-center anchoring.
+- **CSS visual feedback rotated around wrong center** — The GPU-composited CSS transform between RAF frames was also rotating around the pinch center, producing 200+ pixel GPS marker wobble between repaint frames on 120Hz displays. Fixed with three CSS paths: rotation-dominant uses `rotate()` at canvas center, pure-zoom uses `scale()` at pinch center, combined uses a 2D affine matrix decomposing scale@pinch + rotate@canvas + translate.
+
+## [6.57.68] - 2025-02-21
+
+### Added
+- **Sidebar navigation labels on tablet** — Icon labels now visible on both tablet orientations: landscape sidebar (64px wide, 7px labels with ellipsis truncation) and portrait bottom bar (scrollable with 7px labels). Follows iOS/Android bottom navigation pattern where icons always have labels. Active item label at full opacity, inactive at 70%.
+- **Auto-scroll active nav item into view** — In portrait bottom bar (horizontal scroll), newly activated panel auto-scrolls its icon to center for orientation in the 22-item navigation.
+
 ## [6.57.67] - 2025-02-21
 
 ### Fixed

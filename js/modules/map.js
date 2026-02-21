@@ -3924,9 +3924,20 @@ const MapModule = (function() {
         // pre-optimization behavior — just one RAF of latency).
         if (!gestureRenderState.active) return;
         
-        // Compute the visual delta between what's painted and current mapState
         const scale = Math.pow(2, mapState.zoom - gestureRenderState.zoom);
-        const rotateDeg = -(mapState.bearing - gestureRenderState.bearing);
+        const bearingDelta = mapState.bearing - gestureRenderState.bearing;
+        const rotateDeg = -bearingDelta;
+        
+        if (gestureState.zoomLocked) {
+            // Rotation-dominant: rotate around canvas center, no translate.
+            // Matches the anchor math which keeps lat/lon fixed and only
+            // changes bearing, effectively rotating around the map center.
+            const ccx = (canvas.width / effectiveDpr) / 2;
+            const ccy = (canvas.height / effectiveDpr) / 2;
+            canvas.style.transformOrigin = `${ccx}px ${ccy}px`;
+            canvas.style.transform = `rotate(${rotateDeg}deg)`;
+            return;
+        }
         
         // Track finger midpoint movement since last repaint
         const curCX = gestureState.centerX - cachedCanvasRect.left;
@@ -3934,10 +3945,38 @@ const MapModule = (function() {
         const tx = curCX - gestureRenderState.pinchCX;
         const ty = curCY - gestureRenderState.pinchCY;
         
-        // Transform-origin at last-painted pinch center; scale+rotate happen there.
-        // Translate tracks the finger midpoint movement since last repaint.
-        canvas.style.transformOrigin = `${gestureRenderState.pinchCX}px ${gestureRenderState.pinchCY}px`;
-        canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale}) rotate(${rotateDeg}deg)`;
+        // For pure scale+translate (no rotation change), use the fast path
+        // with transform-origin at pinch center.
+        if (Math.abs(bearingDelta) < 0.1) {
+            canvas.style.transformOrigin = `${gestureRenderState.pinchCX}px ${gestureRenderState.pinchCY}px`;
+            canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+            return;
+        }
+        
+        // Combined zoom+rotate: scale around pinch center, rotate around
+        // canvas center, translate to track finger movement.
+        const width = canvas.width / effectiveDpr;
+        const height = canvas.height / effectiveDpr;
+        const ccx = width / 2;
+        const ccy = height / 2;
+        const pcx = gestureRenderState.pinchCX;
+        const pcy = gestureRenderState.pinchCY;
+        
+        const theta = -bearingDelta * Math.PI / 180;
+        const cos = Math.cos(theta);
+        const sin = Math.sin(theta);
+        
+        const a = scale * cos;
+        const b = scale * sin;
+        const c = -scale * sin;
+        const d = scale * cos;
+        const e = ccx * (1 - cos) + ccy * sin
+                + pcx * (1 - scale) * cos - pcy * (1 - scale) * sin + tx;
+        const f = ccy * (1 - cos) - ccx * sin
+                + pcx * (1 - scale) * sin + pcy * (1 - scale) * cos + ty;
+        
+        canvas.style.transformOrigin = '0px 0px';
+        canvas.style.transform = `matrix(${a},${b},${c},${d},${e},${f})`;
     }
     
     /**
@@ -4313,30 +4352,56 @@ const MapModule = (function() {
             // projection math (log/tan/atan/sinh round-trip errors) that caused
             // the GPS marker to visibly shift during long pinch gestures.
             
-            // Step 1: Restore initial state to find anchor geo
-            mapState.lat = gestureState.initialLat;
-            mapState.lon = gestureState.initialLon;
-            mapState.zoom = gestureState.initialZoom;
-            mapState.bearing = gestureState.initialBearing;
-            
-            // Step 2: What geo-coordinate was under the initial pinch center?
-            const initCX = gestureState.initialCenterX - cachedCanvasRect.left;
-            const initCY = gestureState.initialCenterY - cachedCanvasRect.top;
-            const anchorGeo = pixelToLatLon(initCX, initCY);
-            
-            // Step 3: Apply new zoom and bearing, starting from initial lat/lon
-            mapState.zoom = newZoom;
-            mapState.bearing = newBearing;
-            // lat/lon still at initial values from step 1
-            
-            // Step 4: Where does the CURRENT pinch center point now?
-            const curCX = currentCenter.x - cachedCanvasRect.left;
-            const curCY = currentCenter.y - cachedCanvasRect.top;
-            const newGeo = pixelToLatLon(curCX, curCY);
-            
-            // Step 5: Shift map so the anchor geo ends up under the current center
-            mapState.lat += anchorGeo.lat - newGeo.lat;
-            mapState.lon += anchorGeo.lon - newGeo.lon;
+            if (gestureState.zoomLocked) {
+                // --- ROTATION-DOMINANT: rotate around canvas center ---
+                // When zoom is locked, the user is performing a pure rotation.
+                // Google/Apple Maps rotate around the screen center (map center
+                // stays fixed, everything else spins around it).
+                //
+                // The pinch-center anchor math rotates around the FINGER midpoint,
+                // which shifts lat/lon to keep the finger-point geo stationary.
+                // With fingers 200px from center and 90° rotation, this causes
+                // 300+ pixel map center drift — making the GPS marker appear to
+                // fly off-screen and showing a completely different location.
+                //
+                // Fix: just set bearing, keep lat/lon at initial values.
+                // The canvas center IS the map center, so rotating around it
+                // means lat/lon don't change.
+                mapState.lat = gestureState.initialLat;
+                mapState.lon = gestureState.initialLon;
+                mapState.zoom = gestureState.initialZoom;
+                mapState.bearing = newBearing;
+            } else {
+                // --- ZOOM / PAN / COMBINED: anchor at pinch center ---
+                // Keep the geo-coordinate under the user's fingers stationary
+                // while zoom and/or bearing changes.  This gives the natural
+                // "zoom into what I'm looking at" behavior.
+                
+                // Step 1: Restore initial state to find anchor geo
+                mapState.lat = gestureState.initialLat;
+                mapState.lon = gestureState.initialLon;
+                mapState.zoom = gestureState.initialZoom;
+                mapState.bearing = gestureState.initialBearing;
+                
+                // Step 2: What geo-coordinate was under the initial pinch center?
+                const initCX = gestureState.initialCenterX - cachedCanvasRect.left;
+                const initCY = gestureState.initialCenterY - cachedCanvasRect.top;
+                const anchorGeo = pixelToLatLon(initCX, initCY);
+                
+                // Step 3: Apply new zoom and bearing, starting from initial lat/lon
+                mapState.zoom = newZoom;
+                mapState.bearing = newBearing;
+                // lat/lon still at initial values from step 1
+                
+                // Step 4: Where does the CURRENT pinch center point now?
+                const curCX = currentCenter.x - cachedCanvasRect.left;
+                const curCY = currentCenter.y - cachedCanvasRect.top;
+                const newGeo = pixelToLatLon(curCX, curCY);
+                
+                // Step 5: Shift map so the anchor geo ends up under the current center
+                mapState.lat += anchorGeo.lat - newGeo.lat;
+                mapState.lon += anchorGeo.lon - newGeo.lon;
+            }
             
             // Clamp latitude
             mapState.lat = Math.max(-85, Math.min(85, mapState.lat));

@@ -104,10 +104,18 @@ const SidebarModule = (function() {
             };
         });
         
-        // Restore nav scroll position
+        // Restore nav scroll position (vertical sidebar)
         if (savedScroll > 0) {
             const newNavEl = el.querySelector('.sidebar__nav');
             if (newNavEl) newNavEl.scrollTop = savedScroll;
+        }
+        
+        // Auto-scroll active item into view in horizontal bottom bar
+        // (mobile/portrait tablet where nav scrolls horizontally).
+        // Uses smooth scroll for visual feedback on which item activated.
+        const activeBtn = el.querySelector('.sidebar__nav-item--active');
+        if (activeBtn) {
+            activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         }
     }
 
