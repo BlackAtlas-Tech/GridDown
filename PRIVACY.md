@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**GridDown by BlackDot Technology**
+**GridDown by BlackAtlas LLC**
 
 Last updated: February 2025
 
@@ -25,7 +25,7 @@ GridDown is designed with **privacy as a core principle**. We:
 
 ### What We Do NOT Collect
 
-BlackDot Technology does not collect:
+BlackAtlas LLC does not collect:
 
 | Data Type | Collected? |
 |-----------|------------|
@@ -54,7 +54,7 @@ All data you create or interact with in GridDown is stored **locally** on your d
 
 This data:
 - Never leaves your device unless you explicitly export it
-- Is not accessible to BlackDot Technology
+- Is not accessible to BlackAtlas LLC
 - Is not synced to any cloud service
 - Can be deleted at any time by clearing browser site data
 
@@ -74,7 +74,7 @@ GridDown may request device permissions. **All are optional** and only activated
 | Air quality | Get AQI for your location |
 | Waypoint creation | Save current position |
 
-**Your location is never transmitted to BlackDot Technology.** It may be sent to third-party APIs (weather, AQI) as coordinates only—see External Services below.
+**Your location is never transmitted to BlackAtlas LLC.** It may be sent to third-party APIs (weather, AQI) as coordinates only—see External Services below.
 
 ### Microphone
 
@@ -171,7 +171,7 @@ GridDown connects to third-party services **only when you have internet connecti
 
 ### No Data Sent To
 
-- BlackDot Technology servers (we have none)
+- BlackAtlas LLC servers (we have none)
 - Analytics services
 - Advertising networks
 - Social media platforms
@@ -235,7 +235,7 @@ When operating offline, GridDown:
 
 - Connects to **your own local** RF Sentinel hardware
 - Data flows between GridDown and your RF Sentinel only
-- **No data passes through BlackDot Technology**
+- **No data passes through BlackAtlas LLC**
 
 ### Celestial Navigation
 
@@ -271,7 +271,7 @@ The CoT Bridge feature enables bidirectional communication with CoT-compatible t
 
 2. **Local Network Only**: Data is transmitted via UDP multicast on your local network (typically WiFi). It does not traverse the internet unless you configure your network to relay it.
 
-3. **No Server Involvement**: BlackDot Technology does not receive, store, or process any CoT data. All communication is peer-to-peer on your local network.
+3. **No Server Involvement**: BlackAtlas LLC does not receive, store, or process any CoT data. All communication is peer-to-peer on your local network.
 
 4. **You Control Transmission**: 
    - Sharing is off by default
@@ -288,7 +288,7 @@ The CoT Bridge feature enables bidirectional communication with CoT-compatible t
 - Sharing automatically stops when you close GridDown
 
 **The CoT Bridge does NOT:**
-- Send data to BlackDot Technology
+- Send data to BlackAtlas LLC
 - Send data over the internet (unless you configure routing)
 - Store your position history on any server
 - Share data with any third party
@@ -305,7 +305,7 @@ When you connect external devices:
 | Web Serial | Direct USB connection |
 | WebSocket (RF Sentinel) | Local network to your hardware |
 
-**No hardware data is transmitted to BlackDot Technology or any third party.**
+**No hardware data is transmitted to BlackAtlas LLC or any third party.**
 
 ---
 
@@ -322,7 +322,7 @@ When you connect external devices:
 - Uses **AES-256-GCM** encryption
 - Passphrase **never transmitted**—stays on your device
 - Sharing is **peer-to-peer** (you share the file directly)
-- BlackDot Technology has **no access** to shared files
+- BlackAtlas LLC has **no access** to shared files
 
 ### What You Can Export
 
@@ -412,7 +412,7 @@ For external services GridDown connects to, see their privacy policies:
 
 Questions about this privacy policy:
 
-**BlackDot Technology**
+**BlackAtlas LLC**
 - **Privacy Inquiries**: privacy@blackdot.tech
 - **General Contact**: info@blackdot.tech
 
@@ -427,6 +427,6 @@ Questions about this privacy policy:
 
 ---
 
-**© 2025 BlackDot Technology. All Rights Reserved.**
+**© 2025 BlackAtlas LLC. All Rights Reserved.**
 
 *GridDown is dual-licensed software. See [LICENSE](LICENSE) for details.*

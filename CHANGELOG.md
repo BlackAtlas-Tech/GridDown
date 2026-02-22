@@ -3723,7 +3723,7 @@ MeshtasticModule.getMessageDetails(messageId, isDM, nodeId)
 
 ### Fixed
 - **Settings Version Display** - Version number now reads dynamically from manifest.json instead of being hardcoded
-- **About Section** - Added BlackDot Technology branding and GitHub link
+- **About Section** - Added BlackAtlas LLC branding and GitHub link
 
 ### Added
 - **Security Headers Template** - Added .htaccess file with CSP and security headers for Apache hosting

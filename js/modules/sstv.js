@@ -4,7 +4,7 @@
  * Supports Robot36, Martin M1/M2, Scottie S1/S2
  * 
  * Requires: Web Audio API, getUserMedia
- * License: MIT (BlackDot Technology)
+ * License: MIT (BlackAtlas LLC)
  */
 const SSTVModule = (function() {
     'use strict';
@@ -53,11 +53,14 @@ const SSTVModule = (function() {
             width: 320,
             height: 240,
             colorMode: 'YCrCb',
-            scanTime: 88.0,      // ms per line (Y)
-            syncTime: 9.0,       // ms
-            porchTime: 3.0,      // ms
-            chromaScanTime: 44.0, // ms per chroma line
-            totalTime: 36,       // seconds
+            scanTime: 88.0,          // ms per Y line
+            syncTime: 9.0,           // ms
+            porchTime: 3.0,          // ms
+            chromaScanTime: 44.0,    // ms per Cr/Cb line (half of Y)
+            separatorTime: 4.5,      // ms separator between components
+            chromaPorchTime: 1.5,    // ms porch after separator
+            chromaPaired: true,      // Cr/Cb shared between line pairs
+            totalTime: 36,           // seconds
             description: 'Fast mode, good for QRM conditions'
         },
         Robot72: {
@@ -66,11 +69,14 @@ const SSTVModule = (function() {
             width: 320,
             height: 240,
             colorMode: 'YCrCb',
-            scanTime: 138.0,
-            syncTime: 9.0,
-            porchTime: 4.5,
-            chromaScanTime: 69.0,
-            totalTime: 72,
+            scanTime: 138.0,         // ms per Y line
+            syncTime: 9.0,           // ms
+            porchTime: 4.5,          // ms
+            chromaScanTime: 69.0,    // ms per Cr/Cb line (half of Y)
+            separatorTime: 4.5,      // ms separator between components
+            chromaPorchTime: 1.5,    // ms porch after separator
+            chromaPaired: false,     // Cr/Cb sent per line
+            totalTime: 72,           // seconds
             description: 'Better quality than Robot36'
         },
         MartinM1: {
@@ -125,6 +131,32 @@ const SSTVModule = (function() {
             totalTime: 71,
             description: 'Half resolution Scottie'
         },
+        ScottieDX: {
+            name: 'Scottie DX',
+            vis: 0x71,
+            width: 320,
+            height: 256,
+            colorMode: 'GBR',
+            scanTime: 345.600,   // ms per color component
+            syncTime: 9.0,
+            porchTime: 1.5,
+            separatorTime: 1.5,
+            totalTime: 269,
+            description: 'Long-range DX Scottie mode'
+        },
+        PD50: {
+            name: 'PD-50',
+            vis: 0x5D,
+            width: 320,
+            height: 256,
+            colorMode: 'YCrCb',
+            scanTime: 91.520,    // ms per Y line
+            syncTime: 20.0,
+            porchTime: 2.08,
+            chromaScanTime: 91.520, // Full rate chroma (same as Y)
+            totalTime: 50,
+            description: 'Fast PD color mode'
+        },
         PD90: {
             name: 'PD-90',
             vis: 0x63,
@@ -134,6 +166,7 @@ const SSTVModule = (function() {
             scanTime: 170.240,
             syncTime: 20.0,
             porchTime: 2.08,
+            chromaScanTime: 170.240, // Full rate chroma (same as Y)
             totalTime: 90,
             description: 'High quality color mode'
         },
@@ -146,8 +179,22 @@ const SSTVModule = (function() {
             scanTime: 121.6,
             syncTime: 20.0,
             porchTime: 2.08,
+            chromaScanTime: 121.6, // Full rate chroma (same as Y)
             totalTime: 126,
             description: 'High resolution mode'
+        },
+        PD160: {
+            name: 'PD-160',
+            vis: 0x61,
+            width: 512,
+            height: 400,
+            colorMode: 'YCrCb',
+            scanTime: 195.584,   // ms per Y line
+            syncTime: 20.0,
+            porchTime: 2.08,
+            chromaScanTime: 97.792, // Half rate chroma
+            totalTime: 160,
+            description: 'Medium-high resolution PD mode'
         },
         PD180: {
             name: 'PD-180',
@@ -336,6 +383,44 @@ const SSTVModule = (function() {
         return filtered;
     }
 
+    // ==========================================
+    // YCrCb ↔ RGB CONVERSION (ITU-R BT.601)
+    // ==========================================
+
+    /**
+     * Convert RGB to Y (luminance) - range 0-255
+     */
+    function rgbToY(r, g, b) {
+        return 0.299 * r + 0.587 * g + 0.114 * b;
+    }
+
+    /**
+     * Convert RGB to Cr (R-Y chrominance) - range 0-255 (128 = neutral)
+     */
+    function rgbToCr(r, g, b) {
+        const y = rgbToY(r, g, b);
+        return Math.max(0, Math.min(255, (r - y) * 0.713 + 128));
+    }
+
+    /**
+     * Convert RGB to Cb (B-Y chrominance) - range 0-255 (128 = neutral)
+     */
+    function rgbToCb(r, g, b) {
+        const y = rgbToY(r, g, b);
+        return Math.max(0, Math.min(255, (b - y) * 0.564 + 128));
+    }
+
+    /**
+     * Convert YCrCb to RGB
+     * @returns {Array} [r, g, b] each clamped 0-255
+     */
+    function yCrCbToRGB(y, cr, cb) {
+        const r = Math.max(0, Math.min(255, Math.round(y + 1.402 * (cr - 128))));
+        const g = Math.max(0, Math.min(255, Math.round(y - 0.714 * (cr - 128) - 0.344 * (cb - 128))));
+        const b = Math.max(0, Math.min(255, Math.round(y + 1.772 * (cb - 128))));
+        return [r, g, b];
+    }
+
     /**
      * Detect sync pulse in audio
      */
@@ -481,7 +566,11 @@ const SSTVModule = (function() {
                 lastSyncTime: 0,
                 syncCount: 0,
                 signalStrength: 0,
-                errors: []
+                errors: [],
+                // YCrCb chroma buffers for color reconstruction
+                chromaCr: null,     // Cr values from even line (Robot36) or line pair (PD)
+                chromaCb: null,     // Cb values from odd line (Robot36) or line pair (PD)
+                evenLineY: null     // Y values from even line (Robot36 alternating mode)
             };
         }
         
@@ -564,9 +653,11 @@ const SSTVModule = (function() {
                 }
                 
                 // Decode pixels for this line based on mode
+                // YCrCb modes may decode 2 lines per sync (PD line-pair modes)
+                let linesDecoded = 1;
                 switch (config.colorMode) {
                     case 'YCrCb':
-                        this.decodeYCrCbLine(samples, config);
+                        linesDecoded = this.decodeYCrCbLine(samples, config);
                         break;
                     case 'GBR':
                         this.decodeGBRLine(samples, config);
@@ -576,7 +667,7 @@ const SSTVModule = (function() {
                         break;
                 }
                 
-                decoderState.currentLine++;
+                decoderState.currentLine += linesDecoded;
                 
                 // Emit progress event
                 if (typeof Events !== 'undefined') {
@@ -594,40 +685,147 @@ const SSTVModule = (function() {
             }
         }
         
+        /**
+         * Decode YCrCb line(s) with full color reconstruction.
+         * Handles three YCrCb sub-formats:
+         *   Robot36 (chromaPaired=true):  1 sync per line, alternating Cr/Cb
+         *   Robot72 (chromaPaired=false): 1 sync per line, both Cr+Cb each line
+         *   PD modes (no chromaPaired):  1 sync per line PAIR, Y0+Y1+Cr+Cb
+         * @returns {number} Number of image lines decoded (1 or 2)
+         */
         decodeYCrCbLine(samples, config) {
-            const line = decoderState.currentLine;
             const width = config.width;
-            const samplesPerPixel = Math.round(SAMPLE_RATE * config.scanTime / 1000 / width);
-            
-            // Apply frequency drift compensation if available
             const driftCompensation = typeof SSTVDSPModule !== 'undefined' ? 
                 SSTVDSPModule.getFrequencyDriftCompensation() : 0;
-            
-            // Skip sync and porch
             const dataStart = Math.round(SAMPLE_RATE * (config.syncTime + config.porchTime) / 1000);
             
-            // Decode Y (luminance)
-            const yData = new Uint8Array(width);
+            // Robot modes: chromaPaired is defined
+            if (config.chromaPaired !== undefined) {
+                return this.decodeRobotYCrCb(samples, config, dataStart, driftCompensation);
+            }
+            // PD modes: line-pair encoding
+            return this.decodePDYCrCb(samples, config, dataStart, driftCompensation);
+        }
+        
+        /**
+         * Helper: decode frequency samples into value array
+         */
+        decodeScanLine(samples, startOffset, scanTimeMs, width, driftCompensation) {
+            const samplesPerPixel = Math.round(SAMPLE_RATE * scanTimeMs / 1000 / width);
+            const values = new Uint8Array(width);
             for (let x = 0; x < width; x++) {
-                const pixelStart = dataStart + x * samplesPerPixel;
+                const pixelStart = startOffset + x * samplesPerPixel;
                 const pixelSamples = samples.slice(pixelStart, pixelStart + samplesPerPixel);
                 let { frequency } = detectFrequency(pixelSamples, SAMPLE_RATE);
-                
-                // Apply drift compensation
                 frequency -= driftCompensation;
+                values[x] = freqToLuminance(frequency);
+            }
+            return values;
+        }
+        
+        /**
+         * Write YCrCb pixel data to imageData as RGB
+         */
+        writeYCrCbLine(line, width, yData, crData, cbData) {
+            for (let x = 0; x < width; x++) {
+                const [r, g, b] = yCrCbToRGB(yData[x], crData[x], cbData[x]);
+                const idx = (line * width + x) * 4;
+                decoderState.imageData.data[idx] = r;
+                decoderState.imageData.data[idx + 1] = g;
+                decoderState.imageData.data[idx + 2] = b;
+                decoderState.imageData.data[idx + 3] = 255;
+            }
+        }
+        
+        /**
+         * Robot 36/72 YCrCb decoder
+         * Robot36 (chromaPaired=true): Y + Cr on even lines, Y + Cb on odd
+         * Robot72 (chromaPaired=false): Y + Cr + Cb on every line
+         */
+        decodeRobotYCrCb(samples, config, dataStart, driftCompensation) {
+            const line = decoderState.currentLine;
+            const width = config.width;
+            const sepSamples = Math.round(SAMPLE_RATE * (config.separatorTime || 4.5) / 1000);
+            
+            // Decode Y luminance
+            const yData = this.decodeScanLine(samples, dataStart, config.scanTime, width, driftCompensation);
+            
+            // Chroma starts after Y + separator
+            const chromaStart = dataStart + Math.round(SAMPLE_RATE * config.scanTime / 1000) + sepSamples;
+            
+            if (config.chromaPaired) {
+                // Robot36: alternating Cr/Cb between even/odd lines
+                const chromaData = this.decodeScanLine(samples, chromaStart, config.chromaScanTime, width, driftCompensation);
                 
-                yData[x] = freqToLuminance(frequency);
+                if (line % 2 === 0) {
+                    // Even line: store Y and Cr, write grayscale preview
+                    decoderState.evenLineY = yData;
+                    decoderState.chromaCr = chromaData;
+                    // Write Y-only preview (will be overwritten with color on next line)
+                    for (let x = 0; x < width; x++) {
+                        const idx = (line * width + x) * 4;
+                        decoderState.imageData.data[idx] = yData[x];
+                        decoderState.imageData.data[idx + 1] = yData[x];
+                        decoderState.imageData.data[idx + 2] = yData[x];
+                        decoderState.imageData.data[idx + 3] = 255;
+                    }
+                } else {
+                    // Odd line: Cb received — reconstruct both lines in full color
+                    decoderState.chromaCb = chromaData;
+                    const cr = decoderState.chromaCr || new Uint8Array(width).fill(128);
+                    const cb = decoderState.chromaCb;
+                    
+                    // Rewrite even line with full color
+                    if (decoderState.evenLineY) {
+                        this.writeYCrCbLine(line - 1, width, decoderState.evenLineY, cr, cb);
+                    }
+                    // Write odd line with full color
+                    this.writeYCrCbLine(line, width, yData, cr, cb);
+                }
+            } else {
+                // Robot72: both Cr and Cb sent every line
+                const crData = this.decodeScanLine(samples, chromaStart, config.chromaScanTime, width, driftCompensation);
+                const cbStart = chromaStart + Math.round(SAMPLE_RATE * config.chromaScanTime / 1000) + sepSamples;
+                const cbData = this.decodeScanLine(samples, cbStart, config.chromaScanTime, width, driftCompensation);
+                
+                this.writeYCrCbLine(line, width, yData, crData, cbData);
             }
             
-            // For Robot modes, Cr and Cb are sent for pairs of lines
-            // Simplified: convert Y to grayscale for now
-            for (let x = 0; x < width; x++) {
-                const idx = (line * width + x) * 4;
-                decoderState.imageData.data[idx] = yData[x];     // R
-                decoderState.imageData.data[idx + 1] = yData[x]; // G
-                decoderState.imageData.data[idx + 2] = yData[x]; // B
-                decoderState.imageData.data[idx + 3] = 255;      // A
+            return 1; // Always 1 line per sync for Robot modes
+        }
+        
+        /**
+         * PD mode YCrCb decoder — line-pair encoding
+         * Each sync pulse carries: Y_even + Y_odd + Cr + Cb
+         * Cr/Cb are shared between the line pair
+         */
+        decodePDYCrCb(samples, config, dataStart, driftCompensation) {
+            const line = decoderState.currentLine;
+            const width = config.width;
+            const chromaTime = config.chromaScanTime || config.scanTime;
+            
+            // Y for even line
+            const y0Data = this.decodeScanLine(samples, dataStart, config.scanTime, width, driftCompensation);
+            
+            // Y for odd line
+            const y1Start = dataStart + Math.round(SAMPLE_RATE * config.scanTime / 1000);
+            const y1Data = this.decodeScanLine(samples, y1Start, config.scanTime, width, driftCompensation);
+            
+            // Cr (shared for pair)
+            const crStart = y1Start + Math.round(SAMPLE_RATE * config.scanTime / 1000);
+            const crData = this.decodeScanLine(samples, crStart, chromaTime, width, driftCompensation);
+            
+            // Cb (shared for pair)
+            const cbStart = crStart + Math.round(SAMPLE_RATE * chromaTime / 1000);
+            const cbData = this.decodeScanLine(samples, cbStart, chromaTime, width, driftCompensation);
+            
+            // Write both lines in full color
+            this.writeYCrCbLine(line, width, y0Data, crData, cbData);
+            if (line + 1 < config.height) {
+                this.writeYCrCbLine(line + 1, width, y1Data, crData, cbData);
             }
+            
+            return 2; // 2 lines per sync for PD modes
         }
         
         decodeGBRLine(samples, config) {
@@ -682,7 +880,7 @@ const SSTVModule = (function() {
             const width = config.width;
             const samplesPerPixel = Math.round(SAMPLE_RATE * config.scanTime / 1000 / width);
             
-            // GBR modes send Green, Blue, Red sequentially
+            // RGB modes send Red, Green, Blue sequentially
             const colorStart = Math.round(SAMPLE_RATE * config.syncTime / 1000);
             const colorDuration = Math.round(SAMPLE_RATE * config.scanTime / 1000);
             const sepDuration = Math.round(SAMPLE_RATE * (config.separatorTime || 0) / 1000);
@@ -879,37 +1077,137 @@ const SSTVModule = (function() {
             }
         }
         
+        /**
+         * Encode YCrCb image data with full color.
+         * Dispatches to Robot or PD encoder based on mode config.
+         */
         encodeYCrCb(imageData, config) {
+            if (config.chromaPaired !== undefined) {
+                this.encodeRobotYCrCb(imageData, config);
+            } else {
+                this.encodePDYCrCb(imageData, config);
+            }
+        }
+        
+        /**
+         * Helper: encode one scan line of values as frequency tones
+         */
+        encodeScanValues(values, scanTimeMs, width) {
+            const pixelTime = scanTimeMs / width;
+            for (let x = 0; x < width; x++) {
+                this.appendTone(luminanceToFreq(values[x]), pixelTime);
+            }
+        }
+        
+        /**
+         * Robot 36/72 YCrCb encoder
+         * Robot36 (chromaPaired=true):  sync+porch+Y+sep+Cr(even)/Cb(odd)
+         * Robot72 (chromaPaired=false): sync+porch+Y+sep+Cr+sep+Cb
+         */
+        encodeRobotYCrCb(imageData, config) {
             const width = config.width;
             const height = config.height;
+            const sepTime = config.separatorTime || 4.5;
             
             for (let line = 0; line < height; line++) {
-                // Sync pulse
+                // Sync + Porch
                 this.appendTone(FREQ.SYNC, config.syncTime);
-                
-                // Porch
                 this.appendTone(FREQ.BLACK, config.porchTime);
                 
-                // Y (luminance) for this line
+                // Compute Y, Cr, Cb for this line
+                const yVals = new Uint8Array(width);
+                const crVals = new Uint8Array(width);
+                const cbVals = new Uint8Array(width);
+                
                 for (let x = 0; x < width; x++) {
                     const idx = (line * width + x) * 4;
                     const r = imageData.data[idx];
                     const g = imageData.data[idx + 1];
                     const b = imageData.data[idx + 2];
-                    
-                    // Convert RGB to Y
-                    const y = 0.299 * r + 0.587 * g + 0.114 * b;
-                    const freq = luminanceToFreq(y);
-                    
-                    const pixelTime = config.scanTime / width;
-                    this.appendTone(freq, pixelTime);
+                    yVals[x] = Math.max(0, Math.min(255, Math.round(rgbToY(r, g, b))));
+                    crVals[x] = Math.round(rgbToCr(r, g, b));
+                    cbVals[x] = Math.round(rgbToCb(r, g, b));
                 }
                 
-                // For Robot modes, Cr and Cb are sent for pairs of lines
-                if (line % 2 === 1 && config.chromaScanTime) {
-                    // Simplified: just send grayscale for now
-                    // Full implementation would interleave Cr/Cb
+                // Y luminance scan
+                this.encodeScanValues(yVals, config.scanTime, width);
+                
+                // Separator before chroma
+                this.appendTone(FREQ.BLACK, sepTime);
+                
+                if (config.chromaPaired) {
+                    // Robot36: alternating Cr on even, Cb on odd
+                    if (line % 2 === 0) {
+                        this.encodeScanValues(crVals, config.chromaScanTime, width);
+                    } else {
+                        this.encodeScanValues(cbVals, config.chromaScanTime, width);
+                    }
+                } else {
+                    // Robot72: both Cr and Cb every line
+                    this.encodeScanValues(crVals, config.chromaScanTime, width);
+                    this.appendTone(FREQ.BLACK, sepTime);
+                    this.encodeScanValues(cbVals, config.chromaScanTime, width);
                 }
+                
+                // End porch (if specified)
+                if (config.chromaPorchTime) {
+                    this.appendTone(FREQ.BLACK, config.chromaPorchTime);
+                }
+            }
+        }
+        
+        /**
+         * PD mode YCrCb encoder — line-pair encoding
+         * Each sync carries: Y_even + Y_odd + Cr + Cb
+         */
+        encodePDYCrCb(imageData, config) {
+            const width = config.width;
+            const height = config.height;
+            const chromaTime = config.chromaScanTime || config.scanTime;
+            
+            for (let pair = 0; pair < height; pair += 2) {
+                // Sync + Porch (once per line pair)
+                this.appendTone(FREQ.SYNC, config.syncTime);
+                this.appendTone(FREQ.BLACK, config.porchTime);
+                
+                // Compute Y for both lines, average Cr/Cb across the pair
+                const y0Vals = new Uint8Array(width);
+                const y1Vals = new Uint8Array(width);
+                const crVals = new Uint8Array(width);
+                const cbVals = new Uint8Array(width);
+                
+                const line1 = Math.min(pair + 1, height - 1);
+                
+                for (let x = 0; x < width; x++) {
+                    const idx0 = (pair * width + x) * 4;
+                    const r0 = imageData.data[idx0];
+                    const g0 = imageData.data[idx0 + 1];
+                    const b0 = imageData.data[idx0 + 2];
+                    
+                    const idx1 = (line1 * width + x) * 4;
+                    const r1 = imageData.data[idx1];
+                    const g1 = imageData.data[idx1 + 1];
+                    const b1 = imageData.data[idx1 + 2];
+                    
+                    y0Vals[x] = Math.max(0, Math.min(255, Math.round(rgbToY(r0, g0, b0))));
+                    y1Vals[x] = Math.max(0, Math.min(255, Math.round(rgbToY(r1, g1, b1))));
+                    
+                    // Average Cr/Cb between the two lines of the pair
+                    crVals[x] = Math.round((rgbToCr(r0, g0, b0) + rgbToCr(r1, g1, b1)) / 2);
+                    cbVals[x] = Math.round((rgbToCb(r0, g0, b0) + rgbToCb(r1, g1, b1)) / 2);
+                }
+                
+                // Y for even line
+                this.encodeScanValues(y0Vals, config.scanTime, width);
+                
+                // Y for odd line
+                this.encodeScanValues(y1Vals, config.scanTime, width);
+                
+                // Cr (shared for pair)
+                this.encodeScanValues(crVals, chromaTime, width);
+                
+                // Cb (shared for pair)
+                this.encodeScanValues(cbVals, chromaTime, width);
             }
         }
         

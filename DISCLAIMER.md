@@ -1,6 +1,6 @@
 # Disclaimer
 
-**GridDown by BlackDot Technology**
+**GridDown by BlackAtlas LLC**
 
 Last updated: January 2025
 
@@ -223,14 +223,14 @@ By using GridDown, you acknowledge that:
 
 - Outdoor activities involve inherent risks
 - You assume full responsibility for your safety
-- You will not hold BlackDot Technology liable for any adverse outcomes
+- You will not hold BlackAtlas LLC liable for any adverse outcomes
 - You have read and understood this disclaimer
 
 ---
 
 ## Indemnification
 
-You agree to indemnify and hold harmless BlackDot Technology, its officers, directors, employees, agents, and contributors from any claims, damages, losses, or expenses arising from:
+You agree to indemnify and hold harmless BlackAtlas LLC, its officers, directors, employees, agents, and contributors from any claims, damages, losses, or expenses arising from:
 
 - Your use of GridDown
 - Your violation of these terms
@@ -259,7 +259,7 @@ Laws and regulations vary by jurisdiction. What is legal in one location may be 
 
 ## Changes to This Disclaimer
 
-BlackDot Technology reserves the right to modify this disclaimer at any time. Continued use of GridDown after changes constitutes acceptance of the modified terms.
+BlackAtlas LLC reserves the right to modify this disclaimer at any time. Continued use of GridDown after changes constitutes acceptance of the modified terms.
 
 ---
 
@@ -291,6 +291,6 @@ In a genuine emergency, contact official emergency services:
 
 ---
 
-**© 2025 BlackDot Technology. All Rights Reserved.**
+**© 2025 BlackAtlas LLC. All Rights Reserved.**
 
 *GridDown is dual-licensed software. See [LICENSE](LICENSE) for details.*

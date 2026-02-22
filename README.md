@@ -536,7 +536,7 @@ Mobile-specific features that gracefully degrade on desktop:
 ### Option 1: Run Locally
 
 ```bash
-git clone https://github.com/BlackDotTechnology/GridDown.git
+git clone https://github.com/BlackAtlasLLC/GridDown.git
 cd GridDown
 
 # Serve with any static server

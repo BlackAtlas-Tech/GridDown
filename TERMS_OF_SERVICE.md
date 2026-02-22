@@ -1,6 +1,6 @@
 # Terms of Service
 
-**GridDown by BlackDot Technology**
+**GridDown by BlackAtlas LLC**
 
 Last updated: January 2025
 
@@ -10,7 +10,7 @@ Last updated: January 2025
 
 By accessing, downloading, installing, or using GridDown ("the Software," "the Application," or "the Service"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, do not use GridDown.
 
-These Terms constitute a legally binding agreement between you ("User," "you," or "your") and BlackDot Technology ("we," "us," or "our").
+These Terms constitute a legally binding agreement between you ("User," "you," or "your") and BlackAtlas LLC ("we," "us," or "our").
 
 ---
 
@@ -50,7 +50,7 @@ You may NOT:
 - Use GridDown for commercial purposes without a Commercial License
 - Remove or alter copyright notices or attributions
 - Misrepresent the origin of the Software
-- Use BlackDot Technology trademarks without permission
+- Use BlackAtlas LLC trademarks without permission
 - Distribute malicious modifications
 
 ---
@@ -128,11 +128,11 @@ Your use of these services is subject to their respective terms. We are not resp
 
 ### 7.1 Ownership
 
-GridDown, including all source code, documentation, graphics, and branding, is the intellectual property of BlackDot Technology, except where otherwise noted.
+GridDown, including all source code, documentation, graphics, and branding, is the intellectual property of BlackAtlas LLC, except where otherwise noted.
 
 ### 7.2 Trademarks
 
-"GridDown" and "BlackDot Technology" are trademarks of BlackDot Technology. Use of these marks requires written permission except for attribution purposes.
+"GridDown" and "BlackAtlas LLC" are trademarks of BlackAtlas LLC. Use of these marks requires written permission except for attribution purposes.
 
 ### 7.3 User Content
 
@@ -201,7 +201,7 @@ Some jurisdictions do not allow limitation of implied warranties or exclusion of
 
 ## 10. Indemnification
 
-You agree to indemnify, defend, and hold harmless BlackDot Technology and its officers, directors, employees, agents, and contributors from any claims, liabilities, damages, losses, costs, or expenses (including reasonable attorneys' fees) arising from:
+You agree to indemnify, defend, and hold harmless BlackAtlas LLC and its officers, directors, employees, agents, and contributors from any claims, liabilities, damages, losses, costs, or expenses (including reasonable attorneys' fees) arising from:
 
 - Your use or misuse of GridDown
 - Your violation of these Terms
@@ -317,7 +317,7 @@ If any provision of these Terms is found unenforceable:
 
 ## 17. Entire Agreement
 
-These Terms, together with the [Privacy Policy](PRIVACY.md), [Disclaimer](DISCLAIMER.md), and [License](LICENSE), constitute the entire agreement between you and BlackDot Technology regarding GridDown.
+These Terms, together with the [Privacy Policy](PRIVACY.md), [Disclaimer](DISCLAIMER.md), and [License](LICENSE), constitute the entire agreement between you and BlackAtlas LLC regarding GridDown.
 
 ---
 
@@ -337,7 +337,7 @@ You may not assign or transfer these Terms without our written consent. We may a
 
 For questions about these Terms:
 
-**BlackDot Technology**
+**BlackAtlas LLC**
 
 - **General Inquiries**: info@blackdot.tech
 - **Legal/Compliance**: legal@blackdot.tech
@@ -364,6 +364,6 @@ If you do not agree, do not use GridDown.
 
 ---
 
-**© 2025 BlackDot Technology. All Rights Reserved.**
+**© 2025 BlackAtlas LLC. All Rights Reserved.**
 
 *GridDown is dual-licensed software. See [LICENSE](LICENSE) for complete licensing information.*

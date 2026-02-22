@@ -1,6 +1,6 @@
 # Security Policy
 
-**GridDown by BlackDot Technology**
+**GridDown by BlackAtlas LLC**
 
 Last updated: January 2025
 
@@ -8,7 +8,7 @@ Last updated: January 2025
 
 ## Our Commitment to Security
 
-BlackDot Technology takes security seriously. GridDown is designed with a security-first mindset:
+BlackAtlas LLC takes security seriously. GridDown is designed with a security-first mindset:
 
 - **Offline-first architecture** minimizes attack surface
 - **No user accounts** means no credentials to steal
@@ -155,7 +155,7 @@ The following are outside our security scope:
 
 ### No Data Transmitted To Us
 
-GridDown does not transmit any data to BlackDot Technology servers. We have:
+GridDown does not transmit any data to BlackAtlas LLC servers. We have:
 
 - No analytics
 - No telemetry
@@ -294,4 +294,4 @@ We do not currently offer a paid bug bounty program. However, we:
 
 ---
 
-**© 2025 BlackDot Technology. All Rights Reserved.**
+**© 2025 BlackAtlas LLC. All Rights Reserved.**

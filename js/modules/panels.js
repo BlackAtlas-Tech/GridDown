@@ -11628,7 +11628,7 @@ const PanelsModule = (function() {
                 <div style="font-size:14px;font-weight:600;color:#f97316">GridDown</div>
                 <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:4px">Offline Tactical Navigation</div>
                 <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:8px">
-                    <a href="https://github.com/BlackDotTechnology/GridDown" target="_blank" rel="noopener" style="color:rgba(255,255,255,0.4);text-decoration:none">MIT License</a> • BlackDot Technology • 2025
+                    <a href="https://github.com/BlackAtlasLLC/GridDown" target="_blank" rel="noopener" style="color:rgba(255,255,255,0.4);text-decoration:none">MIT License</a> • BlackAtlas LLC • 2025
                 </div>
             </div>
             

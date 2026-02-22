@@ -1,6 +1,6 @@
 # Data Source Attributions & Licensing
 
-**GridDown by BlackDot Technology**
+**GridDown by BlackAtlas LLC**
 
 Last updated: January 2025
 
@@ -377,6 +377,6 @@ For questions about data licensing or attribution:
 
 ---
 
-**© 2025 BlackDot Technology. All Rights Reserved.**
+**© 2025 BlackAtlas LLC. All Rights Reserved.**
 
 *GridDown is dual-licensed software. See [LICENSE](LICENSE) for details.*

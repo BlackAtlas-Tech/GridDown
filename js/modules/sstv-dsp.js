@@ -8,7 +8,7 @@
  * - Sample rate drift compensation
  * - Sync pulse timing analysis
  * 
- * License: MIT (BlackDot Technology)
+ * License: MIT (BlackAtlas LLC)
  */
 const SSTVDSPModule = (function() {
     'use strict';

@@ -10,7 +10,7 @@
  * - Real-CUGAN 4× (~17MB) - High quality 4× upscaling  
  * - Tesseract.js - OCR for callsign/coordinate extraction (loaded from CDN)
  * 
- * License: MIT (BlackDot Technology)
+ * License: MIT (BlackAtlas LLC)
  */
 const SSTVEnhanceModule = (function() {
     'use strict';

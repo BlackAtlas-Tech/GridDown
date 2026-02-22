@@ -23,7 +23,7 @@
  * - Connection status indicator
  * 
  * @license GPL-3.0
- * @copyright 2025 BlackDot Technology
+ * @copyright 2025 BlackAtlas LLC
  */
 
 const TAKModule = (function() {
