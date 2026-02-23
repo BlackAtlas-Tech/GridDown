@@ -978,6 +978,41 @@ const SarsatModule = (function() {
     function requestBeaconLog(hours = 24, limit = 500) {
         return sendCommand('get_beacon_log', { hours, limit });
     }
+
+    /**
+     * Request beacon trend data for all tracked beacons
+     */
+    function requestBeaconTrends() {
+        return sendCommand('get_beacon_trends');
+    }
+
+    /**
+     * Mute the receiver buzzer
+     */
+    function muteBuzzer() {
+        return sendCommand('mute_buzzer');
+    }
+
+    /**
+     * Unmute the receiver buzzer
+     */
+    function unmuteBuzzer() {
+        return sendCommand('unmute_buzzer');
+    }
+
+    /**
+     * Toggle buzzer mute state
+     */
+    function toggleBuzzer() {
+        return sendCommand('toggle_buzzer');
+    }
+
+    /**
+     * Fire a test chirp on the buzzer
+     */
+    function testBuzzer() {
+        return sendCommand('test_buzzer');
+    }
     
     /**
      * Process JSON beacon message from receiver
@@ -1052,6 +1087,19 @@ const SarsatModule = (function() {
         beacon.rssi = msg.rssi;
         beacon.snr = msg.snr;
         beacon.frequency = msg.frequency;
+        beacon.bchErrors = msg.bchErrors ?? beacon.bchErrors ?? 0;
+        
+        // Session ID from database replay
+        if (msg.sessionId) beacon.sessionId = msg.sessionId;
+        
+        // Signal trend data from BeaconTracker
+        // Always update (not conditional) so stale trends clear when
+        // the receiver stops sending trend data for a beacon.
+        beacon.trend = msg.trend || null;
+        beacon.trendSlope = msg.trendSlope ?? null;
+        beacon.detectionCount = msg.detectionCount ?? null;
+        beacon.avgRssi = msg.avgRssi ?? null;
+        beacon.peakRssi = msg.peakRssi ?? null;
         
         // Update position if available
         if (typeof msg.lat === 'number' && typeof msg.lon === 'number') {
@@ -1378,6 +1426,11 @@ const SarsatModule = (function() {
         triggerSelfTest,
         requestRecentBeacons,
         requestBeaconLog,
+        requestBeaconTrends,
+        muteBuzzer,
+        unmuteBuzzer,
+        toggleBuzzer,
+        testBuzzer,
         
         // Settings
         getSettings: () => ({ ...state.settings }),

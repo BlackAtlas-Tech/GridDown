@@ -1649,21 +1649,35 @@ const AtlasRFModule = (function() {
         for (const [id, track] of state.tracks) {
             if (!isTrackTypeEnabled(track.type)) continue;
             
-            const lat = track.lat || track.latitude;
-            const lon = track.lon || track.longitude;
-            if (!lat || !lon) continue;
-            
             const age = now - (track.lastUpdate || track.timestamp || 0);
             if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
             
-            const pixel = latLonToPixel(lat, lon);
-            const dx = clickX - pixel.x;
-            const dy = clickY - pixel.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            // Check drone/aircraft position
+            const lat = track.lat || track.latitude;
+            const lon = track.lon || track.longitude;
+            if (lat && lon) {
+                const pixel = latLonToPixel(lat, lon);
+                const dx = clickX - pixel.x;
+                const dy = clickY - pixel.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist <= hitRadius && dist < closestDist) {
+                    closestDist = dist;
+                    closestTrack = track;
+                }
+            }
             
-            if (dist <= hitRadius && dist < closestDist) {
-                closestDist = dist;
-                closestTrack = track;
+            // Also check pilot marker position for drone tracks
+            if (track.type === 'drone' && track.pilot_latitude && track.pilot_longitude) {
+                const pilotPx = latLonToPixel(track.pilot_latitude, track.pilot_longitude);
+                const pdx = clickX - pilotPx.x;
+                const pdy = clickY - pilotPx.y;
+                const pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+                
+                if (pDist <= hitRadius && pDist < closestDist) {
+                    closestDist = pDist;
+                    closestTrack = track;
+                }
             }
         }
         
@@ -1714,6 +1728,32 @@ const AtlasRFModule = (function() {
             if (track.operator_id) details.push({ label: 'Operator ID', value: track.operator_id });
             if (track.uas_id || track.serial) details.push({ label: 'UAS ID', value: track.uas_id || track.serial });
             if (track.manufacturer) details.push({ label: 'Manufacturer', value: track.manufacturer });
+            if (track.description) details.push({ label: 'Self-ID', value: track.description });
+            
+            // Pilot/operator location from RemoteID System message
+            if (track.pilot_latitude && track.pilot_longitude) {
+                details.push({ label: 'Pilot Location', value: `${track.pilot_latitude.toFixed(5)}°, ${track.pilot_longitude.toFixed(5)}°` });
+                
+                // Distance from drone to pilot
+                const dLat = track.lat || track.latitude;
+                const dLon = track.lon || track.longitude;
+                if (dLat && dLon) {
+                    const distM = haversineDistance(dLat, dLon, track.pilot_latitude, track.pilot_longitude);
+                    const distLabel = distM >= 1000
+                        ? `${(distM / 1000).toFixed(1)} km`
+                        : `${Math.round(distM)} m`;
+                    details.push({ label: 'Drone ↔ Pilot', value: distLabel });
+                }
+                
+                // Mobile/stationary status
+                if (track.operator_mobile === true) {
+                    const vel = track.operator_velocity_mps;
+                    const velStr = vel != null ? ` (${(vel * 2.237).toFixed(1)} mph)` : '';
+                    details.push({ label: 'Pilot Status', value: `🚶 Mobile${velStr}` });
+                } else if (track.operator_mobile === false) {
+                    details.push({ label: 'Pilot Status', value: '📍 Stationary' });
+                }
+            }
         }
         
         // Position data
@@ -2021,6 +2061,9 @@ const AtlasRFModule = (function() {
                 renderedCount++;
             });
         }
+        
+        // Render pilot/operator locations for drone tracks (on top of everything)
+        renderPilotLocations(ctx, width, height, latLonToPixel, zoom, now);
     }
 
     function renderTrack(ctx, track, pixel, typeConfig, zoom, now) {
@@ -2233,6 +2276,177 @@ const AtlasRFModule = (function() {
         }
         
         ctx.restore();
+    }
+
+    // ==================== Pilot/Operator Location Rendering ====================
+
+    /**
+     * Render pilot/operator locations for all drone tracks that have RemoteID
+     * System message data (pilot_latitude/pilot_longitude).
+     * Draws: tether line (drone→pilot) + pilot marker + label
+     */
+    function renderPilotLocations(ctx, width, height, latLonToPixel, zoom, now) {
+        for (const [id, track] of state.tracks) {
+            if (track.type !== 'drone') continue;
+            if (!isTrackTypeEnabled('drone')) continue;
+
+            const pilotLat = track.pilot_latitude;
+            const pilotLon = track.pilot_longitude;
+            if (!pilotLat || !pilotLon) continue;
+
+            // Skip stale tracks
+            const age = now - (track.lastUpdate || track.timestamp || 0);
+            if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
+
+            // Pilot screen position
+            const pilotPx = latLonToPixel(pilotLat, pilotLon);
+            if (pilotPx.x < -60 || pilotPx.x > width + 60 ||
+                pilotPx.y < -60 || pilotPx.y > height + 60) continue;
+
+            // Drone screen position (for tether line)
+            const droneLat = track.lat || track.latitude;
+            const droneLon = track.lon || track.longitude;
+            const dronePx = (droneLat && droneLon) ? latLonToPixel(droneLat, droneLon) : null;
+
+            // Fade with track age
+            const staleRatio = Math.min(age / (CONFIG.trackMaxAgeSeconds * 1000), 1);
+            const alpha = 1 - (staleRatio * 0.5);
+
+            ctx.save();
+            ctx.globalAlpha = alpha;
+
+            const droneColor = TRACK_TYPES.drone?.color || '#a855f7';
+
+            // --- Tether line: dashed line from drone to pilot ---
+            if (dronePx) {
+                ctx.setLineDash([5, 4]);
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = 'rgba(168, 85, 247, 0.5)'; // Purple to match drone
+                ctx.beginPath();
+                ctx.moveTo(dronePx.x, dronePx.y);
+                ctx.lineTo(pilotPx.x, pilotPx.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Distance label at midpoint (only at higher zoom)
+                if (zoom >= 13 && droneLat && droneLon) {
+                    const distM = haversineDistance(droneLat, droneLon, pilotLat, pilotLon);
+                    const distLabel = distM >= 1000
+                        ? `${(distM / 1000).toFixed(1)} km`
+                        : `${Math.round(distM)} m`;
+                    const mx = (dronePx.x + pilotPx.x) / 2;
+                    const my = (dronePx.y + pilotPx.y) / 2;
+                    ctx.font = '9px system-ui, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+                    ctx.lineWidth = 2;
+                    ctx.strokeText(distLabel, mx, my - 4);
+                    ctx.fillStyle = '#e9d5ff'; // Light purple
+                    ctx.fillText(distLabel, mx, my - 4);
+                }
+            }
+
+            // --- Pilot marker icon ---
+            renderPilotMarker(ctx, pilotPx.x, pilotPx.y, track, droneColor, zoom);
+
+            ctx.restore();
+        }
+    }
+
+    /**
+     * Render a pilot/operator marker: person silhouette holding a controller.
+     * Colour-matched to drone track type. Shows mobile/stationary indicator.
+     */
+    function renderPilotMarker(ctx, x, y, track, color, zoom) {
+        const isMobile = track.operator_mobile === true;
+
+        ctx.save();
+        ctx.translate(x, y);
+
+        // Outer glow ring
+        ctx.beginPath();
+        ctx.arc(0, 0, 13, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.15)';
+        ctx.fill();
+
+        // Background circle
+        ctx.beginPath();
+        ctx.arc(0, 0, 10, 0, Math.PI * 2);
+        ctx.fillStyle = '#1e1b4b'; // Dark indigo
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Person icon (head + torso + arms)
+        ctx.fillStyle = '#e9d5ff'; // Light purple
+        ctx.strokeStyle = '#e9d5ff';
+        ctx.lineWidth = 1.2;
+
+        // Head
+        ctx.beginPath();
+        ctx.arc(0, -4, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Torso
+        ctx.beginPath();
+        ctx.moveTo(0, -1.8);
+        ctx.lineTo(0, 4);
+        ctx.stroke();
+
+        // Arms holding controller (angled down to hands)
+        ctx.beginPath();
+        ctx.moveTo(-4, 1);
+        ctx.lineTo(-1.5, 0);
+        ctx.lineTo(0, 0.5);
+        ctx.lineTo(1.5, 0);
+        ctx.lineTo(4, 1);
+        ctx.stroke();
+
+        // Controller box in hands
+        ctx.fillStyle = color;
+        ctx.fillRect(-2.5, -0.5, 5, 2);
+        ctx.fillStyle = '#e9d5ff';
+        // Controller sticks (two tiny dots)
+        ctx.fillRect(-1.5, 0, 0.8, 0.8);
+        ctx.fillRect(0.7, 0, 0.8, 0.8);
+
+        // Legs
+        ctx.strokeStyle = '#e9d5ff';
+        ctx.beginPath();
+        ctx.moveTo(0, 4);
+        ctx.lineTo(-2.5, 7.5);
+        ctx.moveTo(0, 4);
+        ctx.lineTo(2.5, 7.5);
+        ctx.stroke();
+
+        // Mobile indicator: small motion lines to the right
+        if (isMobile) {
+            ctx.strokeStyle = '#facc15'; // Yellow
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(9, -3); ctx.lineTo(12, -3);
+            ctx.moveTo(10, 0); ctx.lineTo(13, 0);
+            ctx.moveTo(9, 3);  ctx.lineTo(12, 3);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+
+        // Label: operator_id or "Pilot" + mobile status
+        if (zoom >= CONFIG.labelMinZoom) {
+            const label = track.operator_id || 'Pilot';
+            const suffix = isMobile ? ' 🚶' : '';
+            ctx.save();
+            ctx.font = '9px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+            ctx.lineWidth = 2;
+            ctx.strokeText(label + suffix, x, y + 20);
+            ctx.fillStyle = '#e9d5ff';
+            ctx.fillText(label + suffix, x, y + 20);
+            ctx.restore();
+        }
     }
 
     /**

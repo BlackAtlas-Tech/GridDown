@@ -22326,8 +22326,26 @@ After spreading:
                                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;margin-bottom:10px">
                                     <div style="display:flex;justify-content:space-between">
                                         <span style="color:var(--color-text-muted)">SDR:</span>
-                                        <span style="font-weight:500;color:${receiverStatus.sdrConnected ? '#22c55e' : '#ef4444'}">${receiverStatus.sdrConnected ? 'Online' : 'Offline'}</span>
+                                        <span style="font-weight:500;color:${receiverStatus.sdrConnected ? '#22c55e' : receiverStatus.sdrHealth?.reconnecting ? '#f59e0b' : '#ef4444'}">${receiverStatus.sdrConnected ? 'Online' : receiverStatus.sdrHealth?.reconnecting ? 'Reconnecting' : 'Offline'}${receiverStatus.sdrHealth?.reconnecting ? ` (${receiverStatus.sdrHealth.reconnectAttempts || 0})` : ''}</span>
                                     </div>
+                                    ${!receiverStatus.sdrConnected && receiverStatus.sdrHealth ? `
+                                        ${receiverStatus.sdrHealth.usbPresent === false ? `
+                                            <div style="grid-column:1/-1;font-size:10px;color:#ef4444;background:#ef444415;padding:3px 6px;border-radius:4px">
+                                                ⚠️ RTL-SDR USB device not detected
+                                            </div>
+                                        ` : ''}
+                                        ${receiverStatus.sdrHealth.lastError ? `
+                                            <div style="grid-column:1/-1;font-size:10px;color:#f59e0b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(receiverStatus.sdrHealth.lastError || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')}">
+                                                Error: ${(receiverStatus.sdrHealth.lastError || '').replace(/</g,'&lt;')}
+                                            </div>
+                                        ` : ''}
+                                    ` : ''}
+                                    ${receiverStatus.sdrHealth?.totalReconnects > 0 ? `
+                                        <div style="display:flex;justify-content:space-between">
+                                            <span style="color:var(--color-text-muted)">SDR Reconnects:</span>
+                                            <span style="font-weight:500;color:#f59e0b">${receiverStatus.sdrHealth.totalReconnects}</span>
+                                        </div>
+                                    ` : ''}
                                     <div style="display:flex;justify-content:space-between">
                                         <span style="color:var(--color-text-muted)">Uptime:</span>
                                         <span style="font-weight:500">${_formatUptime(receiverStatus.uptimeSeconds)}</span>
@@ -22354,10 +22372,40 @@ After spreading:
                                             <span style="font-weight:500;${receiverStatus.cpuTempC > 75 ? 'color:#ef4444' : receiverStatus.cpuTempC > 65 ? 'color:#f59e0b' : ''}">${receiverStatus.cpuTempC}°C</span>
                                         </div>
                                     ` : ''}
+                                    ${receiverStatus.throttle?.available ? `
+                                        ${receiverStatus.throttle.undervoltage ? `
+                                            <div style="grid-column:1/-1;font-size:10px;color:#ef4444;background:#ef444420;padding:4px 6px;border-radius:4px;font-weight:600">
+                                                ⚡ Undervoltage detected — SDR may miss signals
+                                            </div>
+                                        ` : ''}
+                                        ${receiverStatus.throttle.throttled || receiverStatus.throttle.tempLimited ? `
+                                            <div style="grid-column:1/-1;font-size:10px;color:#f59e0b;background:#f59e0b20;padding:4px 6px;border-radius:4px">
+                                                🌡️ ${receiverStatus.throttle.throttled ? 'CPU throttled' : ''}${receiverStatus.throttle.throttled && receiverStatus.throttle.tempLimited ? ' + ' : ''}${receiverStatus.throttle.tempLimited ? 'Temp limited' : ''}
+                                            </div>
+                                        ` : ''}
+                                        ${!receiverStatus.throttle.undervoltage && !receiverStatus.throttle.throttled && !receiverStatus.throttle.tempLimited && receiverStatus.throttle.undervoltageOccurred ? `
+                                            <div style="display:flex;justify-content:space-between">
+                                                <span style="color:var(--color-text-muted)">Power:</span>
+                                                <span style="font-weight:500;color:#f59e0b">⚡ Undervoltage since boot</span>
+                                            </div>
+                                        ` : ''}
+                                    ` : ''}
                                     ${receiverStatus.ledState ? `
                                         <div style="display:flex;justify-content:space-between">
                                             <span style="color:var(--color-text-muted)">Status LED:</span>
                                             <span style="font-weight:500">${_ledStateDisplay(receiverStatus.ledState.state)}</span>
+                                        </div>
+                                    ` : ''}
+                                    ${receiverStatus.oledState ? `
+                                        <div style="display:flex;justify-content:space-between">
+                                            <span style="color:var(--color-text-muted)">OLED:</span>
+                                            <span style="font-weight:500">${receiverStatus.oledState.available ? (receiverStatus.oledState.running ? 'On' : 'Standby') : 'Disabled'}${receiverStatus.oledState.alertActive ? ' ⚠️' : ''}</span>
+                                        </div>
+                                    ` : ''}
+                                    ${receiverStatus.trackedBeacons != null ? `
+                                        <div style="display:flex;justify-content:space-between">
+                                            <span style="color:var(--color-text-muted)">Tracking:</span>
+                                            <span style="font-weight:500">${receiverStatus.trackedBeacons} beacon${receiverStatus.trackedBeacons !== 1 ? 's' : ''}</span>
                                         </div>
                                     ` : ''}
                                     ${receiverStatus.lastDetectionTime ? `
@@ -22455,6 +22503,20 @@ After spreading:
                                     </button>
                                 </div>
                             </div>
+                            
+                            <!-- Buzzer Controls -->
+                            ${receiverStatus?.buzzerState ? `
+                                <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding:6px 8px;background:var(--color-bg-secondary);border-radius:6px">
+                                    <span style="font-size:14px">${receiverStatus.buzzerState.muted ? '🔇' : '🔔'}</span>
+                                    <span style="flex:1;font-size:11px;color:var(--color-text-muted)">Buzzer: <strong style="color:${receiverStatus.buzzerState.muted ? '#f59e0b' : 'var(--color-text-primary)'}">${receiverStatus.buzzerState.muted ? 'Muted' : 'Active'}</strong></span>
+                                    <button class="btn btn--small ${receiverStatus.buzzerState.muted ? 'btn--primary' : 'btn--secondary'}" id="sarsat-toggle-buzzer" style="padding:4px 8px;font-size:10px">
+                                        ${receiverStatus.buzzerState.muted ? '🔔 Unmute' : '🔇 Mute'}
+                                    </button>
+                                    <button class="btn btn--small btn--secondary" id="sarsat-test-buzzer" title="Play test chirp" style="padding:4px 8px;font-size:10px">
+                                        🔊 Chirp
+                                    </button>
+                                </div>
+                            ` : ''}
                         </div>
                         <button class="btn btn--danger" id="sarsat-disconnect" style="width:100%">
                             ${Icons.get('close')} Disconnect
@@ -22478,6 +22540,14 @@ After spreading:
                                         ${b.snr != null ? `<span style="color:${b.snr >= 15 ? '#22c55e' : b.snr >= 10 ? '#84cc16' : b.snr >= 5 ? '#f59e0b' : '#ef4444'}">SNR ${b.snr.toFixed ? b.snr.toFixed(1) : b.snr} dB</span>` : ''}
                                         ${b.rssi != null ? `<span>RSSI ${b.rssi} dBm</span>` : ''}
                                         ${b.frequency ? `<span>${b.frequency} MHz</span>` : ''}
+                                        ${b.bchErrors ? `<span style="color:#f59e0b">BCH ×${b.bchErrors}</span>` : ''}
+                                    </div>
+                                ` : ''}
+                                ${b.trend ? `
+                                    <div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:10px;padding:3px 6px;border-radius:4px;background:${b.trend === 'approaching' ? 'rgba(34,197,94,0.15)' : b.trend === 'receding' ? 'rgba(239,68,68,0.15)' : 'rgba(100,116,139,0.15)'}">
+                                        <span style="font-size:13px">${b.trend === 'approaching' ? '📈' : b.trend === 'receding' ? '📉' : '➡️'}</span>
+                                        <span style="font-weight:600;color:${b.trend === 'approaching' ? '#22c55e' : b.trend === 'receding' ? '#ef4444' : 'var(--color-text-secondary)'}">${b.trend === 'approaching' ? 'Approaching' : b.trend === 'receding' ? 'Receding' : 'Stable'}</span>
+                                        ${b.trendSlope != null ? `<span>(${b.trendSlope > 0 ? '+' : ''}${b.trendSlope.toFixed ? b.trendSlope.toFixed(1) : b.trendSlope} dB/min)</span>` : ''}
                                     </div>
                                 ` : ''}
                                 ${b.lat !== undefined ? `
@@ -22566,7 +22636,18 @@ After spreading:
                                             ${b.snr != null ? `<span style="color:${b.snr >= 15 ? '#22c55e' : b.snr >= 10 ? '#84cc16' : b.snr >= 5 ? '#f59e0b' : '#ef4444'}">SNR ${b.snr.toFixed ? b.snr.toFixed(1) : b.snr} dB</span>` : ''}
                                             ${b.rssi != null ? `<span>RSSI ${b.rssi} dBm</span>` : ''}
                                             ${b.frequency ? `<span>${b.frequency} MHz</span>` : ''}
+                                            ${b.bchErrors ? `<span style="color:#f59e0b">BCH ×${b.bchErrors}</span>` : ''}
                                             <span>×${b.receiveCount}</span>
+                                        </div>
+                                    ` : ''}
+                                    ${b.trend ? `
+                                        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;font-size:10px;padding:3px 6px;border-radius:4px;background:${b.trend === 'approaching' ? 'rgba(34,197,94,0.15)' : b.trend === 'receding' ? 'rgba(239,68,68,0.15)' : 'rgba(100,116,139,0.15)'}">
+                                            <span style="font-size:13px">${b.trend === 'approaching' ? '📈' : b.trend === 'receding' ? '📉' : '➡️'}</span>
+                                            <span style="font-weight:600;color:${b.trend === 'approaching' ? '#22c55e' : b.trend === 'receding' ? '#ef4444' : 'var(--color-text-muted)'}">${b.trend === 'approaching' ? 'Approaching' : b.trend === 'receding' ? 'Receding' : 'Stable'}</span>
+                                            ${b.trendSlope != null ? `<span style="color:var(--color-text-muted)">(${b.trendSlope > 0 ? '+' : ''}${b.trendSlope.toFixed ? b.trendSlope.toFixed(1) : b.trendSlope} dB/min)</span>` : ''}
+                                            ${b.avgRssi != null ? `<span style="color:var(--color-text-muted)">avg ${b.avgRssi} dBm</span>` : ''}
+                                            ${b.peakRssi != null ? `<span style="color:var(--color-text-muted)">peak ${b.peakRssi} dBm</span>` : ''}
+                                            ${b.detectionCount != null ? `<span style="color:var(--color-text-muted)">${b.detectionCount} det</span>` : ''}
                                         </div>
                                     ` : ''}
                                     ${b.lat !== undefined ? `
@@ -22992,6 +23073,33 @@ After spreading:
             };
         }
         
+        // Buzzer toggle
+        const toggleBuzzerBtn = container.querySelector('#sarsat-toggle-buzzer');
+        if (toggleBuzzerBtn) {
+            toggleBuzzerBtn.onclick = async () => {
+                try {
+                    await SarsatModule.toggleBuzzer();
+                } catch (e) {
+                    console.warn('[SARSAT] Toggle buzzer failed:', e.message);
+                }
+            };
+        }
+        
+        // Buzzer test chirp
+        const testBuzzerBtn = container.querySelector('#sarsat-test-buzzer');
+        if (testBuzzerBtn) {
+            testBuzzerBtn.onclick = async () => {
+                try {
+                    await SarsatModule.testBuzzer();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('🔊 Test chirp sent', 'info');
+                    }
+                } catch (e) {
+                    console.warn('[SARSAT] Test buzzer failed:', e.message);
+                }
+            };
+        }
+        
         // Listen for beacon updates, status heartbeats, and connection state changes
         if (typeof Events !== 'undefined') {
             Events.on('sarsat:beacon_received', () => {
@@ -23413,6 +23521,14 @@ After spreading:
                     <div style="font-size:0.65rem;color:#22c55e;background:#22c55e15;padding:0.25rem 0.5rem;border-radius:4px;margin-bottom:0.375rem">
                         🔗 Correlated with Remote ID: ${correlatedId.slice(0, 12)}${correlatedId.length > 12 ? '...' : ''}
                         ${correlationConfidence > 0 ? ` (${(correlationConfidence * 100).toFixed(0)}%)` : ''}
+                    </div>
+                ` : ''}
+                
+                ${track.pilot_latitude && track.pilot_longitude ? `
+                    <div style="font-size:0.65rem;color:#c4b5fd;background:#7c3aed15;padding:0.25rem 0.5rem;border-radius:4px;margin-bottom:0.375rem">
+                        🧑‍✈️ Pilot: ${track.pilot_latitude.toFixed(5)}°, ${track.pilot_longitude.toFixed(5)}°
+                        ${track.operator_mobile === true ? ' <span style="color:#facc15">🚶 Moving</span>' : track.operator_mobile === false ? ' <span style="color:#94a3b8">📍 Stationary</span>' : ''}
+                        ${track.operator_id ? `<br>ID: ${track.operator_id}` : ''}
                     </div>
                 ` : ''}
                 
