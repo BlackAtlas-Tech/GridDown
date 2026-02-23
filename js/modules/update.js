@@ -6,14 +6,18 @@
  * index.html, app.js, and this module.
  * 
  * Lifecycle:
- *   1. Browser fetches sw.js (no-cache headers ensure fresh copy from disk)
- *   2. Browser compares new sw.js byte-for-byte against active sw.js
- *   3. If different: install event fires, new SW enters 'installed' (waiting) state
- *   4. This module detects the waiting worker via 'updatefound' event
- *   5. Shows persistent toast: "Update Available — Refresh Now / Later"
- *   6. User taps "Refresh Now" → sends SKIP_WAITING to waiting worker
- *   7. Waiting worker calls self.skipWaiting() → activates → old worker replaced
- *   8. 'controllerchange' fires → this module reloads the page under the new worker
+ *   1. gd-watch (or manual git pull) delivers new files to disk
+ *   2. Browser fetches sw.js every 60s (no-cache headers ensure fresh copy)
+ *   3. Browser compares new sw.js byte-for-byte against active sw.js
+ *   4. If different: install event fires, new SW caches assets
+ *   5. New SW enters 'installed' (waiting) state — does NOT auto-activate
+ *   6. This module detects the waiting worker via 'updatefound' event
+ *   7. Shows persistent toast: "Update Available — Refresh Now / Later"
+ *   8. User taps "Refresh Now" → sends SKIP_WAITING to waiting worker
+ *   9. Waiting worker calls self.skipWaiting() → activates → old cache purged
+ *  10. 'controllerchange' fires → this module reloads the page under new worker
+ *  11. User taps "Later" → old worker continues serving old version
+ *      Update applies on next "Refresh Now" tap or full app restart
  * 
  * Detection triggers:
  *   - registration.update() every 60 seconds (forced byte check)

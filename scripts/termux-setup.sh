@@ -92,9 +92,14 @@ echo -e "    ${BOLD}gd-bg${NC}            Start server (background)"
 echo -e "    ${BOLD}gd-stop${NC}          Stop server"
 echo -e "    ${BOLD}gd-restart${NC}       Restart server"
 echo -e "    ${BOLD}gd-status${NC}        Check if server is running"
-echo -e "    ${BOLD}gd-start${NC}         Wake lock + start server"
-echo -e "    ${BOLD}gd-shutdown${NC}      Stop server + release wake lock"
+echo -e "    ${BOLD}gd-start${NC}         Wake lock + start server + watcher"
+echo -e "    ${BOLD}gd-shutdown${NC}      Stop server + watcher + release wake lock"
 echo -e "    ${BOLD}griddown-update${NC}  Pull latest from GitHub"
+echo -e "    ${BOLD}gd-watch${NC}         Auto-fetch updates every 15 min (background)"
+echo -e "    ${BOLD}gd-watch 5${NC}       Auto-fetch every 5 min"
+echo -e "    ${BOLD}gd-watch-stop${NC}    Stop auto-fetch watcher"
+echo -e "    ${BOLD}gd-watch-status${NC}  Check watcher status + recent log"
+echo -e "    ${BOLD}gd-watch-log${NC}     View watcher log"
 echo -e "    ${BOLD}gd-version${NC}       Show current version"
 echo -e "    ${BOLD}gd-log${NC}           Show recent commits"
 echo -e "    ${BOLD}gd-force-update${NC}  Discard local changes and update"
@@ -140,6 +145,11 @@ termux-wake-lock
 
 # Start GridDown HTTP server in background
 python3 "$GRIDDOWN_DIR/scripts/griddown-server.py" &
+
+# Start update watcher (checks every 15 min, pulls if update found)
+# GridDown shows in-app toast — user decides when to apply.
+source "$GRIDDOWN_DIR/scripts/griddown-aliases.sh"
+gd-watch 15 &
 
 # Log startup
 echo "\$(date): GridDown server started on port 8080 (PID \$!)" >> ~/griddown-boot.log

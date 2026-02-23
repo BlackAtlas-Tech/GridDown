@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.57.75';
+const CACHE_NAME = 'griddown-v6.57.76';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -123,7 +123,13 @@ self.addEventListener('install', e => {
     e.waitUntil(
         caches.open(CACHE_NAME)
             .then(cache => cache.addAll(STATIC_ASSETS))
-            .then(() => self.skipWaiting())  // Immediately activate new SW
+            // Do NOT call self.skipWaiting() here.
+            // Let the new worker enter 'waiting' state so UpdateModule
+            // can show the "Refresh Now / Later" toast for user consent.
+            // On first install (no existing controller), the browser
+            // activates the worker automatically — no skipWaiting needed.
+            // On updates, the SKIP_WAITING message from UpdateModule
+            // (user clicks "Refresh Now") triggers activation.
     );
 });
 
