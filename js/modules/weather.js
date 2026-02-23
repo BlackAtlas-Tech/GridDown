@@ -1651,12 +1651,128 @@ const WeatherModule = (function() {
 
     /**
      * Get weather for current map center
+     * Falls back to AtlasRF Open-Meteo conditions when API unavailable or offline
      */
     async function getMapCenterWeather() {
         if (typeof MapModule === 'undefined') return null;
         
         const mapState = MapModule.getMapState();
-        return await fetchWeather(mapState.lat, mapState.lon);
+        
+        // If offline mode, skip API call and go straight to AtlasRF fallback
+        const isOffline = typeof State !== 'undefined' && State.get('isOffline');
+        
+        if (!isOffline) {
+            try {
+                const data = await fetchWeather(mapState.lat, mapState.lon);
+                if (data) return data;
+            } catch (e) {
+                console.warn('[Weather] API fetch failed, checking AtlasRF fallback:', e.message);
+            }
+        }
+        
+        // Fallback: build weather data from AtlasRF conditions
+        const fallback = buildAtlasRFWeatherData(mapState.lat, mapState.lon);
+        if (fallback) {
+            console.log('[Weather] Using AtlasRF Open-Meteo conditions as fallback');
+            return fallback;
+        }
+        
+        // No data from either source
+        if (isOffline) {
+            throw new Error('Offline — no AtlasRF weather data available');
+        }
+        throw new Error('Weather API unavailable and no AtlasRF fallback');
+    }
+
+    /**
+     * Build panel-compatible weather data from AtlasRF conditions
+     * Converts units: C→F, m/s→mph, mm→inches, m→miles
+     * Returns null if no AtlasRF conditions available
+     */
+    function buildAtlasRFWeatherData(lat, lon) {
+        if (!atlasRFConditions) return null;
+        
+        // Stale check: ignore data older than 30 minutes
+        const age = Date.now() - (atlasRFConditions.timestamp || 0);
+        if (age > 30 * 60 * 1000) return null;
+        
+        const c = atlasRFConditions;
+        
+        // Unit conversions
+        const cToF = (celsius) => celsius != null ? (celsius * 9/5) + 32 : null;
+        const msToMph = (ms) => ms != null ? ms * 2.237 : null;
+        const mmToIn = (mm) => mm != null ? mm / 25.4 : null;
+        const mToMiles = (m) => m != null ? m / 1609.34 : null;
+        
+        // Map conditions string to best-fit WMO icon/desc
+        const weather = conditionsToWeather(c.conditions, c.cloud_cover);
+        
+        // Calculate dewpoint from temperature and humidity (Magnus formula)
+        // Guard: humidity must be > 0 (Math.log(0) = -Infinity → NaN)
+        let dewpointF = null;
+        if (c.temperature_c != null && c.humidity != null && c.humidity > 0) {
+            const a = 17.27, b = 237.7;
+            const alpha = (a * c.temperature_c) / (b + c.temperature_c) + Math.log(c.humidity / 100);
+            const dewpointC = (b * alpha) / (a - alpha);
+            dewpointF = isFinite(dewpointC) ? cToF(dewpointC) : null;
+        }
+        
+        return {
+            current: {
+                temperature: cToF(c.temperature_c),
+                feelsLike: cToF(c.feels_like_c),
+                humidity: c.humidity,
+                precipitation: mmToIn(c.precipitation_mm) || 0,
+                rain: mmToIn(c.precipitation_mm) || 0,
+                snow: 0,
+                weatherCode: weather.code,
+                weather: { desc: weather.desc, icon: weather.icon, severity: weather.severity },
+                cloudCover: c.cloud_cover ?? 0,
+                windSpeed: msToMph(c.wind_speed_mps) || 0,
+                windDirection: c.wind_direction || 0,
+                windGusts: msToMph(c.wind_gust_mps) || 0,
+                dewpoint: dewpointF,
+                uvIndex: c.uv_index,
+                pressure: c.pressure_hpa,
+                visibility: mToMiles(c.visibility_m),
+                time: new Date(c.timestamp).toISOString()
+            },
+            hourly: [],
+            daily: [],
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            location: { lat, lon, elevation: null },
+            source: 'atlasrf'
+        };
+    }
+
+    /**
+     * Map a conditions description string + cloud cover to WMO-style weather info
+     */
+    function conditionsToWeather(conditions, cloudCover) {
+        const s = (conditions || '').toLowerCase();
+        
+        // Check for specific conditions
+        if (s.includes('thunder'))       return { code: 95, ...WMO_CODES[95] };
+        if (s.includes('heavy rain'))    return { code: 65, ...WMO_CODES[65] };
+        if (s.includes('rain shower'))   return { code: 80, ...WMO_CODES[80] };
+        if (s.includes('rain') || s.includes('drizzle')) return { code: 61, ...WMO_CODES[61] };
+        if (s.includes('heavy snow'))    return { code: 75, ...WMO_CODES[75] };
+        if (s.includes('snow'))          return { code: 71, ...WMO_CODES[71] };
+        if (s.includes('freezing'))      return { code: 66, ...WMO_CODES[66] };
+        if (s.includes('fog'))           return { code: 45, ...WMO_CODES[45] };
+        if (s.includes('overcast'))      return { code: 3,  ...WMO_CODES[3] };
+        if (s.includes('cloud'))         return { code: 2,  ...WMO_CODES[2] };
+        if (s.includes('clear'))         return { code: 0,  ...WMO_CODES[0] };
+        
+        // Fall back to cloud cover percentage
+        if (cloudCover != null) {
+            if (cloudCover < 10) return { code: 0, ...WMO_CODES[0] };
+            if (cloudCover < 40) return { code: 1, ...WMO_CODES[1] };
+            if (cloudCover < 70) return { code: 2, ...WMO_CODES[2] };
+            return { code: 3, ...WMO_CODES[3] };
+        }
+        
+        return { code: 0, ...WMO_CODES[0] };
     }
 
     /**

@@ -9938,6 +9938,17 @@ const PanelsModule = (function() {
             ${!weatherLoading && weatherData ? `
                 <!-- Current Conditions -->
                 <div class="section-label">Current Conditions</div>
+                
+                ${weatherData.source === 'atlasrf' ? `
+                    <div style="padding:8px 12px;background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.3);border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+                        <span style="font-size:14px">📡</span>
+                        <div>
+                            <div style="font-size:12px;font-weight:500;color:#f97316">Via AtlasRF Open-Meteo</div>
+                            <div style="font-size:10px;color:rgba(249,115,22,0.7)">Current conditions only — no forecast data offline</div>
+                        </div>
+                    </div>
+                ` : ''}
+                
                 <div style="padding:16px;background:linear-gradient(135deg,rgba(59,130,246,0.15),rgba(37,99,235,0.1));border:1px solid rgba(59,130,246,0.3);border-radius:14px;margin-bottom:16px">
                     <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">
                         <div style="font-size:48px">${weatherData.current.weather.icon}</div>
@@ -9953,7 +9964,7 @@ const PanelsModule = (function() {
                             <div style="font-size:9px;color:rgba(255,255,255,0.4)">FEELS LIKE</div>
                         </div>
                         <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px">
-                            <div style="font-size:14px;font-weight:600">${weatherData.current.humidity}%</div>
+                            <div style="font-size:14px;font-weight:600">${weatherData.current.humidity != null ? weatherData.current.humidity + '%' : '--'}</div>
                             <div style="font-size:9px;color:rgba(255,255,255,0.4)">HUMIDITY</div>
                         </div>
                         <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px">
@@ -9969,9 +9980,21 @@ const PanelsModule = (function() {
                             <div style="font-size:9px;color:rgba(255,255,255,0.4)">UV INDEX</div>
                         </div>
                         <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px">
-                            <div style="font-size:14px;font-weight:600">${weatherData.current.cloudCover}%</div>
+                            <div style="font-size:14px;font-weight:600">${weatherData.current.cloudCover != null ? weatherData.current.cloudCover + '%' : '--'}</div>
                             <div style="font-size:9px;color:rgba(255,255,255,0.4)">CLOUD COVER</div>
                         </div>
+                        ${weatherData.current.pressure ? `
+                            <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px">
+                                <div style="font-size:14px;font-weight:600">${weatherData.current.pressure.toFixed(0)} hPa</div>
+                                <div style="font-size:9px;color:rgba(255,255,255,0.4)">PRESSURE</div>
+                            </div>
+                        ` : ''}
+                        ${weatherData.current.visibility != null ? `
+                            <div style="text-align:center;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px">
+                                <div style="font-size:14px;font-weight:600">${weatherData.current.visibility.toFixed(1)} mi</div>
+                                <div style="font-size:9px;color:rgba(255,255,255,0.4)">VISIBILITY</div>
+                            </div>
+                        ` : ''}
                     </div>
                     
                     ${weatherData.current.windGusts > weatherData.current.windSpeed + 5 ? `
@@ -10008,6 +10031,7 @@ const PanelsModule = (function() {
                     `}
                 </div>
                 
+                ${weatherData.daily && weatherData.daily.length > 0 ? `
                 <!-- 7-Day Forecast -->
                 <div class="section-label">7-Day Forecast</div>
                 <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
@@ -10030,7 +10054,9 @@ const PanelsModule = (function() {
                         </div>
                     `).join('')}
                 </div>
+                ` : ''}
                 
+                ${weatherData.hourly && weatherData.hourly.length > 0 ? `
                 <!-- Hourly Forecast (next 24 hours) -->
                 <div class="section-label">Next 24 Hours</div>
                 <div style="display:flex;overflow-x:auto;gap:8px;padding-bottom:8px;margin-bottom:16px">
@@ -10049,6 +10075,7 @@ const PanelsModule = (function() {
                         `;
                     }).join('')}
                 </div>
+                ` : ''}
             ` : !weatherLoading ? `
                 <div class="empty-state" style="padding:30px">
                     <div style="font-size:40px;margin-bottom:12px">🌤️</div>
@@ -11196,8 +11223,10 @@ const PanelsModule = (function() {
             weatherLoading = false;
             renderWeather();
             
-            // Also load AQI data (non-blocking)
-            loadAQIData();
+            // Also load AQI data (non-blocking) — skip when using AtlasRF offline fallback
+            if (!weatherData.source || weatherData.source !== 'atlasrf') {
+                loadAQIData();
+            }
         } catch (err) {
             weatherLoading = false;
             weatherError = err.message || 'Failed to load weather';
@@ -23340,7 +23369,7 @@ After spreading:
                         Toggle which detection types appear on the map
                     </div>
                     
-                    ${renderTrackTypeToggle('aircraft', '✈️', 'Aircraft', trackCounts.aircraft, trackTypeSettings.aircraft?.enabled, '#3b82f6', 'ADS-B 1090 MHz', isConnected)}
+                    ${renderTrackTypeToggle('aircraft', '✈️', 'Aircraft', trackCounts.aircraft, trackTypeSettings.aircraft?.enabled, '#3b82f6', 'ADS-B 1090 / UAT 978 MHz', isConnected)}
                     ${renderTrackTypeToggle('ship', '🚢', 'Ships', trackCounts.ship, trackTypeSettings.ship?.enabled, '#06b6d4', 'AIS 162 MHz', isConnected)}
                     ${renderTrackTypeToggle('drone', '🛸', 'Drones (Remote ID)', trackCounts.drone, trackTypeSettings.drone?.enabled, '#f59e0b', 'WiFi/BLE with GPS', isConnected)}
                     ${renderTrackTypeToggle('pilot', '👤', 'Pilot Locations', pilotCount, trackTypeSettings.pilot?.enabled, '#fb923c', 'RemoteID operator position', isConnected)}

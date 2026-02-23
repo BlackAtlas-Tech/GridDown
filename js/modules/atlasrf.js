@@ -94,7 +94,7 @@ const AtlasRFModule = (function() {
             color: '#3b82f6',  // Blue
             enabled: true,
             endpoint: '/api/tracks/aircraft',
-            description: 'ADS-B aircraft (1090 MHz)'
+            description: 'ADS-B 1090 MHz & UAT 978 MHz'
         },
         ship: {
             id: 'ship',
@@ -1419,17 +1419,32 @@ const AtlasRFModule = (function() {
         const existingTrack = state.tracks.get(track.id);
         const isNew = !existingTrack;
         
+        // Parse last_seen timestamp — auto-detect seconds vs milliseconds.
+        // Python backends commonly send Unix seconds (e.g. 1771813349).
+        // new Date() expects milliseconds; passing seconds yields 1970 dates
+        // and the track silently ages out of every count and render.
+        let lastUpdate;
+        if (track.last_seen) {
+            let ts = typeof track.last_seen === 'string'
+                ? new Date(track.last_seen).getTime()
+                : track.last_seen;
+            // Heuristic: Unix seconds are ~1.7e9, milliseconds are ~1.7e12
+            if (typeof ts === 'number' && ts > 0 && ts < 1e11) {
+                ts = ts * 1000;  // Convert seconds → milliseconds
+            }
+            lastUpdate = ts;
+        } else {
+            lastUpdate = Date.now();
+        }
+        
+        // Merge with existing track data so partial WebSocket updates
+        // (e.g. just altitude + speed) don't discard previously-stored
+        // fields like lat, lon, callsign, squawk, etc.
         state.tracks.set(track.id, {
+            ...(existingTrack || {}),
             ...track,
             type,
-            // Use last_seen from AtlasRF when available — this is the
-            // actual detection timestamp from the database and matches how
-            // AtlasRF's own dashboard ages tracks.  For real-time WS
-            // updates last_seen ≈ Date.now(); for REST-seeded tracks it
-            // reflects the true age so counts stay aligned with AtlasRF.
-            lastUpdate: track.last_seen
-                ? new Date(track.last_seen).getTime()
-                : Date.now(),
+            lastUpdate,
             isNew: isNew
         });
         
@@ -1467,6 +1482,10 @@ const AtlasRFModule = (function() {
             'aircraft': 'aircraft',
             'plane': 'aircraft',
             'adsb': 'aircraft',
+            'uat': 'aircraft',
+            'uat978': 'aircraft',
+            'uat_978': 'aircraft',
+            'adsb_978': 'aircraft',
             'ship': 'ship',
             'vessel': 'ship',
             'ais': 'ship',
@@ -1495,8 +1514,16 @@ const AtlasRFModule = (function() {
             const age = now - (track.lastUpdate || track.timestamp || 0);
             if (age > maxAge) continue;
             
-            if (!track.lat && !track.latitude) continue;
-            if (!track.lon && !track.longitude) continue;
+            // Skip tracks without position — UNLESS the type is flagged noPosition
+            // (e.g. FPV drones are RF-only detections with no GPS coordinates)
+            const typeConfig = TRACK_TYPES[track.type];
+            if (!typeConfig) continue;
+            
+            if (!typeConfig.noPosition) {
+                const lat = track.lat ?? track.latitude ?? null;
+                const lon = track.lon ?? track.longitude ?? null;
+                if (lat == null || lon == null) continue;
+            }
             
             if (state.trackCounts.hasOwnProperty(track.type)) {
                 state.trackCounts[track.type]++;
@@ -1654,8 +1681,8 @@ const AtlasRFModule = (function() {
             if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
             
             // Check drone/aircraft position
-            const lat = track.lat || track.latitude;
-            const lon = track.lon || track.longitude;
+            const lat = track.lat ?? track.latitude;
+            const lon = track.lon ?? track.longitude;
             if (lat && lon) {
                 const pixel = latLonToPixel(lat, lon);
                 const dx = clickX - pixel.x;
@@ -1736,8 +1763,8 @@ const AtlasRFModule = (function() {
                 details.push({ label: 'Pilot Location', value: `${track.pilot_latitude.toFixed(5)}°, ${track.pilot_longitude.toFixed(5)}°` });
                 
                 // Distance from drone to pilot
-                const dLat = track.lat || track.latitude;
-                const dLon = track.lon || track.longitude;
+                const dLat = track.lat ?? track.latitude;
+                const dLon = track.lon ?? track.longitude;
                 if (dLat && dLon) {
                     const distM = haversineDistance(dLat, dLon, track.pilot_latitude, track.pilot_longitude);
                     const distLabel = distM >= 1000
@@ -1758,8 +1785,8 @@ const AtlasRFModule = (function() {
         }
         
         // Position data
-        const lat = track.lat || track.latitude;
-        const lon = track.lon || track.longitude;
+        const lat = track.lat ?? track.latitude;
+        const lon = track.lon ?? track.longitude;
         if (lat && lon) details.push({ label: 'Position', value: `${lat.toFixed(4)}°, ${lon.toFixed(4)}°` });
         
         const alt = track.altitude_m ?? track.altitude ?? track.alt_baro ?? track.alt;
@@ -2027,8 +2054,9 @@ const AtlasRFModule = (function() {
             if (!isTrackTypeEnabled(track.type)) continue;
             
             // Skip if no position
-            if (!track.lat && !track.latitude) continue;
-            if (!track.lon && !track.longitude) continue;
+            const lat = track.lat ?? track.latitude ?? null;
+            const lon = track.lon ?? track.longitude ?? null;
+            if (lat == null || lon == null) continue;
             
             // Skip stale tracks
             const age = now - (track.lastUpdate || track.timestamp || 0);
@@ -2048,8 +2076,8 @@ const AtlasRFModule = (function() {
             tracks.forEach(track => {
                 if (renderedCount >= CONFIG.maxRenderedTracks) return;
                 
-                const lat = track.lat || track.latitude;
-                const lon = track.lon || track.longitude;
+                const lat = track.lat ?? track.latitude;
+                const lon = track.lon ?? track.longitude;
                 const pixel = latLonToPixel(lat, lon);
                 
                 // Skip if off-screen
@@ -2306,8 +2334,8 @@ const AtlasRFModule = (function() {
                 pilotPx.y < -60 || pilotPx.y > height + 60) continue;
 
             // Drone screen position (for tether line)
-            const droneLat = track.lat || track.latitude;
-            const droneLon = track.lon || track.longitude;
+            const droneLat = track.lat ?? track.latitude;
+            const droneLon = track.lon ?? track.longitude;
             const dronePx = (droneLat && droneLon) ? latLonToPixel(droneLat, droneLon) : null;
 
             // Fade with track age
@@ -2684,8 +2712,8 @@ const AtlasRFModule = (function() {
                 const track = state.tracks.get(trackId);
                 if (!track) continue;
                 
-                const lat = track.lat || track.latitude;
-                const lon = track.lon || track.longitude;
+                const lat = track.lat ?? track.latitude;
+                const lon = track.lon ?? track.longitude;
                 if (!lat || !lon) continue;
                 
                 const age = now - (track.lastUpdate || track.timestamp || 0);
