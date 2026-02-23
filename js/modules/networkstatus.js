@@ -259,6 +259,10 @@ const NetworkStatusModule = (function() {
                     padding-top: 44px;
                 }
                 
+                body.offline-mode .app {
+                    height: calc(100vh - 44px);
+                }
+                
                 body.offline-mode .sidebar {
                     top: 44px;
                 }
@@ -278,6 +282,9 @@ const NetworkStatusModule = (function() {
         
         document.body.appendChild(bannerElement);
         document.body.classList.add('offline-mode');
+        
+        // Trigger resize so map canvas recalculates dimensions
+        window.dispatchEvent(new Event('resize'));
         
         // Start duration timer
         updateOfflineDuration();
@@ -318,6 +325,9 @@ const NetworkStatusModule = (function() {
             }, 300);
         }
         document.body.classList.remove('offline-mode');
+        
+        // Trigger resize so map canvas recalculates dimensions
+        window.dispatchEvent(new Event('resize'));
     }
     
     /**

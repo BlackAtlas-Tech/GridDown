@@ -23136,6 +23136,7 @@ After spreading:
         const connectionMode = isConnected ? AtlasRFModule.getConnectionMode() : null;
         const connectionMethod = typeof AtlasRFModule !== 'undefined' ? AtlasRFModule.getConnectionMethod() : 'auto';
         const trackCounts = isConnected ? AtlasRFModule.getTrackCounts() : { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
+        const pilotCount = isConnected ? AtlasRFModule.getTracksByType('drone').filter(t => t.pilot_latitude && t.pilot_longitude).length : 0;
         const trackTypeSettings = typeof AtlasRFModule !== 'undefined' ? AtlasRFModule.getTrackTypeSettings() : {};
         const weatherSource = typeof AtlasRFModule !== 'undefined' ? AtlasRFModule.getWeatherSource() : 'internet';
         const fisBData = typeof AtlasRFModule !== 'undefined' ? AtlasRFModule.getFisBData() : { isStale: true };
@@ -23342,6 +23343,7 @@ After spreading:
                     ${renderTrackTypeToggle('aircraft', '✈️', 'Aircraft', trackCounts.aircraft, trackTypeSettings.aircraft?.enabled, '#3b82f6', 'ADS-B 1090 MHz', isConnected)}
                     ${renderTrackTypeToggle('ship', '🚢', 'Ships', trackCounts.ship, trackTypeSettings.ship?.enabled, '#06b6d4', 'AIS 162 MHz', isConnected)}
                     ${renderTrackTypeToggle('drone', '🛸', 'Drones (Remote ID)', trackCounts.drone, trackTypeSettings.drone?.enabled, '#f59e0b', 'WiFi/BLE with GPS', isConnected)}
+                    ${renderTrackTypeToggle('pilot', '👤', 'Pilot Locations', pilotCount, trackTypeSettings.pilot?.enabled, '#fb923c', 'RemoteID operator position', isConnected)}
                     ${renderTrackTypeToggle('radiosonde', '🎈', 'Radiosondes', trackCounts.radiosonde, trackTypeSettings.radiosonde?.enabled, '#8b5cf6', '400 MHz', isConnected)}
                     ${renderTrackTypeToggle('aprs', '📻', 'APRS', trackCounts.aprs, trackTypeSettings.aprs?.enabled, '#22c55e', '144.39 MHz', isConnected)}
                     
@@ -23671,7 +23673,7 @@ After spreading:
         }
         
         // Track type toggles
-        ['aircraft', 'ship', 'drone', 'radiosonde', 'aprs'].forEach(type => {
+        ['aircraft', 'ship', 'drone', 'pilot', 'radiosonde', 'aprs'].forEach(type => {
             const toggle = document.getElementById(`rfs-toggle-${type}`);
             if (toggle) {
                 toggle.onchange = () => {

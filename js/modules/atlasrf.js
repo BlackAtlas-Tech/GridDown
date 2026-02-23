@@ -214,6 +214,7 @@ const AtlasRFModule = (function() {
             aircraft: { enabled: true },
             ship: { enabled: true },
             drone: { enabled: false },
+            pilot: { enabled: true },
             fpv: { enabled: false },
             radiosonde: { enabled: false },
             aprs: { enabled: false }
@@ -1668,7 +1669,7 @@ const AtlasRFModule = (function() {
             }
             
             // Also check pilot marker position for drone tracks
-            if (track.type === 'drone' && track.pilot_latitude && track.pilot_longitude) {
+            if (track.type === 'drone' && isTrackTypeEnabled('pilot') && track.pilot_latitude && track.pilot_longitude) {
                 const pilotPx = latLonToPixel(track.pilot_latitude, track.pilot_longitude);
                 const pdx = clickX - pilotPx.x;
                 const pdy = clickY - pilotPx.y;
@@ -2289,6 +2290,7 @@ const AtlasRFModule = (function() {
         for (const [id, track] of state.tracks) {
             if (track.type !== 'drone') continue;
             if (!isTrackTypeEnabled('drone')) continue;
+            if (!isTrackTypeEnabled('pilot')) continue;
 
             const pilotLat = track.pilot_latitude;
             const pilotLon = track.pilot_longitude;

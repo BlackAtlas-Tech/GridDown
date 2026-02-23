@@ -377,6 +377,70 @@ const NightModeModule = (function() {
                     right: 24px;
                 }
             }
+            
+            /* ==========================================
+               EXIT BAR (touch escape from night/stealth)
+               ========================================== */
+            
+            #night-mode-exit-bar {
+                position: fixed;
+                top: 0;
+                left: 50%;
+                transform: translateX(-50%);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                padding: 6px 20px;
+                background: rgba(15,20,25,0.85);
+                border: 1px solid var(--color-border);
+                border-top: none;
+                border-radius: 0 0 12px 12px;
+                backdrop-filter: blur(8px);
+                z-index: 62;
+                cursor: pointer;
+                touch-action: manipulation;
+                -webkit-tap-highlight-color: transparent;
+                font-size: 12px;
+                color: var(--color-text-secondary);
+                transition: background 0.15s;
+                user-select: none;
+            }
+            
+            #night-mode-exit-bar:active {
+                background: rgba(15,20,25,1);
+            }
+            
+            body.night-mode #night-mode-exit-bar {
+                background: rgba(26,0,0,0.85);
+                border-color: rgba(255,0,0,0.15);
+                color: #ff6666;
+            }
+            
+            body.stealth-mode #night-mode-exit-bar {
+                background: rgba(10,10,10,0.9);
+                border-color: rgba(255,255,255,0.05);
+                color: #333;
+            }
+            
+            /* Mode selector popup */
+            #night-mode-selector {
+                animation: nmSelectorIn 0.15s ease-out;
+            }
+            
+            @keyframes nmSelectorIn {
+                from { opacity: 0; transform: translateX(8px); }
+                to { opacity: 1; transform: translateX(0); }
+            }
+            
+            body.night-mode #night-mode-selector {
+                background: rgba(26,0,0,0.95) !important;
+                border-color: rgba(255,0,0,0.2) !important;
+            }
+            
+            body.stealth-mode #night-mode-selector {
+                background: rgba(10,10,10,0.95) !important;
+                border-color: rgba(255,255,255,0.05) !important;
+            }
         `;
         document.head.appendChild(style);
     }
@@ -391,7 +455,42 @@ const NightModeModule = (function() {
         toggle.id = 'night-mode-toggle';
         toggle.title = 'Night Mode (Press N)';
         toggle.innerHTML = MODES[currentMode].icon;
-        toggle.onclick = cycleMode;
+        
+        // Tap: toggle normal ↔ night (or return to normal from any mode)
+        // Long-press: open mode selector popup
+        let pressTimer = null;
+        let didLongPress = false;
+        
+        toggle.addEventListener('pointerdown', (e) => {
+            didLongPress = false;
+            pressTimer = setTimeout(() => {
+                didLongPress = true;
+                showModeSelector();
+            }, 500);
+        });
+        
+        toggle.addEventListener('pointerup', (e) => {
+            clearTimeout(pressTimer);
+            if (!didLongPress) {
+                // Short tap: toggle between normal and night (or return to normal)
+                if (currentMode === 'normal') {
+                    setMode('night');
+                } else {
+                    setMode('normal');
+                }
+            }
+        });
+        
+        toggle.addEventListener('pointercancel', () => {
+            clearTimeout(pressTimer);
+        });
+        
+        toggle.addEventListener('pointerleave', () => {
+            clearTimeout(pressTimer);
+        });
+        
+        // Prevent context menu on long press
+        toggle.addEventListener('contextmenu', (e) => e.preventDefault());
         
         // Add to main area
         const main = document.getElementById('main');
@@ -405,6 +504,113 @@ const NightModeModule = (function() {
         blackout.innerHTML = '<div id="blackout-hint">Triple-tap to wake</div>';
         blackout.onclick = handleBlackoutTap;
         document.body.appendChild(blackout);
+        
+        // Add exit bar (hidden by default, shown in non-normal modes)
+        addExitBar();
+    }
+
+    /**
+     * Show floating mode selector popup near the toggle button
+     */
+    function showModeSelector() {
+        // Remove existing selector
+        const existing = document.getElementById('night-mode-selector');
+        if (existing) { existing.remove(); return; }
+        
+        const selector = document.createElement('div');
+        selector.id = 'night-mode-selector';
+        selector.innerHTML = `
+            <div style="padding:4px 8px;font-size:10px;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.5px">Display Mode</div>
+            ${Object.entries(MODES).map(([key, mode]) => `
+                <button data-mode="${key}" style="
+                    display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;
+                    border:none;background:${currentMode === key ? 'var(--color-primary)' : 'transparent'};
+                    color:${currentMode === key ? '#fff' : 'var(--color-text-primary)'};
+                    border-radius:6px;cursor:pointer;font-size:13px;text-align:left;
+                    touch-action:manipulation;
+                ">
+                    <span style="font-size:18px;width:28px;text-align:center">${mode.icon}</span>
+                    <div>
+                        <div style="font-weight:500">${mode.name}</div>
+                        <div style="font-size:10px;opacity:0.7">${mode.description}</div>
+                    </div>
+                </button>
+            `).join('')}
+        `;
+        
+        // Style the selector popup
+        Object.assign(selector.style, {
+            position: 'fixed',
+            top: '380px',
+            right: '72px',
+            width: '200px',
+            background: 'var(--color-bg-elevated, rgba(15,20,25,0.95))',
+            border: '1px solid var(--color-border)',
+            borderRadius: '12px',
+            padding: '6px',
+            zIndex: '61',
+            backdropFilter: 'blur(12px)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        });
+        
+        // Mobile positioning
+        if (window.innerWidth <= 768) {
+            selector.style.top = 'auto';
+            selector.style.bottom = '192px';
+            selector.style.right = '16px';
+        }
+        
+        // Mode button handlers
+        selector.querySelectorAll('[data-mode]').forEach(btn => {
+            btn.onclick = () => {
+                setMode(btn.dataset.mode);
+                selector.remove();
+            };
+        });
+        
+        document.body.appendChild(selector);
+        
+        // Close on outside tap
+        const closeOnOutside = (e) => {
+            if (!selector.contains(e.target) && e.target.id !== 'night-mode-toggle') {
+                selector.remove();
+                document.removeEventListener('pointerdown', closeOnOutside);
+            }
+        };
+        // Delay listener to avoid immediate close
+        setTimeout(() => document.addEventListener('pointerdown', closeOnOutside), 50);
+    }
+
+    /**
+     * Add exit bar for touch users in non-normal modes
+     */
+    function addExitBar() {
+        if (document.getElementById('night-mode-exit-bar')) return;
+        
+        const bar = document.createElement('div');
+        bar.id = 'night-mode-exit-bar';
+        bar.innerHTML = '<span id="night-mode-exit-label">☀️ Tap to exit</span>';
+        bar.onclick = () => setMode('normal');
+        document.body.appendChild(bar);
+    }
+
+    /**
+     * Update exit bar visibility based on current mode
+     */
+    function updateExitBar() {
+        const bar = document.getElementById('night-mode-exit-bar');
+        if (!bar) return;
+        
+        const label = document.getElementById('night-mode-exit-label');
+        
+        if (currentMode === 'normal' || currentMode === 'blackout') {
+            bar.style.display = 'none';
+        } else {
+            bar.style.display = 'flex';
+            if (label) {
+                label.textContent = currentMode === 'night' ? '☀️ Tap to exit night mode' : '☀️ Tap to exit stealth mode';
+            }
+        }
     }
 
     /**
@@ -516,8 +722,15 @@ const NightModeModule = (function() {
         const toggle = document.getElementById('night-mode-toggle');
         if (toggle) {
             toggle.innerHTML = MODES[mode].icon;
-            toggle.title = `${MODES[mode].name} (Press N to cycle)`;
+            toggle.title = `${MODES[mode].name} (Tap to toggle, hold for modes)`;
         }
+        
+        // Update exit bar for touch users
+        updateExitBar();
+        
+        // Close mode selector if open
+        const selector = document.getElementById('night-mode-selector');
+        if (selector) selector.remove();
         
         // Show toast (except in stealth/blackout)
         if (mode !== 'stealth' && mode !== 'blackout' && typeof ModalsModule !== 'undefined') {
