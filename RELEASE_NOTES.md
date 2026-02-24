@@ -1,26 +1,49 @@
-# GridDown v6.57.42 Release Notes
+# GridDown v6.57.81 Release Notes
 
 ## 🎯 What's New
 
-This release fixes three Meshtastic protocol bugs discovered during a comprehensive feature audit: reversed longitude in location shares, channel management that never reached the device hardware, and GridDown protocol messages that exceeded the LoRa payload limit.
+This release adds **WiFi Sentinel**, a passive drone detection system that identifies commercial drones through WiFi fingerprinting. Combined with AtlasRF's existing RF/Remote ID detection, GridDown now offers multi-sensor drone awareness without requiring drone cooperation.
 
-### Critical Fixes
+### New Module: WiFi Sentinel
 
-- **Longitude direction reversed in location shares** — `sendLocation()` displayed East as West and vice versa in human-readable text messages sent to the mesh. The waypoint JSON had correct raw coordinates but any standard Meshtastic client showed the wrong hemisphere. Now correctly maps positive longitude to East and negative to West.
+WiFi Sentinel passively monitors 802.11 wireless traffic to detect and identify commercial drones by their unique WiFi signatures — OUI prefixes and SSID naming patterns.
 
-- **Channel management was local-only** — Creating, importing, or deleting channels only modified GridDown's internal list but never called `MeshtasticClient.setChannel()` to push changes to the device. Device-reported channels were also never synced into GridDown's state. Messages could be sent on wrong channel indices when the device's actual configuration didn't match GridDown's hardcoded defaults. Now fully bidirectional: device channels sync on connect, and GridDown channel changes push to device hardware.
+**Dual-Tier Architecture:**
+- **Tier 1 (ESP32-C5 hardware)** — Two ESP32-C5 units provide simultaneous 2.4 GHz + 5 GHz monitoring, capturing beacons, probes, associations, deauth attacks, data frames, and hidden APs. Connects via Termux WebSocket bridge or Web Serial API.
+- **Tier 0 (built-in WiFi)** — Beacon-only scanning via Termux WiFi scan API. Automatic fallback when hardware unavailable.
 
-- **Protocol messages exceeded LoRa payload limit** — SOS messages (238 bytes), waypoints (226 bytes), and longer encrypted DMs all exceeded Meshtastic's ~228 byte LoRa text payload, causing firmware to silently truncate (corrupting JSON → receiver parse failure → message lost). SOS — the most safety-critical message — always exceeded the limit even with empty defaults. Added automatic message compaction that shortens JSON field names when payloads exceed the limit, with expansion on the receive side. All 12 message types verified to fit within the 228-byte limit at worst-case field lengths.
+**9 Manufacturer Fingerprints:** DJI, Parrot, Skydio, Autel, Yuneec, Hubsan, FIMI, Ryze/Tello, SkyViper. Each with OUI prefix + SSID pattern matching and three-tier confidence scoring.
+
+**Key Features:**
+- RSSI trend analysis (approaching/stable/departing) with sparkline history
+- Operator phone detection linking controller devices to associated drones
+- Deauth flood alerting for jamming detection
+- Detection history with IndexedDB persistence and CSV export
+- ESP32 health monitoring (heap, uptime, firmware, channel) with color-coded warnings
+- Termux bridge setup guidance with step-by-step install instructions on connection failure
+- Auto-reconnect preference persisted across app restarts
+
+### AtlasRF Cross-Referencing
+
+WiFi Sentinel correlates its detections with AtlasRF's drone/FPV tracks for multi-sensor confirmation. When both systems detect the same manufacturer within a 60-second window, a cross-reference is created with weighted confidence scoring based on manufacturer match, temporal proximity, RSSI trend agreement, and RemoteID GPS availability. Cross-referenced tracks show a "🔗 RF" badge in the panel and include GPS position data from Remote ID when available.
+
+### ESP32-C5 Firmware
+
+Firmware v4.0.0 for 2 units ships with the release:
+- Unit 1: 2.4 GHz band, channels 1/6/11, 500ms dwell, 1.5s full cycle
+- Unit 2: 5 GHz non-DFS (UNII-1+3), 9 channels, 300ms dwell, 2.7s cycle
+- JSONL v1 protocol over serial (115200 baud) or WebSocket
+- On-device OUI/SSID matching, deduplication, heartbeat reporting
 
 ---
 
-### Previous Release: v6.57.31
+### Previous Release: v6.57.42
 
-- **AES-256-GCM encryption** — Team package encryption upgraded from XOR obfuscation (32-bit hash key) to AES-256-GCM via Web Crypto API with PBKDF2 key derivation (100k iterations, SHA-256, random salt + IV). Legacy packages remain importable via backward-compatible decryption path.
+- **Meshtastic protocol fixes** — Reversed longitude in location shares, channel management that was local-only, protocol messages exceeding LoRa payload limit with automatic message compaction.
 
-### New Module
+### Previous Module: QR Code Generator
 
-- **QR Code Generator** (`qr-generator.js`, 609 lines) — Self-contained ISO 18004 QR encoder for offline team invite sharing. Byte mode, ECC level M (15% recovery), versions 1-13 (capacity up to 331 bytes). GF(256) Reed-Solomon error correction, all 8 mask patterns with penalty scoring. Replaces previous decorative pseudo-QR that no scanner could read.
+- **QR Code Generator** (`qr-generator.js`, 609 lines) — Self-contained ISO 18004 QR encoder for offline team invite sharing.
 
 ---
 
@@ -30,25 +53,32 @@ This release fixes three Meshtastic protocol bugs discovered during a comprehens
 1. Download and extract the zip
 2. Serve with any static server:
    ```bash
-   npx serve .
+   python griddown-server.py
    # or
-   python -m http.server 8000
+   npx serve .
    ```
-3. Open http://localhost:8000
+3. Open http://localhost:8080
 
 ### Install as PWA
 After opening in Chrome or Edge, click the install button or use your browser's "Install App" option. Full offline capability after first load.
+
+### ESP32-C5 Setup (for WiFi Sentinel Tier 1)
+1. Flash firmware: `./tools/flash_multi_esp32.sh`
+2. Set up udev rules: `sudo ./tools/setup_udev.sh`
+3. Install Termux dependencies: `pkg install websocat`
+4. Run bridge scripts: `./scripts/serial-ws-bridge.sh`
 
 ---
 
 ## 🔧 Feature Overview
 
-- **60 modules** providing comprehensive offline tactical planning
+- **61 modules** providing comprehensive offline tactical planning
 - **15+ map sources** including USGS, OpenTopoMap, satellite imagery
 - **Offline map download** by drawing regions
 - **RadiaCode radiation detector** with spectrum analysis, dose tracking, and heatmap overlay
 - **Meshtastic mesh networking** with team coordination, position sharing, and encrypted messaging
 - **AtlasRF integration** for multi-protocol RF detection (ADS-B, AIS, Remote ID, FPV, APRS)
+- **WiFi Sentinel** passive drone detection with 9 manufacturer fingerprints and ESP32-C5 hardware
 - **SARSAT beacon detection** for 406 MHz PLB/ELT/EPIRB signals
 - **CoT Bridge (TAK)** for interoperability with ATAK/WinTAK
 - **Celestial navigation** with star identification, camera sextant, and ephemeris
@@ -66,11 +96,11 @@ See the [README](README.md) for complete documentation.
 
 ## 📊 Stats
 
-- 60 JavaScript modules
-- ~100,000 lines of code
+- 61 JavaScript modules
+- ~105,000 lines of code
 - Fully offline-capable PWA
 - Zero external dependencies at runtime
-- Web Bluetooth and Web Serial hardware integration
+- Web Bluetooth, Web Serial, and WebSocket hardware integration
 
 ---
 
@@ -79,7 +109,7 @@ See the [README](README.md) for complete documentation.
 If you have a previous version:
 1. Replace all files with this release
 2. Hard refresh browser (Ctrl+Shift+R)
-3. The service worker will automatically update the cache to v6.57.28
+3. The service worker will automatically update the cache to v6.57.81
 
 ---
 

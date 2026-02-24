@@ -10,12 +10,13 @@ This guide covers hardware integrations, recommended equipment, and cable config
 2. [SSTV (Slow Scan Television)](#sstv-slow-scan-television)
 3. [Meshtastic Integration](#meshtastic-integration)
 4. [RadiaCode Radiation Detection](#radiacode-radiation-detection)
-5. [RF Sentinel](#rf-sentinel)
-6. [APRS Integration](#aprs-integration)
-7. [External GPS](#external-gps)
-8. [Audio Interfaces](#audio-interfaces)
-9. [Power Solutions](#power-solutions)
-10. [Complete Field Kits](#complete-field-kits)
+5. [AtlasRF](#atlasrf)
+6. [WiFi Sentinel (Passive Drone Detection)](#wifi-sentinel-passive-drone-detection)
+7. [APRS Integration](#aprs-integration)
+8. [External GPS](#external-gps)
+9. [Audio Interfaces](#audio-interfaces)
+10. [Power Solutions](#power-solutions)
+11. [Complete Field Kits](#complete-field-kits)
 
 ---
 
@@ -251,9 +252,9 @@ GridDown integrates with RadiaCode devices via Web Bluetooth for radiation monit
 
 ---
 
-## RF Sentinel
+## AtlasRF
 
-RF Sentinel provides multi-protocol RF detection and monitoring. *Hardware integration coming in future updates.*
+AtlasRF provides multi-protocol RF detection and monitoring. *Hardware integration coming in future updates.*
 
 ### Planned Supported Hardware
 
@@ -267,11 +268,91 @@ RF Sentinel provides multi-protocol RF detection and monitoring. *Hardware integ
 
 ### Current Data Sources (No Hardware)
 
-RF Sentinel can pull from network APIs when online:
+AtlasRF can pull from network APIs when online:
 - ADS-B Exchange (aircraft)
 - MarineTraffic (ships via AIS)
 - APRS.fi (amateur radio positions)
 - Radiosondy.info (weather balloons)
+
+---
+
+## WiFi Sentinel (Passive Drone Detection)
+
+WiFi Sentinel uses ESP32-C5 hardware for passive drone detection via 802.11 WiFi fingerprinting. Two units provide simultaneous dual-band monitoring.
+
+### ESP32-C5 Hardware
+
+| Component | Specification | Notes |
+|-----------|--------------|-------|
+| **ESP32-C5 (×2)** | RISC-V, WiFi 6, BLE 5.4 | One per band (2.4 GHz + 5 GHz) |
+| **USB-C cables (×2)** | Data-capable, not charge-only | Connect to tablet via USB hub |
+| **USB OTG hub** | Multi-port, powered recommended | For connecting both units + other peripherals |
+
+### Firmware
+
+Firmware v4.0.0 is included in the GridDown release. Flash via PlatformIO:
+
+```bash
+# Flash both units
+./tools/flash_multi_esp32.sh
+
+# Or flash individually
+pio run --target upload --upload-port /dev/ttyACM0
+```
+
+After flashing, create persistent device symlinks:
+```bash
+sudo ./tools/setup_udev.sh
+# Creates /dev/atlasrf/wifi24 and /dev/atlasrf/wifi5g
+```
+
+### Band Configuration
+
+| Unit | Band | Channels | Dwell Time | Full Cycle |
+|------|------|----------|-----------|------------|
+| wifi_2g | 2.4 GHz | 1, 6, 11 | 500ms | 1.5s |
+| wifi_5g | 5 GHz (UNII-1+3) | 36, 40, 44, 48, 149, 153, 157, 161, 165 | 300ms | 2.7s |
+
+DFS channels (52–144) are excluded to avoid regulatory issues with passive monitoring on radar-shared spectrum.
+
+### Termux Bridge Setup
+
+WiFi Sentinel connects to the ESP32 units via WebSocket bridges running in Termux:
+
+```bash
+# Install dependencies
+pkg install websocat
+
+# Serial bridge for ESP32 hardware (Tier 1)
+./scripts/serial-ws-bridge.sh
+# Exposes ports 8766 (2.4 GHz) and 8767 (5 GHz)
+
+# WiFi scan bridge for built-in WiFi (Tier 0)
+pkg install termux-api
+./scripts/wifi-scan-bridge.sh
+# Exposes port 8765
+```
+
+### Connection Methods
+
+| Method | How | Best For |
+|--------|-----|----------|
+| **Termux WebSocket** | Bridge scripts relay serial data over WebSocket | Primary method on Android tablets |
+| **Web Serial API** | Direct USB serial from browser | Desktop/laptop debugging |
+
+### Power Consumption
+
+Each ESP32-C5 unit draws approximately 120–180 mA during active scanning. With a powered USB hub, both units and the tablet can be sustained from a single power bank. Expect ~8 hours runtime from a 10,000 mAh battery powering two ESP32-C5 units.
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Termux bridge not reachable" | Verify `websocat` is installed: `which websocat`. Check bridge script is running. |
+| No detections appearing | Confirm ESP32 units are connected: `ls /dev/ttyACM*`. Check udev rules applied. |
+| Only 2.4 GHz detections | Second ESP32 (5 GHz) may not be connected. Check USB hub and cable. |
+| High heap warning (red) | ESP32 memory pressure — restart the unit. May indicate firmware issue. |
+| Permission denied on serial | Run `sudo chmod 666 /dev/ttyACM*` or ensure udev rules are installed. |
 
 ---
 
@@ -400,7 +481,7 @@ GridDown uses the device's built-in GPS by default, but external GPS can improve
 | **Total** | **~$515** |
 
 ### Professional Kit (~$2,000)
-*HF capability + premium hardware*
+*HF capability + premium hardware + drone detection*
 
 | Item | Price |
 |------|-------|
@@ -408,11 +489,13 @@ GridDown uses the device's built-in GPS by default, but external GPS can improve
 | Kenwood TH-D75A | $650 |
 | RAK WisBlock Meshtastic | $50 |
 | RadiaCode 103 | $350 |
+| ESP32-C5 (×2) for WiFi Sentinel | $20 |
 | SignaLink USB | $130 |
-| Samsung Galaxy Tab Active4 Pro | $650 |
+| Samsung Galaxy Tab Active5 Pro | $650 |
 | Goal Zero Yeti 200X | $300 |
+| USB-C OTG Hub (powered) | $25 |
 | Pelican case | $100 |
-| **Total** | **~$3,500** |
+| **Total** | **~$3,575** |
 
 ---
 

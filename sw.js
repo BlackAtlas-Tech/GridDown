@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.57.77';
+const CACHE_NAME = 'griddown-v6.57.81';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -12,7 +12,7 @@ const STATIC_ASSETS = [
     'js/modules/offline.js', 'js/modules/gps.js', 'js/modules/navigation.js',
     'js/modules/hiking.js',
     'js/modules/weather.js', 'js/modules/satweather.js', 'js/modules/alerts.js', 'js/modules/airquality.js', 'js/modules/rflos.js', 'js/modules/contingency.js', 'js/modules/measure.js', 
-    'js/modules/sunmoon.js', 'js/modules/celestial.js', 'js/modules/camera-sextant.js', 'js/modules/star-id.js', 'js/modules/rangefinder.js', 'js/modules/commplan.js', 'js/modules/terrain.js', 'js/modules/waterquality.js',
+    'js/modules/sunmoon.js', 'js/modules/celestial.js', 'js/modules/camera-sextant.js', 'js/modules/star-id.js', 'js/modules/rangefinder.js', 'js/modules/commplan.js', 'js/modules/terrain.js',
     'js/modules/nightmode.js', 'js/modules/sos.js', 'js/modules/radio.js',
     'js/modules/plansharing.js',
     'js/modules/declination.js',
@@ -24,6 +24,7 @@ const STATIC_ASSETS = [
     'js/modules/aprs.js',
     'js/modules/radiacode.js',
     'js/modules/atlasrf.js',
+    'js/modules/wifiSentinel.js',
     'js/modules/sstv.js',
     'js/modules/sarsat.js',
     'js/modules/sstv-ai.js',

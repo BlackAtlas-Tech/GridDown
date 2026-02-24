@@ -582,6 +582,7 @@ const PanelsModule = (function() {
             case 'offline': renderOffline(); break;
             case 'team': renderTeam(); break;
             case 'atlasrf': renderAtlasRF(); break;
+            case 'wifisentinel': renderWifiSentinel(); break;
             case 'sarsat': renderSarsat(); break;
             case 'settings': renderSettings(); break;
             case 'gps': renderGPS(); break;
@@ -593,7 +594,6 @@ const PanelsModule = (function() {
             case 'coords': renderCoordinateConverter(); break;
             case 'comms': renderComms(); break;
             case 'terrain': renderTerrain(); break;
-            case 'waterquality': renderWaterQuality(); break;
             case 'radio': renderRadio(); break;
             case 'sstv': renderSSTV(); break;
             case 'medical': renderMedical(); break;
@@ -17222,653 +17222,6 @@ ${text}
     // RADIO FREQUENCY REFERENCE PANEL
     // ==========================================
 
-    // ==================== WATER QUALITY PANEL (Fluidion ALERT One) ====================
-
-    let wqActiveTab = 'overview';
-
-    function renderWaterQuality() {
-        _saveScroll();
-        if (typeof WaterQualityModule === 'undefined') {
-            container.innerHTML = `
-                <div class="panel-section" role="region" aria-label="Water Quality">
-                    <div class="section-label">💧 Water Quality</div>
-                    <div class="card" style="padding:16px;text-align:center;color:rgba(255,255,255,0.5)">
-                        Water Quality module not loaded
-                    </div>
-                </div>`;
-            return;
-        }
-
-        const isConnected = WaterQualityModule.isConnected();
-        const isConnecting = WaterQualityModule.isConnecting();
-        const isDownloading = WaterQualityModule.isDownloading();
-        const isDemoMode = WaterQualityModule.isDemoMode();
-        const hasSerial = WaterQualityModule.isSerialAvailable();
-        const samples = WaterQualityModule.getSamples();
-        const stats = WaterQualityModule.getStats();
-        const activeStd = WaterQualityModule.getActiveStandard();
-        const standards = WaterQualityModule.getStandards();
-
-        // Latest sample
-        const latestSample = samples.length > 0
-            ? samples.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
-            : null;
-
-        container.innerHTML = `
-            <div class="panel-section" role="region" aria-label="Water Quality">
-                <div class="section-label">
-                    💧 Water Quality — Fluidion ALERT One
-                </div>
-
-                <!-- Tab Bar -->
-                <div style="display:flex;gap:4px;margin-bottom:12px">
-                    <button class="chip ${wqActiveTab === 'overview' ? 'chip--active' : ''}" data-wq-tab="overview" style="flex:1">Overview</button>
-                    <button class="chip ${wqActiveTab === 'samples' ? 'chip--active' : ''}" data-wq-tab="samples" style="flex:1">Samples (${samples.length})</button>
-                    <button class="chip ${wqActiveTab === 'entry' ? 'chip--active' : ''}" data-wq-tab="entry" style="flex:1">+ Entry</button>
-                </div>
-
-                ${wqActiveTab === 'overview' ? renderWQOverview(isConnected, isConnecting, isDownloading, isDemoMode, hasSerial, latestSample, samples, stats, activeStd, standards) : ''}
-                ${wqActiveTab === 'samples' ? renderWQSamples(samples) : ''}
-                ${wqActiveTab === 'entry' ? renderWQEntry() : ''}
-            </div>
-        `;
-
-        attachWQHandlers();
-        _restoreScroll();
-    }
-
-    function renderWQOverview(isConnected, isConnecting, isDownloading, isDemoMode, hasSerial, latest, samples, stats, activeStd, standards) {
-        // Danger level color for latest
-        const latestColor = latest && latest.interpretation ? latest.interpretation.color : '#6b7280';
-        const latestLabel = latest && latest.interpretation ? latest.interpretation.label : 'No Data';
-        const latestValue = latest ? (latest.ecoli ?? latest.enterococci ?? latest.totalColiform) : null;
-
-        return `
-            <!-- Device Connection Card -->
-            <div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid ${isConnected ? '#22c55e' : '#6b7280'}">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                    <div>
-                        <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9)">
-                            ${isConnected ? (isDemoMode ? '💧 Demo Mode' : '💧 ALERT One Connected')
-                                : isConnecting ? '💧 Connecting...' : '💧 ALERT One'}
-                        </div>
-                        <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px">
-                            ${isConnected
-                                ? (isDownloading ? '📥 Receiving data...' : 'Ready — trigger Download Data on device')
-                                : isDemoMode ? 'Simulated water quality data' : 'USB-C serial connection'}
-                        </div>
-                    </div>
-                    ${isConnected ? `
-                        <button class="btn btn--secondary wq-disconnect-btn" style="font-size:11px;padding:6px 10px;color:#ef4444">
-                            Disconnect
-                        </button>
-                    ` : ''}
-                </div>
-
-                ${!isConnected && !isDemoMode ? `
-                    <div style="display:flex;gap:6px;margin-top:8px">
-                        <button class="btn btn--primary wq-connect-btn" style="flex:2;font-size:12px;padding:8px" ${!hasSerial ? 'disabled title="Web Serial not supported in this browser"' : ''}>
-                            🔌 Connect Device
-                        </button>
-                        <button class="btn btn--secondary wq-import-btn" style="flex:1;font-size:12px;padding:8px" title="Import CSV/text file">
-                            📁 Import
-                        </button>
-                        <button class="btn btn--secondary wq-demo-btn" style="flex:1;font-size:12px;padding:8px" title="Load demo data">
-                            🧪 Demo
-                        </button>
-                    </div>
-                    <input type="file" id="wq-file-input" accept=".csv,.txt,.tsv,.json" style="display:none">
-                    ${!hasSerial ? '<div style="font-size:10px;color:#f59e0b;margin-top:6px">⚠️ Web Serial requires Chrome or Edge. Use Import for file-based data.</div>' : ''}
-                ` : ''}
-
-                ${isDemoMode ? `
-                    <button class="btn btn--secondary wq-demo-stop-btn" style="width:100%;font-size:11px;padding:6px;margin-top:6px">
-                        Stop Demo
-                    </button>
-                ` : ''}
-            </div>
-
-            <!-- Latest Reading Card -->
-            ${latest ? `
-                <div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid ${latestColor}">
-                    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px">
-                        Latest Sample • ${WaterQualityModule.timeAgo(latest.timestamp)} • ${latest.locationName || latest.samplePoint || 'Unknown location'}
-                    </div>
-
-                    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
-                        <span style="font-size:28px;font-weight:700;font-family:monospace;color:${latestColor}">
-                            ${WaterQualityModule.formatCount(latestValue)}
-                        </span>
-                        <span style="font-size:12px;color:rgba(255,255,255,0.6)">CFU/100mL</span>
-                        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;background:${latestColor}22;color:${latestColor};margin-left:auto">
-                            ${latestLabel}
-                        </span>
-                    </div>
-
-                    ${latest.ecoli !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">E. coli: ${WaterQualityModule.formatCount(latest.ecoli)} CFU/100mL</div>` : ''}
-                    ${latest.totalColiform !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Total Coliform: ${WaterQualityModule.formatCount(latest.totalColiform)} CFU/100mL</div>` : ''}
-                    ${latest.enterococci !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Enterococci: ${WaterQualityModule.formatCount(latest.enterococci)} CFU/100mL</div>` : ''}
-                    ${latest.temperature !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Water Temp: ${latest.temperature}°C</div>` : ''}
-
-                    <!-- Treatment Recommendation -->
-                    ${latest.interpretation && latest.interpretation.treatment ? `
-                        <div style="margin-top:10px;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px">
-                            <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.9);margin-bottom:4px">
-                                ${latest.interpretation.treatment.icon} ${latest.interpretation.treatment.title}
-                            </div>
-                            ${latest.interpretation.treatment.steps.map(s =>
-                                `<div style="font-size:11px;color:rgba(255,255,255,0.6);padding:1px 0;padding-left:12px;text-indent:-8px">• ${s}</div>`
-                            ).join('')}
-                        </div>
-                    ` : ''}
-
-                    <!-- Use Advisories -->
-                    ${latest.interpretation && latest.interpretation.advisories ? `
-                        <div style="margin-top:10px">
-                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">USE ADVISORIES</div>
-                            <div style="display:flex;flex-wrap:wrap;gap:4px">
-                                ${latest.interpretation.advisories.map(a => `
-                                    <span style="font-size:10px;padding:3px 6px;border-radius:4px;
-                                        background:${a.safe ? 'rgba(34,197,94,0.15)' : a.conditional ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'};
-                                        color:${a.safe ? '#22c55e' : a.conditional ? '#f59e0b' : '#ef4444'};
-                                        border:1px solid ${a.safe ? 'rgba(34,197,94,0.3)' : a.conditional ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}">
-                                        ${a.icon} ${a.use}: ${a.note}
-                                    </span>
-                                `).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-            ` : `
-                <div class="card" style="padding:20px;text-align:center;margin-bottom:12px">
-                    <div style="font-size:32px;margin-bottom:8px">💧</div>
-                    <div style="font-size:13px;color:rgba(255,255,255,0.6)">No samples yet</div>
-                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px">
-                        Connect ALERT One, import a file, or add a manual entry
-                    </div>
-                </div>
-            `}
-
-            <!-- Assessment Standard Selector -->
-            <div class="card" style="padding:10px;margin-bottom:12px">
-                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">ASSESSMENT STANDARD</div>
-                <select class="wq-standard-select" style="width:100%;padding:6px 8px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
-                    ${Object.entries(standards).map(([key, std]) =>
-                        `<option value="${key}" ${key === activeStd ? 'selected' : ''}>${std.name}</option>`
-                    ).join('')}
-                </select>
-            </div>
-
-            <!-- Stats Summary -->
-            <div class="card" style="padding:10px;margin-bottom:12px">
-                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">SAMPLE HISTORY</div>
-                <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,0.6)">
-                    <span>Total: ${stats.totalSamples}</span>
-                    <span>📡 Serial: ${stats.bySource.serial}</span>
-                    <span>📁 Import: ${stats.bySource.import}</span>
-                    <span>✍️ Manual: ${stats.bySource.manual}</span>
-                    <span>📍 Geotagged: ${stats.geotagged}</span>
-                </div>
-                ${stats.totalSamples > 0 ? `
-                    <div style="display:flex;gap:6px;margin-top:8px">
-                        <button class="btn btn--secondary wq-export-btn" style="flex:1;font-size:11px;padding:6px">
-                            📤 Export CSV
-                        </button>
-                        <button class="btn btn--secondary wq-map-toggle-btn" style="flex:1;font-size:11px;padding:6px;${WaterQualityModule.isShowOnMap() ? 'background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.4)' : ''}">
-                            🗺️ ${WaterQualityModule.isShowOnMap() ? 'Shown on Map' : 'Show on Map'}
-                        </button>
-                    </div>
-                ` : ''}
-            </div>
-
-            <!-- Quick Reference -->
-            <div class="card" style="padding:10px">
-                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">QUICK REFERENCE — E. coli CFU/100mL</div>
-                <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px">
-                    <span style="color:#22c55e;font-weight:600">0</span>
-                    <span style="color:rgba(255,255,255,0.5)">Safe — potable without treatment</span>
-                    <span style="color:#84cc16;font-weight:600">1–10</span>
-                    <span style="color:rgba(255,255,255,0.5)">Low risk — standard field treatment</span>
-                    <span style="color:#f59e0b;font-weight:600">10–100</span>
-                    <span style="color:rgba(255,255,255,0.5)">Moderate — multi-barrier treatment</span>
-                    <span style="color:#f97316;font-weight:600">100–1K</span>
-                    <span style="color:rgba(255,255,255,0.5)">High — seek alternative source</span>
-                    <span style="color:#ef4444;font-weight:600">1K–10K</span>
-                    <span style="color:rgba(255,255,255,0.5)">Severe — avoid all contact</span>
-                    <span style="color:#991b1b;font-weight:600">&gt;10K</span>
-                    <span style="color:rgba(255,255,255,0.5)">Hazardous — potential raw sewage</span>
-                </div>
-            </div>
-        `;
-    }
-
-    function renderWQSamples(samples) {
-        if (samples.length === 0) {
-            return `
-                <div class="card" style="padding:20px;text-align:center">
-                    <div style="color:rgba(255,255,255,0.5);font-size:13px">No samples recorded</div>
-                </div>
-            `;
-        }
-
-        const sorted = [...samples].sort((a, b) => b.timestamp - a.timestamp);
-
-        return `
-            <div style="display:flex;flex-direction:column;gap:6px">
-                ${sorted.map(s => {
-                    const color = s.interpretation ? s.interpretation.color : '#6b7280';
-                    const label = s.interpretation ? s.interpretation.label : '?';
-                    const value = s.ecoli ?? s.enterococci ?? s.totalColiform ?? null;
-                    const param = s.ecoli !== null ? 'E. coli' : s.enterococci !== null ? 'Enterococci' : 'T. Coliform';
-
-                    return `
-                        <div class="card wq-sample-card" data-wq-sample="${s.id}" style="padding:10px;cursor:pointer;border-left:3px solid ${color};transition:background 0.15s">
-                            <div style="display:flex;align-items:center;justify-content:space-between">
-                                <div>
-                                    <span style="font-size:16px;font-weight:700;font-family:monospace;color:${color}">
-                                        ${WaterQualityModule.formatCount(value)}
-                                    </span>
-                                    <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:4px">${param}</span>
-                                </div>
-                                <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:${color}22;color:${color}">
-                                    ${label}
-                                </span>
-                            </div>
-                            <div style="display:flex;gap:8px;margin-top:4px;font-size:10px;color:rgba(255,255,255,0.4)">
-                                <span>${WaterQualityModule.formatTimestamp(s.timestamp)}</span>
-                                <span>${s.locationName || s.samplePoint || '—'}</span>
-                                <span>${s.waterType || ''}</span>
-                                <span style="margin-left:auto">${s.source}</span>
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-
-            ${samples.length > 0 ? `
-                <div style="margin-top:10px;text-align:center">
-                    <button class="btn btn--secondary wq-clear-all-btn" style="font-size:11px;padding:6px 12px;color:#ef4444">
-                        🗑️ Clear All Samples
-                    </button>
-                </div>
-            ` : ''}
-        `;
-    }
-
-    function renderWQEntry() {
-        return `
-            <div class="card" style="padding:12px">
-                <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:10px">
-                    ✍️ Manual Sample Entry
-                </div>
-
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-                    <div>
-                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">E. coli (CFU/100mL)</label>
-                        <input type="number" id="wq-ecoli" min="0" step="1" placeholder="0"
-                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
-                    </div>
-                    <div>
-                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Total Coliform (CFU/100mL)</label>
-                        <input type="number" id="wq-tc" min="0" step="1" placeholder="—"
-                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
-                    </div>
-                    <div>
-                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Enterococci (CFU/100mL)</label>
-                        <input type="number" id="wq-ent" min="0" step="1" placeholder="—"
-                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
-                    </div>
-                    <div>
-                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Water Temp (°C)</label>
-                        <input type="number" id="wq-temp" min="-5" max="50" step="0.5" placeholder="—"
-                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
-                    </div>
-                </div>
-
-                <div style="margin-top:8px">
-                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Water Type</label>
-                    <select id="wq-watertype" style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
-                        <option value="freshwater">Freshwater (river, lake, spring)</option>
-                        <option value="seawater">Seawater / Brackish</option>
-                        <option value="drinking">Drinking Water Source</option>
-                        <option value="groundwater">Groundwater / Well</option>
-                        <option value="stormwater">Stormwater / Runoff</option>
-                    </select>
-                </div>
-
-                <div style="margin-top:8px">
-                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Location Name</label>
-                    <input type="text" id="wq-location" placeholder="e.g., Creek crossing at mile 3"
-                        style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
-                </div>
-
-                <div style="margin-top:8px">
-                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Notes</label>
-                    <textarea id="wq-notes" rows="2" placeholder="Observations: clarity, odor, flow..."
-                        style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;resize:vertical"></textarea>
-                </div>
-
-                <button class="btn btn--primary btn--full wq-add-sample-btn" style="margin-top:10px;font-size:13px;padding:10px">
-                    💧 Add Sample &amp; Interpret
-                </button>
-            </div>
-        `;
-    }
-
-    function attachWQHandlers() {
-        if (typeof WaterQualityModule === 'undefined') return;
-
-        // Tab switching
-        container.querySelectorAll('[data-wq-tab]').forEach(btn => {
-            btn.onclick = () => {
-                wqActiveTab = btn.dataset.wqTab;
-                renderWaterQuality();
-            };
-        });
-
-        // Connect
-        const connectBtn = container.querySelector('.wq-connect-btn');
-        if (connectBtn) {
-            connectBtn.onclick = async () => {
-                try {
-                    await WaterQualityModule.connectSerial();
-                    renderWaterQuality();
-                } catch (e) {
-                    console.error('WQ connect failed:', e);
-                    if (typeof ModalsModule !== 'undefined') {
-                        ModalsModule.showToast('Connection failed: ' + e.message, 'error');
-                    }
-                }
-            };
-        }
-
-        // Disconnect
-        const disconnectBtn = container.querySelector('.wq-disconnect-btn');
-        if (disconnectBtn) {
-            disconnectBtn.onclick = async () => {
-                await WaterQualityModule.disconnectSerial();
-                renderWaterQuality();
-            };
-        }
-
-        // Import file
-        const importBtn = container.querySelector('.wq-import-btn');
-        const fileInput = container.querySelector('#wq-file-input');
-        if (importBtn && fileInput) {
-            importBtn.onclick = () => fileInput.click();
-            fileInput.onchange = async (e) => {
-                if (e.target.files.length > 0) {
-                    try {
-                        await WaterQualityModule.importFile(e.target.files[0]);
-                        renderWaterQuality();
-                    } catch (err) {
-                        if (typeof ModalsModule !== 'undefined') {
-                            ModalsModule.showToast('Import failed: ' + err.message, 'error');
-                        }
-                    }
-                }
-            };
-        }
-
-        // Demo
-        const demoBtn = container.querySelector('.wq-demo-btn');
-        if (demoBtn) {
-            demoBtn.onclick = () => {
-                WaterQualityModule.startDemo();
-                renderWaterQuality();
-            };
-        }
-
-        const demoStopBtn = container.querySelector('.wq-demo-stop-btn');
-        if (demoStopBtn) {
-            demoStopBtn.onclick = () => {
-                WaterQualityModule.stopDemo();
-                renderWaterQuality();
-            };
-        }
-
-        // Standard selector
-        const stdSelect = container.querySelector('.wq-standard-select');
-        if (stdSelect) {
-            stdSelect.onchange = () => {
-                WaterQualityModule.setActiveStandard(stdSelect.value);
-                renderWaterQuality();
-            };
-        }
-
-        // Export CSV
-        const exportBtn = container.querySelector('.wq-export-btn');
-        if (exportBtn) {
-            exportBtn.onclick = () => WaterQualityModule.downloadCSV();
-        }
-
-        // Map toggle
-        const mapToggle = container.querySelector('.wq-map-toggle-btn');
-        if (mapToggle) {
-            mapToggle.onclick = () => {
-                WaterQualityModule.setShowOnMap(!WaterQualityModule.isShowOnMap());
-                renderWaterQuality();
-                if (typeof MapModule !== 'undefined') MapModule.render();
-            };
-        }
-
-        // Clear all
-        const clearBtn = container.querySelector('.wq-clear-all-btn');
-        if (clearBtn) {
-            clearBtn.onclick = async () => {
-                if (confirm('Delete all water quality samples? This cannot be undone.')) {
-                    await WaterQualityModule.clearAllSamples();
-                    renderWaterQuality();
-                    if (typeof ModalsModule !== 'undefined') {
-                        ModalsModule.showToast('All samples cleared', 'info');
-                    }
-                }
-            };
-        }
-
-        // Manual entry
-        const addBtn = container.querySelector('.wq-add-sample-btn');
-        if (addBtn) {
-            addBtn.onclick = async () => {
-                const ecoliInput = container.querySelector('#wq-ecoli');
-                const tcInput = container.querySelector('#wq-tc');
-                const entInput = container.querySelector('#wq-ent');
-                const tempInput = container.querySelector('#wq-temp');
-                const typeInput = container.querySelector('#wq-watertype');
-                const locInput = container.querySelector('#wq-location');
-                const notesInput = container.querySelector('#wq-notes');
-
-                const ecoli = ecoliInput && ecoliInput.value !== '' ? parseFloat(ecoliInput.value) : null;
-                const tc = tcInput && tcInput.value !== '' ? parseFloat(tcInput.value) : null;
-                const ent = entInput && entInput.value !== '' ? parseFloat(entInput.value) : null;
-
-                if (ecoli === null && tc === null && ent === null) {
-                    if (typeof ModalsModule !== 'undefined') {
-                        ModalsModule.showToast('Enter at least one measurement value', 'warning');
-                    }
-                    return;
-                }
-
-                const data = {
-                    ecoli: ecoli,
-                    totalColiform: tc,
-                    enterococci: ent,
-                    temperature: tempInput && tempInput.value !== '' ? parseFloat(tempInput.value) : null,
-                    waterType: typeInput ? typeInput.value : 'freshwater',
-                    locationName: locInput ? locInput.value : '',
-                    notes: notesInput ? notesInput.value : ''
-                };
-
-                await WaterQualityModule.addManualSample(data);
-
-                // Switch to overview to show interpretation
-                wqActiveTab = 'overview';
-                renderWaterQuality();
-
-                if (typeof ModalsModule !== 'undefined') {
-                    ModalsModule.showToast('💧 Sample added and interpreted', 'success');
-                }
-            };
-        }
-
-        // Sample detail click
-        container.querySelectorAll('.wq-sample-card').forEach(card => {
-            card.onclick = () => {
-                const sampleId = card.dataset.wqSample;
-                openWQSampleModal(sampleId);
-            };
-        });
-    }
-
-    function openWQSampleModal(sampleId) {
-        if (typeof WaterQualityModule === 'undefined') return;
-        if (!modalContainer) return;
-
-        const sample = WaterQualityModule.getSample(sampleId);
-        if (!sample) return;
-
-        const interp = sample.interpretation;
-        const color = interp ? interp.color : '#6b7280';
-
-        modalContainer.innerHTML = `
-            <div class="modal-backdrop" id="modal-backdrop" role="presentation">
-                <div class="modal" role="dialog" aria-modal="true" style="max-width:560px;width:95%">
-                    <div class="modal__header">
-                        <h3 class="modal__title">💧 Sample Detail</h3>
-                        <button class="modal__close" id="modal-close" aria-label="Close dialog">&times;</button>
-                    </div>
-                    <div class="modal__body" style="padding:12px;max-height:70vh;overflow-y:auto">
-                        <!-- Risk Banner -->
-                        <div style="padding:12px;border-radius:8px;background:${color}15;border:1px solid ${color}33;margin-bottom:12px;text-align:center">
-                            <div style="font-size:24px;font-weight:700;color:${color};font-family:monospace">
-                                ${WaterQualityModule.formatCount(sample.ecoli ?? sample.enterococci ?? sample.totalColiform)} CFU/100mL
-                            </div>
-                            <div style="font-size:14px;font-weight:600;color:${color};margin-top:4px">${interp ? interp.label : 'Unknown'}</div>
-                        </div>
-
-                        <!-- Measurements -->
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
-                            ${sample.ecoli !== null ? `
-                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
-                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">E. coli</div>
-                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.ecoli)}</div>
-                                </div>
-                            ` : ''}
-                            ${sample.totalColiform !== null ? `
-                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
-                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Total Coliform</div>
-                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.totalColiform)}</div>
-                                </div>
-                            ` : ''}
-                            ${sample.enterococci !== null ? `
-                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
-                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Enterococci</div>
-                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.enterococci)}</div>
-                                </div>
-                            ` : ''}
-                            ${sample.temperature !== null ? `
-                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
-                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Water Temp</div>
-                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${sample.temperature}°C</div>
-                                </div>
-                            ` : ''}
-                        </div>
-
-                        <!-- Smart Assessment -->
-                        ${interp && interp.assessment ? `
-                            <div style="padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;margin-bottom:12px">
-                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:4px">ASSESSMENT</div>
-                                <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.5">${interp.assessment}</div>
-                            </div>
-                        ` : ''}
-
-                        <!-- Treatment -->
-                        ${interp && interp.treatment ? `
-                            <div style="padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;margin-bottom:12px">
-                                <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:6px">
-                                    ${interp.treatment.icon} ${interp.treatment.title}
-                                </div>
-                                ${interp.treatment.steps.map(s =>
-                                    `<div style="font-size:11px;color:rgba(255,255,255,0.6);padding:2px 0 2px 12px;text-indent:-8px">• ${s}</div>`
-                                ).join('')}
-                            </div>
-                        ` : ''}
-
-                        <!-- Use Advisories Grid -->
-                        ${interp && interp.advisories ? `
-                            <div style="margin-bottom:12px">
-                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">USE ADVISORIES</div>
-                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
-                                    ${interp.advisories.map(a => `
-                                        <div style="padding:6px 8px;border-radius:4px;font-size:11px;
-                                            background:${a.safe ? 'rgba(34,197,94,0.1)' : a.conditional ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)'};
-                                            border:1px solid ${a.safe ? 'rgba(34,197,94,0.2)' : a.conditional ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)'}">
-                                            <span>${a.icon} ${a.use}</span>
-                                            <div style="color:${a.safe ? '#22c55e' : a.conditional ? '#f59e0b' : '#ef4444'};font-weight:600;margin-top:2px">${a.note}</div>
-                                        </div>
-                                    `).join('')}
-                                </div>
-                            </div>
-                        ` : ''}
-
-                        <!-- Multi-Standard Results -->
-                        ${interp && interp.allStandards ? `
-                            <div style="margin-bottom:12px">
-                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">ALL STANDARDS</div>
-                                ${Object.entries(interp.allStandards).map(([key, result]) => `
-                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
-                                        <span style="font-size:11px;color:rgba(255,255,255,0.5)">${STANDARDS[key] ? STANDARDS[key].name : key}</span>
-                                        <span style="font-size:11px;font-weight:600;color:${result.color}">${result.label}</span>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        ` : ''}
-
-                        <!-- Metadata -->
-                        <div style="padding:8px;background:rgba(0,0,0,0.15);border-radius:6px;font-size:10px;color:rgba(255,255,255,0.4)">
-                            <div>Timestamp: ${WaterQualityModule.formatTimestamp(sample.timestamp)}</div>
-                            <div>Source: ${sample.source} ${sample.deviceId ? '• Device: ' + sample.deviceId : ''}</div>
-                            ${sample.calibration ? `<div>Calibration: ${sample.calibration}</div>` : ''}
-                            ${sample.volume ? `<div>Volume: ${sample.volume}mL</div>` : ''}
-                            <div>Water type: ${sample.waterType || 'Unknown'}</div>
-                            ${sample.lat ? `<div>Location: ${sample.lat.toFixed(5)}, ${sample.lon.toFixed(5)}</div>` : ''}
-                            ${sample.locationName ? `<div>Name: ${sample.locationName}</div>` : ''}
-                            ${sample.notes ? `<div>Notes: ${sample.notes}</div>` : ''}
-                            <div>Sample ID: ${sample.id}</div>
-                        </div>
-
-                        <!-- Delete Button -->
-                        <div style="margin-top:12px;text-align:center">
-                            <button class="btn btn--secondary wq-delete-sample-btn" data-wq-delete="${sample.id}" style="font-size:11px;padding:6px 16px;color:#ef4444">
-                                🗑️ Delete Sample
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        // Modal handlers
-        const backdrop = modalContainer.querySelector('#modal-backdrop');
-        const closeBtn = modalContainer.querySelector('#modal-close');
-
-        const closeModal = () => { modalContainer.innerHTML = ''; };
-        if (closeBtn) closeBtn.onclick = closeModal;
-        if (backdrop) backdrop.onclick = (e) => { if (e.target === backdrop) closeModal(); };
-
-        const deleteBtn = modalContainer.querySelector('.wq-delete-sample-btn');
-        if (deleteBtn) {
-            deleteBtn.onclick = async () => {
-                const id = deleteBtn.dataset.wqDelete;
-                if (confirm('Delete this sample?')) {
-                    await WaterQualityModule.deleteSample(id);
-                    closeModal();
-                    renderWaterQuality();
-                }
-            };
-        }
-    }
-
     let radioActiveTab = 'emergency';
     let radioSearchQuery = '';
     let radioInitialized = false;
@@ -24392,6 +23745,663 @@ After spreading:
         }
     }
 
-    return { init, render };
-})();
+    // ==================== WiFi Sentinel Panel ====================
+    
+    function renderWifiSentinel() {
+        _saveScroll(); _restoreScroll();
+        const container = document.getElementById('panel-content');
+        if (!container) return;
+        
+        const hasModule = typeof WiFiSentinelModule !== 'undefined';
+        const isEsp32 = hasModule && WiFiSentinelModule.isEsp32Connected();
+        const isWifiScan = hasModule && WiFiSentinelModule.isWifiScanActive();
+        const isConnected = hasModule && WiFiSentinelModule.isConnected();
+        const tier = hasModule ? WiFiSentinelModule.getConnectionTier() : null;
+        const tracks = hasModule ? WiFiSentinelModule.getTracks() : [];
+        const stats = hasModule ? WiFiSentinelModule.getStats() : null;
+        const settings = hasModule ? WiFiSentinelModule.getSettings() : {};
+        const operatorLinks = hasModule ? WiFiSentinelModule.getOperatorLinks() : [];
+        const esp32Health = hasModule ? (WiFiSentinelModule.getEsp32Health ? WiFiSentinelModule.getEsp32Health() : []) : [];
+        const lastConnErr = hasModule && WiFiSentinelModule.getLastConnectionError ? WiFiSentinelModule.getLastConnectionError() : null;
+        const crossRefs = hasModule && WiFiSentinelModule.getCrossRefs ? WiFiSentinelModule.getCrossRefs() : [];
+        const crossRefMap = new Map();
+        crossRefs.forEach(cr => crossRefMap.set(cr.wsBssid, cr));
+        const MFG = hasModule ? WiFiSentinelModule.MFG_CONFIG : {};
+        
+        const activeTracks = tracks.filter(t => !t.stale);
+        const staleTracks = tracks.filter(t => t.stale);
+        const now = Date.now();
+        
+        const mfgCounts = {};
+        activeTracks.forEach(t => { mfgCounts[t.mfg] = (mfgCounts[t.mfg] || 0) + 1; });
+        
+        container.innerHTML = `
+            <div class="panel__header">
+                <h2 class="panel__title" id="panel-title">
+                    ${Icons.get('wifi')}
+                    WiFi Sentinel
+                </h2>
+                <div class="flex items-center gap-2">
+                    ${isEsp32 ? '<span class="text-xs" style="color:#22c55e">● ESP32</span>' :
+                      isWifiScan ? '<span class="text-xs" style="color:#f59e0b">● WiFi Scan</span>' :
+                      '<span class="text-xs" style="color:#64748b">● Offline</span>'}
+                </div>
+            </div>
+            
+            <div class="panel__body" role="region" aria-label="WiFi Sentinel controls">
+                
+                <!-- Connection Card -->
+                <div class="card" style="margin-bottom:1rem;${isEsp32 ? 'border-left:3px solid #22c55e' : isWifiScan ? 'border-left:3px solid #f59e0b' : ''}">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                        <span style="font-weight:600;color:#f8fafc">Connection</span>
+                        <span style="font-size:0.75rem;padding:2px 8px;border-radius:4px;${
+                            isEsp32 ? 'background:#22c55e20;color:#22c55e' :
+                            isWifiScan ? 'background:#f59e0b20;color:#f59e0b' :
+                            'background:#64748b20;color:#64748b'}">
+                            ${isEsp32 ? 'Tier 1 — Full' : isWifiScan ? 'Tier 0 — Lite' : 'Disconnected'}
+                        </span>
+                    </div>
+                    
+                    <!-- Tier 1: ESP32 Hardware -->
+                    <div style="margin-bottom:0.75rem;padding:0.625rem;background:#0f172a;border-radius:6px;border:1px solid ${isEsp32 ? '#22c55e40' : '#334155'}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.375rem">
+                            <div style="font-size:0.8rem;font-weight:500;color:${isEsp32 ? '#22c55e' : '#94a3b8'}">
+                                📡 ESP32-C5 Hardware
+                            </div>
+                            <span style="font-size:0.65rem;padding:1px 6px;border-radius:3px;background:${isEsp32 ? '#22c55e20' : '#1e293b'};color:${isEsp32 ? '#22c55e' : '#64748b'}">
+                                ${isEsp32 ? 'Active' : 'Inactive'}
+                            </span>
+                        </div>
+                        <div style="font-size:0.65rem;color:#64748b;margin-bottom:0.5rem">
+                            All frame types • Sub-3s cycle • Operator detection
+                        </div>
+                        ${!isEsp32 ? `
+                            <div style="display:flex;gap:0.375rem">
+                                ${typeof navigator !== 'undefined' && navigator.serial ? `
+                                    <button id="ws-connect-serial" class="btn btn--primary" style="flex:1;padding:0.375rem;font-size:0.75rem">
+                                        USB Serial
+                                    </button>
+                                ` : ''}
+                                <button id="ws-connect-termux-ws" class="btn btn--secondary" style="flex:1;padding:0.375rem;font-size:0.75rem">
+                                    Termux Bridge
+                                </button>
+                            </div>
+                            ${lastConnErr && lastConnErr.guide ? `
+                                <div id="ws-setup-guide" style="margin-top:0.5rem;padding:0.5rem;background:#1e1207;border:1px solid #f59e0b40;border-radius:6px">
+                                    <div style="font-size:0.75rem;font-weight:600;color:#fbbf24;margin-bottom:0.375rem">
+                                        ⚠ ${lastConnErr.guide.title || 'Bridge Not Reachable'}
+                                    </div>
+                                    <div style="font-size:0.7rem;color:#d4a017;margin-bottom:0.375rem">
+                                        ${lastConnErr.message || 'Connection failed'}
+                                    </div>
+                                    <div style="font-size:0.65rem;color:#e2e8f0;line-height:1.6">
+                                        ${(lastConnErr.guide.steps || []).map((step, i) =>
+                                            '<div style="display:flex;gap:0.375rem;align-items:baseline">' +
+                                                '<span style="color:#64748b;min-width:1rem">' + (i + 1) + '.</span>' +
+                                                '<code style="font-family:monospace;font-size:0.63rem;color:#fbbf24;word-break:break-all">' + step + '</code>' +
+                                            '</div>'
+                                        ).join('')}
+                                    </div>
+                                    ${lastConnErr.guide.hint ? '<div style="font-size:0.6rem;color:#64748b;margin-top:0.375rem;font-style:italic">' + lastConnErr.guide.hint + '</div>' : ''}
+                                </div>
+                            ` : ''}
+                        ` : `
+                            <button id="ws-disconnect-esp32" class="btn btn--secondary" style="width:100%;padding:0.375rem;font-size:0.75rem">
+                                Disconnect ESP32
+                            </button>
+                            ${esp32Health.length > 0 ? `
+                                <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.375rem">
+                                    ${esp32Health.map(u => {
+                                        const heapPct = u.heap_free ? Math.round(u.heap_free / 1024) : 0;
+                                        const heapColor = (u.heap_free || 0) > 150000 ? '#22c55e' : (u.heap_free || 0) > 80000 ? '#f59e0b' : '#ef4444';
+                                        const uptimeM = u.uptime_s ? Math.floor(u.uptime_s / 60) : 0;
+                                        const uptimeStr = uptimeM >= 60 ? Math.floor(uptimeM / 60) + 'h ' + (uptimeM % 60) + 'm' : uptimeM + 'm';
+                                        const band = (u.unitId || '').includes('5g') ? '5 GHz' : '2.4 GHz';
+                                        const age = u.lastHeartbeat ? formatWsTimeSince(now - u.lastHeartbeat) : '?';
+                                        return '<div style="padding:0.375rem;background:#0f172a;border-radius:4px;border:1px solid #1e293b">' +
+                                            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem">' +
+                                                '<span style="font-size:0.7rem;font-weight:600;color:#e2e8f0">' + (u.unitId || '?') + ' <span style="font-weight:400;color:#64748b">(' + band + ')</span></span>' +
+                                                '<span style="font-size:0.6rem;color:#64748b">' + age + ' ago</span>' +
+                                            '</div>' +
+                                            '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:0.25rem 0.5rem;font-size:0.65rem">' +
+                                                '<div style="color:#94a3b8">Firmware</div><div style="color:#e2e8f0;font-family:monospace">' + (u.firmware || u.ws_ver || '?') + '</div>' +
+                                                '<div style="color:#94a3b8">Uptime</div><div style="color:#e2e8f0">' + uptimeStr + '</div>' +
+                                                '<div style="color:#94a3b8">Heap free</div><div style="color:' + heapColor + ';font-family:monospace">' + heapPct + ' KB</div>' +
+                                                '<div style="color:#94a3b8">WiFi pkts</div><div style="color:#e2e8f0;font-family:monospace">' + ((u.wifi_pkts || 0).toLocaleString()) + '</div>' +
+                                                '<div style="color:#94a3b8">Channel</div><div style="color:#e2e8f0">ch ' + (u.ch_current || '?') + '</div>' +
+                                                (u.ws_total != null ? '<div style="color:#94a3b8">Drone pkts</div><div style="color:#e2e8f0;font-family:monospace">' + (u.ws_total || 0) + '</div>' : '') +
+                                            '</div>' +
+                                        '</div>';
+                                    }).join('')}
+                                </div>
+                            ` : ''}
+                        `}
+                    </div>
+                    
+                    <!-- Tier 0: Built-in WiFi -->
+                    <div style="padding:0.625rem;background:#0f172a;border-radius:6px;border:1px solid ${isWifiScan && !isEsp32 ? '#f59e0b40' : '#334155'}">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.375rem">
+                            <div style="font-size:0.8rem;font-weight:500;color:${isWifiScan ? '#f59e0b' : '#94a3b8'}">
+                                📶 Built-in WiFi Scan
+                            </div>
+                            <label style="display:flex;align-items:center;gap:0.25rem;cursor:pointer">
+                                <input type="checkbox" id="ws-tier0-toggle" ${isWifiScan ? 'checked' : ''} 
+                                       style="accent-color:#f59e0b">
+                                <span style="font-size:0.65rem;color:#64748b">${isWifiScan ? 'On' : 'Off'}</span>
+                            </label>
+                        </div>
+                        <div style="font-size:0.65rem;color:#64748b">
+                            Beacons only • ~30s interval • No hardware needed
+                        </div>
+                        ${isWifiScan && !isEsp32 ? `
+                            <div style="font-size:0.6rem;color:#f59e0b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#f59e0b10;border-radius:4px">
+                                ⚠ Confidence capped at "med" — upgrade to ESP32-C5 for full detection
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+                
+                <!-- Active Detections Summary -->
+                ${tracks.length > 0 ? `
+                    <div class="card" style="margin-bottom:1rem">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+                            <span style="font-weight:600;color:#f8fafc">
+                                Detections: ${activeTracks.length} active
+                            </span>
+                            ${staleTracks.length > 0 ? `
+                                <span style="font-size:0.7rem;color:#64748b">${staleTracks.length} stale</span>
+                            ` : ''}
+                        </div>
+                        
+                        <!-- Manufacturer breakdown -->
+                        ${Object.keys(mfgCounts).length > 0 ? `
+                            <div style="display:flex;flex-wrap:wrap;gap:0.375rem;margin-bottom:0.75rem">
+                                ${Object.entries(mfgCounts).sort((a, b) => b[1] - a[1]).map(([mfg, count]) => {
+                                    const mc = MFG[mfg] || MFG['Unknown'] || { color: '#6b7280', icon: '\\u2753', label: mfg };
+                                    return '<span style="font-size:0.7rem;padding:2px 8px;border-radius:4px;background:' + mc.color + '20;color:' + mc.color + '">' +
+                                        mc.icon + ' ' + mc.label + ': ' + count +
+                                    '</span>';
+                                }).join('')}
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Track list -->
+                        <div style="display:flex;flex-direction:column;gap:0.375rem;max-height:400px;overflow-y:auto" id="ws-track-list">
+                            ${activeTracks.sort((a, b) => b.rssi - a.rssi).map(track => renderWsTrackCard(track, MFG, now, false, crossRefMap)).join('')}
+                            ${staleTracks.length > 0 ? `
+                                <div style="font-size:0.65rem;color:#64748b;padding:0.5rem 0 0.25rem;border-top:1px solid #334155;margin-top:0.25rem">
+                                    STALE (no update > 60s)
+                                </div>
+                                ${staleTracks.sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 4).map(track => renderWsTrackCard(track, MFG, now, true, crossRefMap)).join('')}
+                                ${staleTracks.length > 4 ? '<div style="font-size:0.65rem;color:#64748b;text-align:center">+' + (staleTracks.length - 4) + ' more stale</div>' : ''}
+                            ` : ''}
+                        </div>
+                    </div>
+                ` : `
+                    <div class="card" style="margin-bottom:1rem;text-align:center;padding:1.5rem">
+                        <div style="font-size:2rem;margin-bottom:0.5rem">📡</div>
+                        <div style="color:#94a3b8;font-size:0.85rem">No drones detected</div>
+                        <div style="color:#64748b;font-size:0.7rem;margin-top:0.25rem">
+                            ${isConnected ? 'Monitoring WiFi spectrum for drone signatures...' : 'Connect ESP32 hardware or enable WiFi scan to begin'}
+                        </div>
+                    </div>
+                `}
+                
+                <!-- AtlasRF Cross-References -->
+                ${crossRefs.length > 0 ? `
+                    <div class="card" style="margin-bottom:1rem;border:1px solid #3b82f640">
+                        <div style="font-weight:600;color:#60a5fa;margin-bottom:0.5rem;font-size:0.85rem">
+                            🔗 AtlasRF Cross-References: ${crossRefs.length}
+                        </div>
+                        <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.375rem">
+                            WiFi fingerprints corroborated by RF/Remote ID detection
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.25rem;max-height:120px;overflow-y:auto">
+                            ${crossRefs.map(cr => {
+                                const crConf = cr.confidence === 'high' ? '#22c55e' : cr.confidence === 'med' ? '#f59e0b' : '#64748b';
+                                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.25rem;background:#0f172a;border-radius:4px;font-size:0.65rem">' +
+                                    '<div style="display:flex;align-items:center;gap:0.25rem">' +
+                                        '<span style="color:' + (MFG[cr.wsMfg] || {color:'#6b7280'}).color + '">' + cr.wsMfg + '</span>' +
+                                        '<span style="color:#475569">↔</span>' +
+                                        '<span style="color:#60a5fa">' + (cr.rfType === 'drone' ? 'Remote ID' : 'FPV/RF') + '</span>' +
+                                    '</div>' +
+                                    '<div style="display:flex;align-items:center;gap:0.25rem">' +
+                                        (cr.rfHasPosition ? '<span style="color:#22c55e;font-size:0.55rem">📍 GPS</span>' : '') +
+                                        '<span style="padding:0 3px;border-radius:2px;background:' + crConf + '20;color:' + crConf + ';font-size:0.55rem">' + cr.confidence + '</span>' +
+                                    '</div>' +
+                                '</div>';
+                            }).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <!-- Operator Phone Links -->
+                ${operatorLinks.length > 0 ? `
+                    <div class="card" style="margin-bottom:1rem;border:1px solid #8b5cf640">
+                        <div style="font-weight:600;color:#c4b5fd;margin-bottom:0.5rem;font-size:0.85rem">
+                            📱 Operator Phones Detected: ${operatorLinks.length}
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.25rem;max-height:150px;overflow-y:auto">
+                            ${operatorLinks.slice(0, 6).map(link => `
+                                <div style="display:flex;justify-content:space-between;align-items:center;padding:0.25rem 0;font-size:0.7rem;border-bottom:1px solid #1e293b">
+                                    <span style="color:#c4b5fd;font-family:monospace">${link.mac}</span>
+                                    <span style="color:#94a3b8">${link.ssid || 'Unknown'} — ${formatWsTimeSince(now - link.lastSeen)}</span>
+                                </div>
+                            `).join('')}
+                            ${operatorLinks.length > 6 ? '<div style="font-size:0.6rem;color:#64748b;text-align:center">+' + (operatorLinks.length - 6) + ' more</div>' : ''}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <!-- Statistics -->
+                ${stats && isConnected ? `
+                    <div class="card" style="margin-bottom:1rem">
+                        <div style="font-weight:600;color:#f8fafc;margin-bottom:0.5rem;font-size:0.85rem">Statistics</div>
+                        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.375rem;text-align:center">
+                            ${renderWsStatBadge('Beacons', stats.esp32.beacons, '#3b82f6')}
+                            ${renderWsStatBadge('Probes', stats.esp32.probes, '#8b5cf6')}
+                            ${renderWsStatBadge('Assoc', stats.esp32.assoc, '#06b6d4')}
+                            ${renderWsStatBadge('Data', stats.esp32.data, '#22c55e')}
+                            ${renderWsStatBadge('Deauth', stats.esp32.deauth, '#ef4444')}
+                            ${renderWsStatBadge('Hidden', stats.esp32.hidden, '#f59e0b')}
+                        </div>
+                        ${stats.esp32.deauthFloods > 0 ? `
+                            <div style="font-size:0.7rem;color:#ef4444;margin-top:0.5rem;padding:0.25rem 0.5rem;background:#ef444415;border-radius:4px">
+                                ⚠ ${stats.esp32.deauthFloods} deauth flood${stats.esp32.deauthFloods > 1 ? 's' : ''} detected
+                            </div>
+                        ` : ''}
+                        ${stats.wifiScan.scans > 0 ? `
+                            <div style="font-size:0.65rem;color:#64748b;margin-top:0.5rem;border-top:1px solid #334155;padding-top:0.375rem">
+                                WiFi Scan: ${stats.wifiScan.scans} scans, ${stats.wifiScan.matches} matches
+                            </div>
+                        ` : ''}
+                        <div style="font-size:0.65rem;color:#64748b;margin-top:0.25rem">
+                            Tracks created: ${stats.tracksCreated} • Expired: ${stats.tracksExpired}
+                            ${stats.connectionTime ? ' • Connected ' + formatWsTimeSince(now - stats.connectionTime) : ''}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <!-- Detection History -->
+                <div class="card" style="margin-bottom:1rem">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+                        <span style="font-weight:600;color:#f8fafc;font-size:0.85rem">Detection History</span>
+                        <div style="display:flex;gap:0.25rem">
+                            <button id="ws-export-history" class="btn btn--secondary" style="padding:2px 8px;font-size:0.65rem" title="Export CSV">⬇ Export</button>
+                            <button id="ws-load-history" class="btn btn--secondary" style="padding:2px 8px;font-size:0.65rem">Load</button>
+                        </div>
+                    </div>
+                    <div id="ws-history-container" style="max-height:300px;overflow-y:auto">
+                        <div style="text-align:center;color:#64748b;font-size:0.75rem;padding:1rem 0">
+                            Tap <strong>Load</strong> to fetch stored detections from IndexedDB
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Settings -->
+                <div class="card" style="margin-bottom:1rem">
+                    <div style="font-weight:600;color:#f8fafc;margin-bottom:0.75rem;font-size:0.85rem">Settings</div>
+                    <div style="display:flex;flex-direction:column;gap:0.5rem">
+                        <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                            <div>
+                                <div style="font-size:0.8rem;color:#e2e8f0">Reconnect on startup</div>
+                                <div style="font-size:0.6rem;color:#64748b">Auto-connect to ESP32 &amp; Termux bridges when app loads</div>
+                            </div>
+                            <input type="checkbox" id="ws-auto-reconnect" ${settings.autoReconnect ? 'checked' : ''} style="accent-color:#3b82f6">
+                        </label>
+                        <div style="border-top:1px solid #1e293b;margin:0.125rem 0"></div>
+                        <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                            <span style="font-size:0.8rem;color:#e2e8f0">Alert on new drone</span>
+                            <input type="checkbox" id="ws-alert-new" ${settings.alertOnNewDrone ? 'checked' : ''} style="accent-color:#ef4444">
+                        </label>
+                        <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                            <span style="font-size:0.8rem;color:#e2e8f0">Alert on deauth flood</span>
+                            <input type="checkbox" id="ws-alert-deauth" ${settings.alertOnDeauthFlood ? 'checked' : ''} style="accent-color:#ef4444">
+                        </label>
+                        <label style="display:flex;align-items:center;justify-content:space-between;cursor:pointer">
+                            <span style="font-size:0.8rem;color:#e2e8f0">Alert sounds</span>
+                            <input type="checkbox" id="ws-alert-sound" ${settings.alertSoundEnabled ? 'checked' : ''} style="accent-color:#f59e0b">
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Info -->
+                <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
+                    <div style="font-size:0.8rem;color:#94a3b8;line-height:1.5">
+                        <div style="font-weight:600;color:#f8fafc;margin-bottom:0.375rem">WiFi Sentinel — Passive Drone Detection</div>
+                        Detects drones by fingerprinting WiFi beacons, probes, and data frames against known manufacturer OUI and SSID patterns. 
+                        Does not require the drone to broadcast Remote ID.
+                    </div>
+                    <div style="font-size:0.65rem;color:#64748b;margin-top:0.5rem;display:flex;flex-wrap:wrap;gap:0.25rem">
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">DJI</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Parrot</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Skydio</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Autel</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Yuneec</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Hubsan</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">FIMI</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">Ryze/Tello</span>
+                        <span style="padding:1px 6px;background:#1e293b;border-radius:3px">SkyViper</span>
+                    </div>
+                    <div style="font-size:0.65rem;color:#64748b;margin-top:0.5rem">
+                        16 OUI prefixes • 39 SSID patterns • OUI+SSID dual-match for high confidence
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        attachWifiSentinelHandlers();
+    }
+    
+    function renderWsTrackCard(track, MFG, now, isStale, crossRefMap) {
+        const mc = (MFG && MFG[track.mfg]) || { color: '#6b7280', icon: '?', label: track.mfg || 'Unknown' };
+        const age = now - track.lastSeen;
+        const duration = now - track.firstSeen;
+        const trendArrow = track.rssiTrend === 'approaching' ? '▲' :
+                           track.rssiTrend === 'departing' ? '▼' :
+                           track.rssiTrend === 'stable' ? '—' : '';
+        const trendColor = track.rssiTrend === 'approaching' ? '#ef4444' :
+                           track.rssiTrend === 'departing' ? '#22c55e' : '#64748b';
+        const rssiPercent = Math.max(0, Math.min(100, ((track.rssi + 100) / 80) * 100));
+        const rssiBarColor = track.rssi > -40 ? '#22c55e' : track.rssi > -55 ? '#84cc16' :
+                             track.rssi > -70 ? '#f59e0b' : track.rssi > -85 ? '#f97316' : '#ef4444';
+        const types = track.detectionTypes ? (track.detectionTypes instanceof Set ? [...track.detectionTypes] : track.detectionTypes) : [];
+        const confColor = track.conf === 'high' ? '#22c55e' : track.conf === 'med' ? '#f59e0b' : '#ef4444';
+        const xref = crossRefMap && crossRefMap.get(track.bssid);
+        
+        return `
+            <div class="ws-track-card" data-bssid="${track.bssid}" style="background:#0f172a;border-radius:8px;padding:0.625rem;border-left:3px solid ${mc.color};${isStale ? 'opacity:0.5;' : ''}${xref ? 'border-right:3px solid #3b82f6;' : ''}cursor:pointer" onclick="this.querySelector('.ws-track-detail')?.classList.toggle('ws-hidden')">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.25rem">
+                    <div style="display:flex;align-items:center;gap:0.375rem;min-width:0;flex:1">
+                        <span style="font-size:0.9rem;flex-shrink:0">${mc.icon}</span>
+                        <div style="min-width:0">
+                            <div style="font-weight:600;color:${mc.color};font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                ${track.ssid || mc.label}
+                            </div>
+                            <div style="font-size:0.6rem;color:#64748b;font-family:monospace">${track.bssid}</div>
+                        </div>
+                    </div>
+                    <div style="text-align:right;flex-shrink:0;margin-left:0.5rem">
+                        <div style="font-size:0.85rem;font-weight:600;color:${rssiBarColor};font-family:monospace">${track.rssi} dBm</div>
+                        <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.25rem">
+                            ${xref ? '<span style="font-size:0.55rem;padding:0 3px;border-radius:2px;background:#3b82f620;color:#60a5fa" title="Corroborated by AtlasRF ' + (xref.rfType === 'drone' ? 'RemoteID' : 'FPV') + '">🔗 RF</span>' : ''}
+                            ${trendArrow ? '<span style="font-size:0.7rem;color:' + trendColor + '">' + trendArrow + '</span>' : ''}
+                            <span style="font-size:0.6rem;color:${confColor};border:1px solid ${confColor}40;padding:0 4px;border-radius:3px">${track.conf}</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="width:100%;height:3px;background:#1e293b;border-radius:2px;overflow:hidden;margin-bottom:0.375rem">
+                    <div style="width:${rssiPercent}%;height:100%;background:${rssiBarColor};transition:width 0.3s"></div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.65rem;color:#94a3b8">
+                    <div style="display:flex;gap:0.375rem;align-items:center;flex-wrap:wrap">
+                        <span>ch${track.channel} (${track.band}G)</span>
+                        ${track.activeLink ? '<span style="color:#22c55e">● Link</span>' : ''}
+                        ${track.operatorMac ? '<span style="color:#c4b5fd">📱</span>' : ''}
+                        ${track.deauthCount > 0 ? '<span style="color:#ef4444">⚠' + track.deauthCount + '</span>' : ''}
+                    </div>
+                    <span>${formatWsTimeSince(age)}</span>
+                </div>
+                <div class="ws-track-detail ws-hidden" style="margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid #334155;font-size:0.65rem;color:#94a3b8">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem">
+                        <div>Manufacturer: <span style="color:#e2e8f0">${mc.label}</span></div>
+                        <div>Band: <span style="color:#e2e8f0">${track.band} GHz ch${track.channel}</span></div>
+                        <div>First seen: <span style="color:#e2e8f0">${formatWsTimeSince(duration)} ago</span></div>
+                        <div>Last update: <span style="color:#e2e8f0">${formatWsTimeSince(age)} ago</span></div>
+                        <div>Source: <span style="color:#e2e8f0">${track.tier === 'esp32' ? 'ESP32-C5' : 'WiFi Scan'}</span></div>
+                        <div>Trend: <span style="color:${trendColor}">${track.rssiTrend || 'unknown'}</span></div>
+                        ${track.operatorMac ? '<div style="grid-column:span 2">Operator: <span style="color:#c4b5fd;font-family:monospace">' + track.operatorMac + '</span></div>' : ''}
+                    </div>
+                    ${xref ? `
+                        <div style="margin-top:0.375rem;padding:0.375rem;background:#3b82f610;border:1px solid #3b82f630;border-radius:4px">
+                            <div style="font-size:0.6rem;font-weight:600;color:#60a5fa;margin-bottom:0.25rem">🔗 AtlasRF Cross-Reference</div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.125rem;font-size:0.6rem">
+                                <div>Source: <span style="color:#e2e8f0">${xref.rfType === 'drone' ? 'Remote ID' : 'FPV/RF'}</span></div>
+                                <div>Match: <span style="color:#e2e8f0">${xref.confidence}</span></div>
+                                ${xref.rfCallsign ? '<div>ID: <span style="color:#e2e8f0">' + xref.rfCallsign + '</span></div>' : ''}
+                                ${xref.rfHasPosition ? '<div>GPS: <span style="color:#22c55e">✓ Position available</span></div>' : '<div>GPS: <span style="color:#64748b">No position</span></div>'}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${types.length > 0 ? `
+                        <div style="display:flex;gap:0.25rem;flex-wrap:wrap;margin-top:0.375rem">
+                            ${types.map(t => {
+                                const tc = { beacon: '#3b82f6', probe_req: '#8b5cf6', probe_resp: '#8b5cf6', assoc: '#06b6d4', data: '#22c55e', deauth: '#ef4444', hidden_ap: '#f59e0b' };
+                                return '<span style="padding:1px 5px;border-radius:3px;background:' + (tc[t] || '#64748b') + '20;color:' + (tc[t] || '#94a3b8') + ';font-size:0.6rem">' + t + '</span>';
+                            }).join('')}
+                        </div>
+                    ` : ''}
+                    ${track.rssiHistory && track.rssiHistory.length > 2 ? `
+                        <div style="margin-top:0.375rem">
+                            <div style="font-size:0.55rem;color:#64748b;margin-bottom:2px">RSSI History (${track.rssiHistory.length} samples)</div>
+                            ${renderWsSparkline(track.rssiHistory)}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+    
+    function renderWsSparkline(history) {
+        if (!history || history.length < 2) return '';
+        const w = 180, h = 24;
+        const min = Math.min(...history);
+        const max = Math.max(...history);
+        const range = max - min || 1;
+        const points = history.map((v, i) => {
+            const x = (i / (history.length - 1)) * w;
+            const y = h - ((v - min) / range) * (h - 2) - 1;
+            return x.toFixed(1) + ',' + y.toFixed(1);
+        }).join(' ');
+        const lastY = h - ((history[history.length - 1] - min) / range) * (h - 2) - 1;
+        return '<svg width="' + w + '" height="' + h + '" style="display:block"><polyline points="' + points + '" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linejoin="round"/><circle cx="' + w + '" cy="' + lastY.toFixed(1) + '" r="2" fill="#3b82f6"/></svg>';
+    }
+    
+    function renderWsStatBadge(label, count, color) {
+        return '<div style="padding:0.375rem;background:' + color + '10;border-radius:6px"><div style="font-size:1rem;font-weight:600;color:' + color + '">' + (count || 0) + '</div><div style="font-size:0.6rem;color:#94a3b8">' + label + '</div></div>';
+    }
+    
+    function formatWsTimeSince(ms) {
+        if (ms < 0) ms = 0;
+        const s = Math.floor(ms / 1000);
+        if (s < 60) return s + 's';
+        const m = Math.floor(s / 60);
+        if (m < 60) return m + 'm';
+        const h = Math.floor(m / 60);
+        if (h < 24) return h + 'h';
+        return Math.floor(h / 24) + 'd';
+    }
+    
+    function attachWifiSentinelHandlers() {
+        const serialBtn = document.getElementById('ws-connect-serial');
+        if (serialBtn) {
+            serialBtn.onclick = async () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    serialBtn.disabled = true;
+                    serialBtn.textContent = 'Connecting...';
+                    const ok = await WiFiSentinelModule.connectSerial();
+                    if (ok) {
+                        ModalsModule.showToast('ESP32-C5 connected via USB Serial', 'success');
+                    } else {
+                        ModalsModule.showToast('Serial connection failed — check USB cable', 'error');
+                    }
+                    renderWifiSentinel();
+                }
+            };
+        }
+        
+        const termuxBtn = document.getElementById('ws-connect-termux-ws');
+        if (termuxBtn) {
+            termuxBtn.onclick = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    termuxBtn.disabled = true;
+                    termuxBtn.textContent = 'Connecting...';
+                    WiFiSentinelModule.connectTermuxWs('wifi_2g', 8766);
+                    WiFiSentinelModule.connectTermuxWs('wifi_5g', 8767);
+                    ModalsModule.showToast('Connecting to Termux serial bridges on :8766/:8767...', 'info');
+                    // Re-render after connection timeout to show setup guide if failed
+                    setTimeout(() => {
+                        if (State.get('activePanel') === 'wifisentinel') {
+                            if (typeof WiFiSentinelModule !== 'undefined' && !WiFiSentinelModule.isEsp32Connected()) {
+                                ModalsModule.showToast('Termux bridge not reachable — see setup guide below', 'warning');
+                            }
+                            renderWifiSentinel();
+                        }
+                    }, 5000);
+                }
+            };
+        }
+        
+        const disconnectBtn = document.getElementById('ws-disconnect-esp32');
+        if (disconnectBtn) {
+            disconnectBtn.onclick = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.disconnectAll();
+                    ModalsModule.showToast('ESP32 disconnected', 'info');
+                    renderWifiSentinel();
+                }
+            };
+        }
+        
+        const tier0Toggle = document.getElementById('ws-tier0-toggle');
+        if (tier0Toggle) {
+            tier0Toggle.onchange = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    if (tier0Toggle.checked) {
+                        WiFiSentinelModule.startWifiScan();
+                        ModalsModule.showToast('WiFi scan started (Tier 0)', 'info');
+                        // Re-render after timeout to show setup guide if bridge unreachable
+                        setTimeout(() => {
+                            if (State.get('activePanel') === 'wifisentinel') renderWifiSentinel();
+                        }, 5000);
+                    } else {
+                        WiFiSentinelModule.stopWifiScan();
+                        ModalsModule.showToast('WiFi scan stopped', 'info');
+                    }
+                    renderWifiSentinel();
+                }
+            };
+        }
+        
+        const autoReconnectToggle = document.getElementById('ws-auto-reconnect');
+        if (autoReconnectToggle) {
+            autoReconnectToggle.onchange = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.updateSettings({ autoReconnect: autoReconnectToggle.checked });
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(autoReconnectToggle.checked ? 'ESP32 will reconnect on startup' : 'ESP32 auto-reconnect disabled', 'info');
+                    }
+                }
+            };
+        }
+        
+        const alertNewToggle = document.getElementById('ws-alert-new');
+        if (alertNewToggle) {
+            alertNewToggle.onchange = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.updateSettings({ alertOnNewDrone: alertNewToggle.checked });
+                }
+            };
+        }
+        
+        const alertDeauthToggle = document.getElementById('ws-alert-deauth');
+        if (alertDeauthToggle) {
+            alertDeauthToggle.onchange = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.updateSettings({ alertOnDeauthFlood: alertDeauthToggle.checked });
+                }
+            };
+        }
+        
+        const alertSoundToggle = document.getElementById('ws-alert-sound');
+        if (alertSoundToggle) {
+            alertSoundToggle.onchange = () => {
+                if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.updateSettings({ alertSoundEnabled: alertSoundToggle.checked });
+                }
+            };
+        }
+        
+        // Detection History: Load button
+        const loadHistBtn = document.getElementById('ws-load-history');
+        if (loadHistBtn) {
+            loadHistBtn.onclick = async () => {
+                if (typeof WiFiSentinelModule === 'undefined') return;
+                const container = document.getElementById('ws-history-container');
+                if (!container) return;
+                container.innerHTML = '<div style="text-align:center;color:#94a3b8;font-size:0.75rem;padding:1rem 0">Loading...</div>';
+                try {
+                    const records = await WiFiSentinelModule.getDetectionHistory({ limit: 100 });
+                    if (!records || records.length === 0) {
+                        container.innerHTML = '<div style="text-align:center;color:#64748b;font-size:0.75rem;padding:1rem 0">No detection history stored</div>';
+                        return;
+                    }
+                    // Sort newest first
+                    records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                    const MFG = WiFiSentinelModule.MFG_CONFIG || {};
+                    const now = Date.now();
+                    container.innerHTML = '<div style="font-size:0.65rem;color:#64748b;margin-bottom:0.375rem">' + records.length + ' records (newest first)</div>' +
+                        records.map(r => {
+                            const mc = (MFG[r.mfg]) || { color: '#6b7280', icon: '?', label: r.mfg || '?' };
+                            const age = formatWsTimeSince(now - (r.timestamp || 0));
+                            const confColor = r.conf === 'high' ? '#22c55e' : r.conf === 'med' ? '#f59e0b' : '#64748b';
+                            return '<div style="display:flex;align-items:center;gap:0.375rem;padding:0.25rem 0;border-bottom:1px solid #1e293b;font-size:0.7rem">' +
+                                '<span style="width:6px;height:6px;border-radius:50%;background:' + mc.color + ';flex-shrink:0"></span>' +
+                                '<span style="color:' + mc.color + ';font-weight:500;min-width:3rem">' + mc.label + '</span>' +
+                                '<span style="color:#94a3b8;font-family:monospace;font-size:0.6rem;min-width:5rem">' + (r.bssid || '?').slice(-8) + '</span>' +
+                                '<span style="padding:0 4px;border-radius:2px;background:' + confColor + '20;color:' + confColor + ';font-size:0.6rem">' + (r.conf || '?') + '</span>' +
+                                '<span style="color:#64748b;font-size:0.6rem">' + (r.type || r.t || '?') + '</span>' +
+                                (r.rssi ? '<span style="color:#94a3b8;font-size:0.6rem;margin-left:auto">' + r.rssi + 'dBm</span>' : '') +
+                                '<span style="color:#475569;font-size:0.6rem">' + age + '</span>' +
+                            '</div>';
+                        }).join('');
+                    // Stash records on container for export
+                    container._wsHistoryData = records;
+                } catch (e) {
+                    container.innerHTML = '<div style="text-align:center;color:#ef4444;font-size:0.75rem;padding:1rem 0">Error loading history</div>';
+                }
+            };
+        }
+        
+        // Detection History: Export CSV
+        const exportHistBtn = document.getElementById('ws-export-history');
+        if (exportHistBtn) {
+            exportHistBtn.onclick = async () => {
+                if (typeof WiFiSentinelModule === 'undefined') return;
+                const container = document.getElementById('ws-history-container');
+                let records = container && container._wsHistoryData;
+                if (!records || records.length === 0) {
+                    // Try loading fresh if none cached
+                    try {
+                        records = await WiFiSentinelModule.getDetectionHistory({ limit: 500 });
+                    } catch (e) { records = []; }
+                }
+                if (!records || records.length === 0) {
+                    if (typeof ModalsModule !== 'undefined') ModalsModule.showToast('No history to export', 'info');
+                    return;
+                }
+                records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                const header = 'timestamp,bssid,ssid,manufacturer,type,confidence,rssi,channel,tier';
+                const rows = records.map(r =>
+                    [
+                        r.timestamp ? new Date(r.timestamp).toISOString() : '',
+                        r.bssid || '', (r.ssid || '').replace(/,/g, ';'),
+                        r.mfg || '', r.type || r.t || '',
+                        r.conf || '', r.rssi || '', r.channel || '', r.tier || ''
+                    ].join(',')
+                );
+                const csv = header + '\n' + rows.join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'wifi_sentinel_history_' + new Date().toISOString().slice(0,10) + '.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+                if (typeof ModalsModule !== 'undefined') ModalsModule.showToast('Exported ' + records.length + ' records', 'success');
+            };
+        }
+    }
+
+    return { init, render };})();
 window.PanelsModule = PanelsModule;

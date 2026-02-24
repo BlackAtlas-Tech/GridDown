@@ -91,7 +91,7 @@ Null/Undefined Checks:   1,380+
 | Module | Lines | Description |
 |--------|-------|-------------|
 | radiacode.js | 1,554 | RadiaCode radiation detector via BLE |
-| rfsentinel.js | 1,660 | RF Sentinel Pro SDR integration |
+| atlasrf.js | 1,660 | AtlasRF Pro SDR integration |
 | sarsat.js | 1,018 | SARSAT emergency beacon detection |
 | barometer.js | 743 | Device barometer for weather/altitude |
 | rangefinder.js | 897 | Laser rangefinder integration |
@@ -363,7 +363,7 @@ GridDown-v6-23/
     ├── app.js              (13KB)
     ├── panels.js           (21,467 lines) - legacy, delegates to modules
     ├── map.js              (legacy wrapper)
-    ├── rfsentinel.js       (legacy wrapper)
+    ├── atlasrf.js       (legacy wrapper)
     ├── core/               (1,450 lines)
     │   ├── state.js
     │   ├── events.js
@@ -390,7 +390,7 @@ GridDown v6.57.5 has matured significantly since the v6.0.0 audit:
 - **Code volume** increased 176% while maintaining quality
 - **Error handling** improved 230% (468 try/catch blocks)
 - **Accessibility** fully implemented (was flagged as missing)
-- **Hardware integration** expanded (TAK, RadiaCode, SARSAT, RF Sentinel)
+- **Hardware integration** expanded (TAK, RadiaCode, SARSAT, AtlasRF)
 - **Celestial navigation** added (professional-grade sight reduction)
 - **Demo/Training APIs** added for external tool integration
 

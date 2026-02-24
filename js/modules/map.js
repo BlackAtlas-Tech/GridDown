@@ -909,6 +909,7 @@ const MapModule = (function() {
             renderRadiaCodeOverlay(width, height);
             renderAtlasRFOverlay(width, height);
             renderSarsatOverlay(width, height);
+            renderWifiSentinelOverlay(width, height);
             renderNavigationBreadcrumbs(width, height);
             renderGPSPosition(width, height);
             renderCrosshair(width, height);
@@ -2355,6 +2356,15 @@ const MapModule = (function() {
         if (typeof SarsatModule.renderOnMap === 'function') {
             SarsatModule.renderOnMap(ctx, width, height, latLonToPixel);
         }
+    }
+
+    function renderWifiSentinelOverlay(width, height) {
+        // Render WiFi Sentinel HUD overlay on map
+        if (typeof WiFiSentinelModule === 'undefined') return;
+        if (!WiFiSentinelModule.isConnected()) return;
+        if (WiFiSentinelModule.getTrackCount() === 0) return;
+        
+        WiFiSentinelModule.renderOnMap(ctx, width, height, latLonToPixel, mapState.zoom);
     }
 
     function renderCrosshair(width, height) {

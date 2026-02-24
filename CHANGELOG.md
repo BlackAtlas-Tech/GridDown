@@ -2,6 +2,40 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.57.81] - 2025-02-24
+
+### Added — WiFi Sentinel: Passive Drone Detection (NEW Module)
+- **js/modules/wifiSentinel.js** (1,641 lines) — Full passive drone detection via WiFi fingerprinting:
+  - **Dual-tier architecture**: Tier 1 (ESP32-C5 hardware, full 802.11 frame capture) and Tier 0 (device WiFi, beacon-only fallback).
+  - **9 manufacturer fingerprint databases**: DJI, Parrot, Skydio, Autel, Yuneec, Hubsan, FIMI, Ryze/Tello, SkyViper. Combined OUI prefix + SSID pattern matching with confidence scoring (high/med/low).
+  - **Detection pipeline**: Processes beacon, probe_req, probe_resp, assoc, deauth, data, and hidden_ap frame types. Per-BSSID track aggregation with RSSI history (32 samples), trend analysis (approaching/stable/departing), and active link detection.
+  - **Operator phone detection**: Identifies controller devices associated with drone BSSIDs via data frame analysis. Emits `operator:linked` event for awareness alerts.
+  - **Deauth flood alerting**: Detects jamming attempts (>20 deauths in 10s window) with throttled notifications on 60s cooldown per target.
+  - **ESP32-C5 health monitoring**: Captures heartbeat messages (heap_free, uptime, wifi_pkts, channel, firmware) and ws_status updates. Per-unit health cards in panel with color-coded heap warnings.
+  - **Detection history**: IndexedDB-backed persistence with `getDetectionHistory()` API. Panel UI supports loading (100 records) and CSV export (timestamp, bssid, ssid, manufacturer, type, confidence, rssi, channel, tier).
+  - **AtlasRF cross-referencing**: `correlateWithAtlasRF()` runs every 5s in maintenance loop. Matches WiFi Sentinel tracks against AtlasRF drone/FPV tracks using weighted scoring: manufacturer match (+10, required), temporal proximity (+1/+3), RSSI trend agreement (+1), RemoteID bonus (+2). Confidence tiers: high (≥13), med (≥11). Cross-ref objects track both source IDs, GPS availability, callsign, and correlation timestamps.
+  - **Auto-reconnect preference**: `autoReconnect` setting persisted to IndexedDB, gated on both `autoReconnect && tier1Enabled`, fires only after `loadSettings()` resolves.
+  - **Termux bridge setup guidance**: Structured error objects with `TERMUX_SETUP_GUIDE` constants providing numbered install/setup steps for serial and WiFi scan bridges. 4s WebSocket timeout + 5s handler delay before guide surfaces.
+  - **Public API**: 28 methods including `getCrossRefs()`, `getCrossRef(bssid)`, `getCrossRefCount()`, `getEsp32Health()`, `getLastConnectionError()`, `getDetectionHistory()`.
+  - **Maintenance loop**: 5s interval handles track expiry, operator link pruning, dedup cleanup, deauth alert cooldown, cross-reference sweeps, and periodic IndexedDB pruning.
+
+### Added — WiFi Sentinel Panel UI
+- **js/modules/panels.js** — Full panel implementation for `wifisentinel` sidebar entry:
+  - **Connection controls**: Serial (Web Serial API), Termux Bridge (WebSocket), and Disconnect buttons with state-aware enable/disable.
+  - **ESP32 health cards**: Per-unit display of firmware version, uptime, heap free (color-coded: green >150KB, yellow >80KB, red below), WiFi packet count, current channel, and heartbeat age.
+  - **Active/stale track cards**: Sorted by RSSI, showing manufacturer icon + color, SSID/BSSID, RSSI bar with signal strength coloring, confidence badge, trend arrow, channel/band, link status, operator phone indicator, deauth count. Expandable detail view with detection types, RSSI sparkline, and cross-reference data.
+  - **AtlasRF cross-reference display**: Summary card showing correlation count with per-pair breakdown (manufacturer ↔ RF source type, GPS availability, confidence). Track cards show "🔗 RF" badge and blue right border when correlated, with expandable cross-ref detail (source type, match confidence, UAS ID, GPS status).
+  - **Detection history card**: Load (100 records) and Export (CSV) buttons with scrollable timeline.
+  - **Termux setup guide**: Amber warning card with numbered monospace steps, visible after connection failure.
+  - **Auto-reconnect toggle**: Blue accent toggle with descriptive subtitle, persists to settings.
+  - **Alert toggles**: New drone, deauth flood, and sound alert preferences.
+  - **Tier 0 toggle**: Enable/disable built-in WiFi scanning.
+
+### Added — WiFi Sentinel Integration
+- **sw.js** — Added `js/modules/wifiSentinel.js` to STATIC_ASSETS cache. Cache version v6.57.77 → v6.57.81.
+- **js/modules/search.js** — Added WiFi Sentinel search entry with 12 keywords (wifi, sentinel, drone, dji, parrot, skydio, autel, yuneec, deauth, fingerprint, oui, bssid, esp32), links to `wifisentinel` panel.
+- **js/app.js** — Wired 10 events: `drone:new`, `tracks:updated`, `connected`, `disconnected`, `deauth_flood`, `track:expired`, `operator:linked`, `error`, `esp32:status`, `crossref:new`. Throttled panel renders (500ms gate, max 2/sec). Cross-ref events trigger map refresh.
+
 ## [6.57.75] - 2025-02-21
 
 ### Added — RF LOS Phase 5: Viewshed / Coverage Map
@@ -84,7 +118,7 @@ All notable changes to GridDown will be documented in this file.
 ## [6.57.71] - 2025-02-21
 
 ### Added
-- **GridDown Termux Setup Guide** (PDF, 13 pages) — Complete documentation for self-hosting GridDown on Samsung Galaxy Tab Active5 Pro using Termux. Covers F-Droid installation, repository cloning, local Python HTTP server, PWA installation, one-command GitHub updates via shell alias, autostart on boot with Termux:Boot, AtlasRF USB-C OTG integration, Android wake lock and battery optimization settings, three network architecture patterns (single-device, tablet+Pi, GitHub Pages), troubleshooting table, and quick reference card.
+- **GridDown Termux Setup Guide** (PDF, 12 pages) — Complete documentation for self-hosting GridDown on Samsung Galaxy Tab Active5 Pro using Termux. Covers Google Play installation, repository cloning, local Python HTTP server, PWA installation, one-command GitHub updates via shell alias, autostart on boot with Termux:Boot, AtlasRF USB-C OTG integration, WiFi Sentinel ESP32-C5 bridge setup, Android wake lock and battery optimization settings, three network architecture patterns (single-device, tablet+Pi, GitHub Pages), troubleshooting table, and quick reference card.
 - **scripts/termux-setup.sh** — One-command Termux environment setup. Installs all shell aliases to ~/.bashrc via source link, optionally creates Termux:Boot autostart script, verifies environment (Python, Git, rtl-sdr). Idempotent and safe to re-run after updates. Colored terminal output with step-by-step progress.
 - **scripts/griddown-aliases.sh** — 15 shell aliases for Termux: gd, gd-bg, gd-stop, gd-status, gd-restart, gd-start (wake lock + server), gd-shutdown (stop + unlock), griddown-update, gd-version, gd-log, gd-force-update, gd-size, gd-clean, wl/wlu (wake lock shortcuts). Sourced from ~/.bashrc so aliases auto-update when GridDown is updated from GitHub.
 

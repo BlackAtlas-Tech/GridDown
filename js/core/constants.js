@@ -409,7 +409,6 @@ const Constants = (function() {
         // Environment
         { id: 'weather', icon: 'weather', label: 'Weather', category: 'ENVIRONMENT' },
         { id: 'terrain', icon: 'mountain', label: 'Terrain', category: 'ENVIRONMENT' },
-        { id: 'waterquality', icon: 'droplet', label: 'Water', category: 'ENVIRONMENT' },
         // Comms
         { id: 'team', icon: 'team', label: 'Team', category: 'COMMS' },
         { id: 'comms', icon: 'radio', label: 'Comms', category: 'COMMS' },
@@ -420,6 +419,7 @@ const Constants = (function() {
         // Hardware
         { id: 'offline', icon: 'download', label: 'Offline', category: 'HARDWARE' },
         { id: 'atlasrf', icon: 'radar', label: 'AtlasRF', category: 'HARDWARE' },
+        { id: 'wifisentinel', icon: 'wifi', label: 'WiFi Sentinel', category: 'HARDWARE' },
         { id: 'sstv', icon: 'camera', label: 'SSTV', category: 'HARDWARE' },
         { id: 'sarsat', icon: 'broadcast', label: 'SARSAT', category: 'HARDWARE' }
     ];

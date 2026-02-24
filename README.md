@@ -103,6 +103,50 @@ Connect to [AtlasRF](https://github.com/yourrepo/atlasrf) for comprehensive off-
 
 ---
 
+## 📶 WiFi Sentinel — Passive Drone Detection (NEW in v6.8.4)
+
+Detect and fingerprint commercial drones via passive WiFi monitoring. WiFi Sentinel identifies drones by their 802.11 beacon frames, probe requests, and OUI/SSID patterns — no cooperation from the drone required.
+
+### Dual-Tier Architecture
+
+| Tier | Source | Capability | Connection |
+|------|--------|-----------|------------|
+| **Tier 1** | ESP32-C5 hardware | Full passive monitoring — beacons, probes, associations, deauths, data frames, hidden APs | Termux WebSocket bridge or Web Serial |
+| **Tier 0** | Device built-in WiFi | Beacon-only scanning via Termux WiFi scan API | Automatic fallback |
+
+### Supported Manufacturers (9)
+
+| Manufacturer | OUI Prefixes | SSID Patterns |
+|-------------|-------------|---------------|
+| DJI | 60:60:1F, 34:D2:62, ... | `DJI_MINI`, `MAVIC`, `Phantom`, `Inspire`, `Matrice` |
+| Parrot | 90:03:B7, A0:14:3D, ... | `ANAFI`, `Bebop`, `DISCO`, `Mambo`, `SkyController` |
+| Skydio | 04:D3:B0 | `Skydio-`, `SKYDIO-` |
+| Autel | 60:60:1F, 78:8C:B5, ... | `AUTEL-`, `Evo_`, `EVO_` |
+| Yuneec | 48:F8:B3 | `Yuneec-`, `Typhoon-`, `H520-` |
+| Hubsan | — | `Hubsan-`, `EXO-` |
+| FIMI | — | `FIMI-`, `FIMI_X8` |
+| Ryze (Tello) | 60:60:1F | `TELLO-`, `RMTT-` |
+| SkyViper | — | `SKYVIPERGPS_` |
+
+### ESP32-C5 Hardware
+
+Two ESP32-C5 units provide simultaneous dual-band monitoring:
+
+- **Unit 1 (2.4 GHz)**: Channels 1, 6, 11 — 500ms dwell, 1.5s full cycle
+- **Unit 2 (5 GHz)**: 9 non-DFS UNII-1+3 channels — 300ms dwell, 2.7s cycle
+
+Firmware v4.0.0 provides on-device OUI/SSID matching, dedup, and JSONL v1 protocol output at 115200 baud.
+
+### Detection Features
+- **Confidence scoring**: High/Med/Low based on OUI + SSID + frame type agreement
+- **RSSI trend analysis**: Approaching/Stable/Departing with sparkline history
+- **Operator phone detection**: Links controller devices to associated drones
+- **Deauth flood alerting**: Identifies jamming attempts with throttled notifications
+- **Detection history**: IndexedDB persistence with timeline view and CSV export
+- **AtlasRF cross-referencing**: Correlates WiFi fingerprints with RF/Remote ID detections for multi-sensor drone tracking
+
+---
+
 ## 📻 Communication & Coordination
 
 ### Radio Frequency Database
@@ -614,6 +658,7 @@ GridDown/
         ├── meshtastic.js   # Mesh networking
         ├── radiacode.js    # Gamma spectrometer
         ├── atlasrf.js   # AtlasRF integration
+        ├── wifiSentinel.js # WiFi Sentinel drone detection (NEW)
         ├── sstv.js         # SSTV encode/decode
         ├── sstv-ai.js      # SSTV AI enhancement
         ├── sstv-dsp.js     # SSTV DSP (waterfall, slant, drift)
@@ -847,9 +892,10 @@ See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for complete data source licensing inform
 
 See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
 
-**Current Version: 6.57.42** (February 2025)
+**Current Version: 6.57.81** (February 2025)
 
 ### Recent Highlights
+- **v6.57.81** - WiFi Sentinel passive drone detection: ESP32-C5 dual-band hardware, 9 manufacturer fingerprints, AtlasRF cross-referencing, detection history with CSV export
 - **v6.57.32** - Fixed longitude direction in location shares, channel device sync, LoRa payload overflow (message compaction)
 - **v6.57.31** - Fixed GATT errors: GPS-aware position broadcast, failure backoff, aria-hidden fix
 - **v6.57.30** - Mesh nodes now appear on map immediately on connect (NodeInfo position extraction fix)

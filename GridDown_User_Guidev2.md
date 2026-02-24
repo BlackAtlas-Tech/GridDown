@@ -3,7 +3,7 @@
 **Version 6.57.3**
 *Navigate When Infrastructure Fails*
 
-**BlackDot Technology**
+**BlackAtlas LLC**
 
 ---
 
@@ -56,7 +56,7 @@ GridDown integrates multiple critical functions into a single application:
 | Navigation | Interactive maps, GPS tracking, turn-by-turn guidance, compass, celestial navigation, inertial navigation (PDR), star identification, camera sextant |
 | Planning | Route building, logistics calculation, contingency planning, terrain analysis, rangefinder resection |
 | Communication | APRS, Meshtastic mesh networking, SSTV image transmission, CoT Bridge (ATAK/WinTAK), team coordination, communication plans |
-| Detection | RadiaCode radiation, RF Sentinel (ADS-B, AIS, Remote ID, FPV drones, radiosondes), SARSAT beacons |
+| Detection | RadiaCode radiation, AtlasRF (ADS-B, AIS, Remote ID, FPV drones, radiosondes), SARSAT beacons |
 | Environment | Weather forecasts, satellite imagery (NEXRAD, VIIRS, MODIS), air quality (AQI), sun/moon calculator, barometer, stream gauges |
 | Reference | Medical protocols, field guides (600+ entries), radio frequencies, landmark database (3,100+ locations) |
 | Search & Discovery | Global search (Ctrl+K), situation wizard (F1), contextual suggestions, search favorites |
@@ -76,7 +76,7 @@ GridDown integrates multiple critical functions into a single application:
 | Chrome Android | 80+ | ✅ Full support on mobile |
 | Safari iOS | 13+ | ⚠️ Limited — no Web Bluetooth |
 
-**Recommendation:** Use Chrome or Edge for full functionality, especially for connecting to RadiaCode, APRS TNC, Meshtastic, and RF Sentinel devices.
+**Recommendation:** Use Chrome or Edge for full functionality, especially for connecting to RadiaCode, APRS TNC, Meshtastic, and AtlasRF devices.
 
 #### 1.4.2 Device Requirements
 
@@ -134,7 +134,7 @@ The left sidebar provides access to all GridDown panels organized into categorie
 - **Core:** Map Layers, Waypoints, Routes, Offline Maps, GPS
 - **Planning:** Logistics, Contingency, Terrain Analysis
 - **Communications:** Radio Reference, APRS, Meshtastic, Team, SSTV, CoT Bridge
-- **Sensors:** RadiaCode, RF Sentinel, FPV Drone Detections, SARSAT
+- **Sensors:** RadiaCode, AtlasRF, FPV Drone Detections, SARSAT
 - **Navigation:** Celestial Navigation, Star Identification, Camera Sextant, Rangefinder Resection, Inertial Navigation
 - **Environment:** Weather, Satellite Imagery, Air Quality, Sun/Moon, Stream Gauges, Barometer
 - **Reference:** Medical, Field Guides, Landmarks, SOS/Emergency
@@ -552,9 +552,9 @@ Features include real-time dose rate display (μSv/h), count rate monitoring (CP
 
 A Demo Mode is available for testing features without hardware.
 
-### 9.2 RF Sentinel
+### 9.2 AtlasRF
 
-Connect to an RF Sentinel SDR receiver for multi-protocol RF detection and situational awareness.
+Connect to an AtlasRF SDR receiver for multi-protocol RF detection and situational awareness.
 
 #### 9.2.1 Detection Types
 
@@ -569,25 +569,81 @@ Connect to an RF Sentinel SDR receiver for multi-protocol RF detection and situa
 
 #### 9.2.2 FPV Drone Detections
 
-The FPV Drone Detections panel displays drones detected by RF signature analysis through RF Sentinel Pro. For each detected drone, the panel shows protocol type, operating frequency and band, signal strength (dBm), active links (video, telemetry, control), and correlation with Remote ID when available. This capability is useful for airspace awareness, security monitoring, and counter-UAS applications.
+The FPV Drone Detections panel displays drones detected by RF signature analysis through AtlasRF Pro. For each detected drone, the panel shows protocol type, operating frequency and band, signal strength (dBm), active links (video, telemetry, control), and correlation with Remote ID when available. This capability is useful for airspace awareness, security monitoring, and counter-UAS applications.
 
 #### 9.2.3 Connection Methods
 
-RF Sentinel supports WebSocket (real-time push, recommended), MQTT (pub/sub via broker), and REST Polling (periodic fetch every 5 seconds). All methods connect over your network to the RF Sentinel hardware.
+AtlasRF supports WebSocket (real-time push, recommended), MQTT (pub/sub via broker), and REST Polling (periodic fetch every 5 seconds). All methods connect over your network to the AtlasRF hardware.
 
 #### 9.2.4 Emergency Detection
 
-RF Sentinel alerts on emergency conditions: Aircraft Squawk 7500 (hijacking), 7600 (radio failure), 7700 (general emergency), AIS SART (search and rescue transponder), AIS MOB (man overboard), and AIS EPIRB (emergency beacon).
+AtlasRF alerts on emergency conditions: Aircraft Squawk 7500 (hijacking), 7600 (radio failure), 7700 (general emergency), AIS SART (search and rescue transponder), AIS MOB (man overboard), and AIS EPIRB (emergency beacon).
 
 #### 9.2.5 FIS-B Weather
 
-RF Sentinel can receive aviation weather via FIS-B (978 MHz UAT): METARs, TAFs, SIGMETs, PIREPs, and TFRs. Enable FIS-B Weather Source in RF Sentinel settings for true infrastructure-independent weather data.
+AtlasRF can receive aviation weather via FIS-B (978 MHz UAT): METARs, TAFs, SIGMETs, PIREPs, and TFRs. Enable FIS-B Weather Source in AtlasRF settings for true infrastructure-independent weather data.
 
-### 9.3 SARSAT Beacon Receiver
+### 9.3 WiFi Sentinel (Passive Drone Detection)
+
+Detect and identify commercial drones through passive WiFi fingerprinting. WiFi Sentinel monitors 802.11 wireless traffic without transmitting, identifying drones by their unique OUI (vendor MAC prefix) and SSID naming patterns.
+
+#### 9.3.1 Detection Tiers
+
+| Tier | Source | What It Captures | Requirements |
+|------|--------|-----------------|--------------|
+| **Tier 1** | ESP32-C5 hardware (×2) | Beacons, probes, associations, deauths, data frames, hidden APs | ESP32-C5 units + Termux with `websocat` |
+| **Tier 0** | Device built-in WiFi | Beacon frames only | Termux with `termux-api` |
+
+Tier 1 provides full passive monitoring across both 2.4 GHz and 5 GHz bands simultaneously. Tier 0 serves as an automatic fallback using the tablet's own WiFi radio.
+
+#### 9.3.2 Supported Manufacturers
+
+WiFi Sentinel identifies drones from 9 manufacturers: DJI, Parrot, Skydio, Autel, Yuneec, Hubsan, FIMI, Ryze (Tello), and SkyViper. Each manufacturer is matched by OUI prefix (the first 3 bytes of their WiFi MAC address) and/or SSID naming convention (e.g., `DJI_MINI3PRO`, `ANAFI-xxxxxx`).
+
+#### 9.3.3 Confidence Scoring
+
+Each detection receives a confidence level based on matching criteria:
+- **High**: Both OUI prefix and SSID pattern match a known manufacturer
+- **Medium**: Either OUI or SSID matches, with corroborating frame types
+- **Low**: Single weak indicator (e.g., probe request with partial SSID match)
+
+#### 9.3.4 Track Card Information
+
+Each detected drone shows: manufacturer icon and color, SSID or manufacturer name, BSSID (MAC address), RSSI signal strength with colored bar, trend arrow (approaching ▲ / stable — / departing ▼), confidence badge, channel and band, active link indicator, operator phone indicator, and deauth count if jamming detected.
+
+Tap a track card to expand details: manufacturer, band/channel, first seen, last update, source tier, trend direction, operator MAC if detected, frame type badges, RSSI sparkline history, and AtlasRF cross-reference data if available.
+
+#### 9.3.5 AtlasRF Cross-Referencing
+
+When both WiFi Sentinel and AtlasRF detect drone activity simultaneously, the system correlates detections across sensors. A WiFi Sentinel DJI detection paired with an AtlasRF Remote ID DJI track produces a cross-reference with GPS position from the Remote ID data. Cross-referenced tracks display a "🔗 RF" badge and blue border, with expanded details showing the RF source type, match confidence, UAS identifier, and GPS availability.
+
+#### 9.3.6 Alerts
+
+- **New drone detected**: Toast notification when a previously unseen drone BSSID appears
+- **Deauth flood**: Warning when >20 deauthentication frames target a drone within 10 seconds, indicating potential jamming
+- **Operator phone**: Warning when a controller/phone device is linked to a drone BSSID
+
+All alerts can be individually toggled and muted in the WiFi Sentinel settings panel.
+
+#### 9.3.7 Detection History
+
+The Detection History card provides access to previously detected drones stored in IndexedDB. Load up to 100 records for timeline review, or export all detections as CSV for external analysis (fields: timestamp, bssid, ssid, manufacturer, type, confidence, rssi, channel, tier).
+
+#### 9.3.8 ESP32-C5 Setup
+
+1. Flash firmware v4.0.0 to both ESP32-C5 units using `./tools/flash_multi_esp32.sh`
+2. Create udev symlinks: `sudo ./tools/setup_udev.sh` (creates `/dev/atlasrf/wifi24` and `/dev/atlasrf/wifi5g`)
+3. Install Termux bridge: `pkg install websocat`
+4. Run bridge: `./scripts/serial-ws-bridge.sh` (exposes ports 8766/8767)
+5. In GridDown, open WiFi Sentinel panel → tap "Termux Bridge"
+
+If connection fails, a setup guide with numbered steps appears below the connection buttons.
+
+### 9.4 SARSAT Beacon Receiver
 
 Monitor COSPAS-SARSAT 406 MHz emergency beacons with external SDR hardware.
 
-#### 9.3.1 Beacon Types
+#### 9.4.1 Beacon Types
 
 | Type | Name | Use Case |
 |------|------|----------|
@@ -669,7 +725,7 @@ Measure distances and areas directly on the map. Access via the sidebar or the m
 GridDown provides weather from multiple sources depending on connectivity:
 
 - **Internet Weather (Open-Meteo):** Current conditions, 7-day forecast, alerts, precipitation probability
-- **FIS-B Weather (RF Sentinel):** METARs, TAFs, SIGMETs from aviation weather broadcast — works without internet
+- **FIS-B Weather (AtlasRF):** METARs, TAFs, SIGMETs from aviation weather broadcast — works without internet
 - **Waypoint Weather:** Click any waypoint to view weather and air quality at that location
 
 ### 11.2 Satellite & Radar Imagery
@@ -987,5 +1043,5 @@ If problems persist, check the browser console (F12) for error messages, try a d
 
 ---
 
-*GridDown v6.57.3 — BlackDot Technology*
+*GridDown v6.57.3 — BlackAtlas LLC*
 *Navigate When Infrastructure Fails*

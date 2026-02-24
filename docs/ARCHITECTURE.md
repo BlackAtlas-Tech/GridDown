@@ -167,7 +167,8 @@ GridDown is a tactical navigation Progressive Web Application (PWA) built with v
 | Module | Lines | Purpose |
 |--------|-------|---------|
 | `radiacode.js` | 1,554 | RadiaCode radiation detector via Bluetooth LE |
-| `rfsentinel.js` | 1,660 | RF Sentinel Pro SDR: spectrum analysis, FPV drone detection |
+| `atlasrf.js` | 1,660 | AtlasRF Pro SDR: spectrum analysis, FPV drone detection |
+| `wifiSentinel.js` | 1,641 | WiFi Sentinel: passive drone detection via 802.11 fingerprinting |
 | `sarsat.js` | 1,018 | SARSAT beacon detection: PLB/ELT/EPIRB via SDR |
 | `barometer.js` | 743 | Device barometer: pressure altitude, weather trends |
 | `rangefinder.js` | 897 | Laser rangefinder integration |

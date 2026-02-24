@@ -473,6 +473,101 @@ const App = (function() {
                 });
             }
             
+            // Initialize WiFi Sentinel module (passive drone fingerprinting)
+            if (typeof WiFiSentinelModule !== 'undefined') {
+                WiFiSentinelModule.init();
+                console.log('WiFi Sentinel module initialized');
+                
+                // Refresh map on new drone detections
+                Events.on('wifi_sentinel:drone:new', () => {
+                    MapModule.render();
+                    if (State.get('activePanel') === 'wifisentinel') {
+                        PanelsModule.render();
+                    }
+                });
+                
+                // 7.8: Throttled panel refresh on track updates (max 2/sec to avoid DOM thrashing with fast ESP32 data)
+                let _wsTrackRenderPending = false;
+                Events.on('wifi_sentinel:tracks:updated', () => {
+                    if (State.get('activePanel') === 'wifisentinel' && !_wsTrackRenderPending) {
+                        _wsTrackRenderPending = true;
+                        setTimeout(() => {
+                            _wsTrackRenderPending = false;
+                            if (State.get('activePanel') === 'wifisentinel') {
+                                PanelsModule.render();
+                            }
+                        }, 500);
+                    }
+                });
+                
+                // Refresh on connection changes
+                Events.on('wifi_sentinel:connected', () => {
+                    if (State.get('activePanel') === 'wifisentinel') {
+                        PanelsModule.render();
+                    }
+                });
+                
+                Events.on('wifi_sentinel:disconnected', () => {
+                    if (State.get('activePanel') === 'wifisentinel') {
+                        PanelsModule.render();
+                    }
+                });
+                
+                // Refresh map on deauth flood
+                Events.on('wifi_sentinel:deauth_flood', () => {
+                    MapModule.render();
+                });
+                
+                // Refresh on track expiry
+                Events.on('wifi_sentinel:track:expired', () => {
+                    MapModule.render();
+                    if (State.get('activePanel') === 'wifisentinel') {
+                        PanelsModule.render();
+                    }
+                });
+                
+                // 7.5: Wire additional events for operator awareness and error visibility
+                Events.on('wifi_sentinel:operator:linked', (data) => {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('📱 Operator phone detected — linked to ' + (data.ssid || data.bssid || 'drone'), 'warning');
+                    }
+                    MapModule.render();
+                });
+                
+                Events.on('wifi_sentinel:error', (data) => {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('WiFi Sentinel: ' + (data.message || data.error || 'Unknown error'), 'error');
+                    }
+                });
+                
+                Events.on('wifi_sentinel:esp32:status', () => {
+                    // Refresh panel to update ESP32 health display (heap, uptime) if panel is open
+                    if (State.get('activePanel') === 'wifisentinel' && !_wsTrackRenderPending) {
+                        _wsTrackRenderPending = true;
+                        setTimeout(() => {
+                            _wsTrackRenderPending = false;
+                            if (State.get('activePanel') === 'wifisentinel') {
+                                PanelsModule.render();
+                            }
+                        }, 500);
+                    }
+                });
+                
+                // Cross-reference with AtlasRF
+                Events.on('wifi_sentinel:crossref:new', (data) => {
+                    MapModule.render();
+                    if (State.get('activePanel') === 'wifisentinel' && !_wsTrackRenderPending) {
+                        _wsTrackRenderPending = true;
+                        setTimeout(() => {
+                            _wsTrackRenderPending = false;
+                            if (State.get('activePanel') === 'wifisentinel') {
+                                PanelsModule.render();
+                            }
+                        }, 500);
+                    }
+                });
+            }
+            
             // Initialize Global Search module
             if (typeof SearchModule !== 'undefined') {
                 SearchModule.init();
@@ -580,6 +675,7 @@ const App = (function() {
         if (typeof NavigationModule !== 'undefined') NavigationModule.destroy?.();
         if (typeof MeshtasticModule !== 'undefined') MeshtasticModule.destroy?.();
         if (typeof APRSModule !== 'undefined') APRSModule.destroy?.();
+        if (typeof WiFiSentinelModule !== 'undefined') WiFiSentinelModule.destroy?.();
         
         // Clear all remaining EventManager scopes
         EventManager.clearAll();
