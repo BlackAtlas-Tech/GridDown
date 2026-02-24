@@ -197,7 +197,7 @@ const WiFiSentinelModule = (function() {
 
         // Settings (persisted)
         settings: {
-            tier0Enabled: true,         // Built-in WiFi scanning
+            tier0Enabled: false,        // Built-in WiFi scanning (requires Termux bridge)
             tier1Enabled: true,         // ESP32 hardware
             autoReconnect: true,        // Reconnect to ESP32 on startup
             alertOnNewDrone: true,
@@ -1042,18 +1042,15 @@ const WiFiSentinelModule = (function() {
     // ==================== Connection: WiFi Scan (Tier 0 - Termux) ====================
 
     function startWifiScan() {
-        if (state.wifiScanTimer) return; // Already running
+        if (state.wifiScanTimer || state.wifiScanActive) return; // Already running
+        if (state.wifiScanWs && state.wifiScanWs.readyState <= WebSocket.OPEN) return; // Connection in progress
 
         // Connect to Termux WiFi scan WebSocket bridge
         connectWifiScanWs();
 
-        // Also request periodic scans
-        state.wifiScanTimer = setInterval(() => {
-            requestWifiScan();
-        }, CONFIG.wifiScanIntervalMs);
-
-        state.wifiScanActive = true;
-        emitEvent('wifi_scan:started', {});
+        // wifiScanActive is set in connectWifiScanWs.onopen, NOT here.
+        // The interval timer is also started on successful connection.
+        // This prevents the UI from showing "active" when the bridge is unreachable.
     }
 
     function stopWifiScan() {
@@ -1088,6 +1085,7 @@ const WiFiSentinelModule = (function() {
                         port: CONFIG.wifiScanWsPort,
                     };
                     state.lastConnectionError = err;
+                    state.wifiScanActive = false;
                     emitEvent('error', err);
                 }
             }, CONFIG.wsConnectTimeoutMs);
@@ -1097,7 +1095,18 @@ const WiFiSentinelModule = (function() {
                 clearTimeout(timeout);
                 state.lastConnectionError = null;
                 state.wifiScanWs = ws;
+                state.wifiScanActive = true;
+
+                // Start periodic scan requests only after connection succeeds
+                if (!state.wifiScanTimer) {
+                    state.wifiScanTimer = setInterval(() => {
+                        requestWifiScan();
+                    }, CONFIG.wifiScanIntervalMs);
+                }
+
                 requestWifiScan();
+                emitEvent('wifi_scan:started', {});
+                emitEvent('connected', { method: 'wifi_scan', tier: 0 });
             };
             ws.onmessage = (event) => {
                 try {
@@ -1112,7 +1121,17 @@ const WiFiSentinelModule = (function() {
                 }
             };
             ws.onclose = () => {
+                const wasActive = state.wifiScanActive;
                 state.wifiScanWs = null;
+                state.wifiScanActive = false;
+                // Stop the polling timer if the bridge disconnects
+                if (state.wifiScanTimer) {
+                    clearInterval(state.wifiScanTimer);
+                    state.wifiScanTimer = null;
+                }
+                if (wasActive) {
+                    emitEvent('disconnected', { method: 'wifi_scan', tier: 0 });
+                }
             };
             ws.onerror = () => {
                 connected = true;
@@ -1125,6 +1144,12 @@ const WiFiSentinelModule = (function() {
                     port: CONFIG.wifiScanWsPort,
                 };
                 state.lastConnectionError = err;
+                state.wifiScanActive = false;
+                // Stop the polling timer — no point polling a dead socket
+                if (state.wifiScanTimer) {
+                    clearInterval(state.wifiScanTimer);
+                    state.wifiScanTimer = null;
+                }
                 emitEvent('error', err);
             };
         } catch (e) {
@@ -1136,6 +1161,7 @@ const WiFiSentinelModule = (function() {
                 port: CONFIG.wifiScanWsPort,
             };
             state.lastConnectionError = err;
+            state.wifiScanActive = false;
             emitEvent('error', err);
         }
     }

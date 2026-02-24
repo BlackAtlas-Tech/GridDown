@@ -44,6 +44,8 @@ echo ""
 chmod +x "$ALIASES_FILE" 2>/dev/null
 chmod +x "$SCRIPT_DIR/termux-setup.sh" 2>/dev/null
 chmod +x "$SCRIPT_DIR/griddown-server.py" 2>/dev/null
+chmod +x "$SCRIPT_DIR/serial-ws-bridge.sh" 2>/dev/null
+chmod +x "$SCRIPT_DIR/wifi-scan-bridge.sh" 2>/dev/null
 
 # ── Step 1: Install shell aliases ───────────────────────────────
 echo -e "${BOLD}[1/3] Shell Aliases${NC}"
@@ -146,6 +148,14 @@ termux-wake-lock
 # Start GridDown HTTP server in background
 python3 "$GRIDDOWN_DIR/scripts/griddown-server.py" &
 
+# Start WiFi Sentinel bridges (if ESP32-C5 units are connected)
+if [ -e /dev/atlasrf/wifi24 ] && command -v websocat &>/dev/null; then
+    "$GRIDDOWN_DIR/scripts/serial-ws-bridge.sh" /dev/atlasrf/wifi24 8766 &
+fi
+if [ -e /dev/atlasrf/wifi5g ] && command -v websocat &>/dev/null; then
+    "$GRIDDOWN_DIR/scripts/serial-ws-bridge.sh" /dev/atlasrf/wifi5g 8767 &
+fi
+
 # Start update watcher (checks every 15 min, pulls if update found)
 # GridDown shows in-app toast — user decides when to apply.
 source "$GRIDDOWN_DIR/scripts/griddown-aliases.sh"
@@ -178,6 +188,22 @@ check() {
 
 check python3 python
 check git git
+
+# Check for WiFi Sentinel bridge dependencies
+if command -v websocat > /dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} websocat found (required for WiFi Sentinel bridges)"
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
+else
+    echo -e "  ${RED}✗${NC} websocat not found — install with: ${BOLD}pkg install websocat${NC}"
+    echo -e "    (Required for WiFi Sentinel ESP32 and WiFi scan bridges)"
+fi
+CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
+
+if command -v termux-wifi-scanresults > /dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} termux-api found (WiFi Sentinel Tier 0 scanning)"
+else
+    echo -e "  ${YELLOW}○${NC} termux-api not installed (optional, for WiFi Sentinel Tier 0: pkg install termux-api)"
+fi
 
 # Check for optional SDR tools
 if command -v rtl_test > /dev/null 2>&1; then

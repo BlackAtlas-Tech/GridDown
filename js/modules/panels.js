@@ -23783,7 +23783,7 @@ After spreading:
                 </h2>
                 <div class="flex items-center gap-2">
                     ${isEsp32 ? '<span class="text-xs" style="color:#22c55e">● ESP32</span>' :
-                      isWifiScan ? '<span class="text-xs" style="color:#f59e0b">● WiFi Scan</span>' :
+                      isWifiScan ? '<span class="text-xs" style="color:#f59e0b">● Termux Scan</span>' :
                       '<span class="text-xs" style="color:#64748b">● Offline</span>'}
                 </div>
             </div>
@@ -23798,7 +23798,7 @@ After spreading:
                             isEsp32 ? 'background:#22c55e20;color:#22c55e' :
                             isWifiScan ? 'background:#f59e0b20;color:#f59e0b' :
                             'background:#64748b20;color:#64748b'}">
-                            ${isEsp32 ? 'Tier 1 — Full' : isWifiScan ? 'Tier 0 — Lite' : 'Disconnected'}
+                            ${isEsp32 ? 'Tier 1 — Full' : isWifiScan ? 'Tier 0 — Termux Scan' : 'Disconnected'}
                         </span>
                     </div>
                     
@@ -23878,21 +23878,31 @@ After spreading:
                         `}
                     </div>
                     
-                    <!-- Tier 0: Built-in WiFi -->
+                    <!-- Tier 0: Termux WiFi Scan -->
                     <div style="padding:0.625rem;background:#0f172a;border-radius:6px;border:1px solid ${isWifiScan && !isEsp32 ? '#f59e0b40' : '#334155'}">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.375rem">
-                            <div style="font-size:0.8rem;font-weight:500;color:${settings.tier0Enabled ? '#f59e0b' : '#94a3b8'}">
-                                📶 Built-in WiFi Scan
+                            <div style="font-size:0.8rem;font-weight:500;color:${isWifiScan ? '#f59e0b' : settings.tier0Enabled ? '#94a3b8' : '#64748b'}">
+                                📶 Termux WiFi Scan
                             </div>
                             <label style="display:flex;align-items:center;gap:0.375rem;cursor:pointer;padding:2px 8px;border-radius:4px;background:${settings.tier0Enabled ? '#f59e0b15' : '#1e293b'}">
                                 <input type="checkbox" id="ws-tier0-toggle" ${settings.tier0Enabled ? 'checked' : ''} 
                                        style="accent-color:#f59e0b;width:16px;height:16px">
-                                <span style="font-size:0.7rem;font-weight:500;color:${settings.tier0Enabled ? '#f59e0b' : '#64748b'}">${settings.tier0Enabled ? 'Enabled' : 'Disabled'}</span>
+                                <span style="font-size:0.7rem;font-weight:500;color:${settings.tier0Enabled ? (isWifiScan ? '#f59e0b' : '#94a3b8') : '#64748b'}">${settings.tier0Enabled ? (isWifiScan ? 'Active' : 'Enabled') : 'Off'}</span>
                             </label>
                         </div>
                         <div style="font-size:0.65rem;color:#64748b">
-                            ${settings.tier0Enabled && isWifiScan ? 'Scanning • ' : settings.tier0Enabled && !isWifiScan ? 'Connecting • ' : ''}Beacons only • ~30s interval • No hardware needed
+                            ${isWifiScan ? '✓ Connected to Termux bridge • ' : ''}Beacons only • ~30s scan interval • No ESP32 hardware needed
                         </div>
+                        ${!settings.tier0Enabled ? `
+                            <div style="font-size:0.6rem;color:#64748b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#1e293b;border-radius:4px">
+                                Uses Android WiFi scan via Termux bridge — requires <span style="font-family:monospace;color:#94a3b8">termux-api</span> + <span style="font-family:monospace;color:#94a3b8">websocat</span> + <span style="font-family:monospace;color:#94a3b8">wifi-scan-bridge.sh</span>
+                            </div>
+                        ` : ''}
+                        ${settings.tier0Enabled && !isWifiScan ? `
+                            <div style="font-size:0.6rem;color:#f59e0b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#f59e0b10;border-radius:4px">
+                                ⚠ Bridge not reachable on port ${hasModule ? WiFiSentinelModule.CONFIG?.wifiScanWsPort || 8765 : 8765} — run <span style="font-family:monospace">./scripts/wifi-scan-bridge.sh</span> in Termux on this device
+                            </div>
+                        ` : ''}
                         ${isWifiScan && !isEsp32 ? `
                             <div style="font-size:0.6rem;color:#f59e0b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#f59e0b10;border-radius:4px">
                                 ⚠ Confidence capped at "med" — upgrade to ESP32-C5 for full detection
@@ -23942,7 +23952,7 @@ After spreading:
                         <div style="font-size:2rem;margin-bottom:0.5rem">📡</div>
                         <div style="color:#94a3b8;font-size:0.85rem">No drones detected</div>
                         <div style="color:#64748b;font-size:0.7rem;margin-top:0.25rem">
-                            ${isConnected ? 'Monitoring WiFi spectrum for drone signatures...' : 'Connect ESP32 hardware or enable WiFi scan to begin'}
+                            ${isConnected ? 'Monitoring WiFi spectrum for drone signatures...' : 'Connect ESP32 hardware or enable Termux WiFi scan to begin'}
                         </div>
                     </div>
                 `}
@@ -24269,7 +24279,7 @@ After spreading:
                 if (typeof WiFiSentinelModule !== 'undefined') {
                     WiFiSentinelModule.updateSettings({ tier0Enabled: tier0Toggle.checked });
                     if (tier0Toggle.checked) {
-                        ModalsModule.showToast('WiFi scan enabled (Tier 0) — will start on app load', 'info');
+                        ModalsModule.showToast('Termux WiFi scan enabled — connecting to bridge...', 'info');
                         // Re-render after timeout to show setup guide if bridge unreachable
                         setTimeout(() => {
                             if (State.get('activePanel') === 'wifisentinel') renderWifiSentinel();
