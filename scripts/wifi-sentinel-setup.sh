@@ -88,10 +88,29 @@ install_pkg() {
     local required="$4"  # "required" or "optional"
 
     if command -v "$cmd" > /dev/null 2>&1; then
-        local ver
-        ver=$("$cmd" --version 2>&1 | head -1 || echo "installed")
+        local ver=""
+        # Get version from package manager (safe) instead of running cmd --version
+        # which can hang for commands like termux-wifi-scanresults that don't support it
+        if [ "$IS_TERMUX" = "1" ]; then
+            ver=$(dpkg -s "$pkg" 2>/dev/null | grep '^Version:' | cut -d' ' -f2 || echo "")
+        fi
+        if [ -z "$ver" ]; then
+            # Fallback: try --version with a 2s timeout to prevent hanging
+            ver=$(timeout 2 "$cmd" --version 2>&1 | head -1 || echo "")
+        fi
         echo -e "  ${GREEN}✓${NC} $pkg — $desc"
-        echo -e "    ${DIM}$ver${NC}"
+        if [ -n "$ver" ]; then
+            echo -e "    ${DIM}v${ver}${NC}"
+        fi
+        return 0
+    fi
+
+    # Also check if the package is installed but the command is different
+    if [ "$IS_TERMUX" = "1" ] && dpkg -s "$pkg" &>/dev/null; then
+        local ver
+        ver=$(dpkg -s "$pkg" 2>/dev/null | grep '^Version:' | cut -d' ' -f2 || echo "installed")
+        echo -e "  ${GREEN}✓${NC} $pkg — $desc"
+        echo -e "    ${DIM}v${ver}${NC}"
         return 0
     fi
 
