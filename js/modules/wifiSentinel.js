@@ -69,6 +69,16 @@ const WiFiSentinelModule = (function() {
 
     // Termux setup guidance (surfaced on connection failure)
     const TERMUX_SETUP_GUIDE = {
+        quickSetup: {
+            title: 'WiFi Sentinel Quick Setup',
+            steps: [
+                'Open Termux on this device',
+                'Run: bash scripts/wifi-sentinel-setup.sh',
+                'Follow prompts to install packages and detect hardware',
+                'Run: ws-start-all (starts all bridges)',
+            ],
+            hint: 'The setup script handles everything — packages, permissions, ESP32 detection, and bridge aliases.',
+        },
         serial: {
             title: 'Termux Serial Bridge Setup',
             steps: [
@@ -77,16 +87,17 @@ const WiFiSentinelModule = (function() {
                 'Run: ./scripts/serial-ws-bridge.sh /dev/ttyACM0 8766',
                 'Run: ./scripts/serial-ws-bridge.sh /dev/ttyACM1 8767',
             ],
-            hint: 'For persistent USB paths, run: sudo ./tools/setup_udev.sh',
+            hint: 'Or run: bash scripts/wifi-sentinel-setup.sh for guided setup.',
         },
         wifiScan: {
             title: 'Termux WiFi Scan Bridge Setup',
             steps: [
                 'Install packages: pkg install termux-api websocat',
+                'Install Termux:API app from Google Play',
                 'Grant Termux:API location permission',
                 'Run: ./scripts/wifi-scan-bridge.sh',
             ],
-            hint: 'WiFi scan requires location permission for Android scan API.',
+            hint: 'Or run: bash scripts/wifi-sentinel-setup.sh for guided setup.',
         },
     };
 

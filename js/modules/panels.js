@@ -23912,6 +23912,39 @@ After spreading:
                 </div>
                 
                 <!-- Active Detections Summary -->
+                ${!isConnected && tracks.length === 0 ? `
+                    <div class="card" style="margin-bottom:1rem;border:1px solid #334155">
+                        <div style="font-weight:600;color:#e2e8f0;margin-bottom:0.5rem;font-size:0.85rem">
+                            🚀 Getting Started
+                        </div>
+                        <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.5rem">
+                            WiFi Sentinel detects drones by fingerprinting 802.11 frames against 9 manufacturer signatures.
+                            Both tiers require Termux as a bridge between Android hardware and the browser.
+                        </div>
+                        <div style="font-size:0.7rem;color:#e2e8f0;margin-bottom:0.375rem;font-weight:500">Quick Setup:</div>
+                        <div style="background:#0f172a;border-radius:6px;padding:0.5rem;font-size:0.65rem;line-height:1.8;margin-bottom:0.5rem">
+                            <div style="display:flex;gap:0.375rem;align-items:baseline">
+                                <span style="color:#64748b;min-width:1rem">1.</span>
+                                <span style="color:#94a3b8">Open <span style="color:#e2e8f0;font-weight:500">Termux</span> on this device</span>
+                            </div>
+                            <div style="display:flex;gap:0.375rem;align-items:baseline">
+                                <span style="color:#64748b;min-width:1rem">2.</span>
+                                <code style="font-family:monospace;color:#fbbf24;word-break:break-all">bash scripts/wifi-sentinel-setup.sh</code>
+                            </div>
+                            <div style="display:flex;gap:0.375rem;align-items:baseline">
+                                <span style="color:#64748b;min-width:1rem">3.</span>
+                                <span style="color:#94a3b8">Follow prompts → then run: <code style="font-family:monospace;color:#fbbf24">ws-start-all</code></span>
+                            </div>
+                            <div style="display:flex;gap:0.375rem;align-items:baseline">
+                                <span style="color:#64748b;min-width:1rem">4.</span>
+                                <span style="color:#94a3b8">Return here and enable the toggle(s) above</span>
+                            </div>
+                        </div>
+                        <div style="font-size:0.6rem;color:#64748b;font-style:italic">
+                            The setup script installs packages, detects ESP32 hardware, creates bridge aliases, and tests connectivity.
+                        </div>
+                    </div>
+                ` : ''}
                 ${tracks.length > 0 ? `
                     <div class="card" style="margin-bottom:1rem">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
