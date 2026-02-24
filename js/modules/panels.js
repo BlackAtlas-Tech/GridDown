@@ -23881,17 +23881,17 @@ After spreading:
                     <!-- Tier 0: Built-in WiFi -->
                     <div style="padding:0.625rem;background:#0f172a;border-radius:6px;border:1px solid ${isWifiScan && !isEsp32 ? '#f59e0b40' : '#334155'}">
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.375rem">
-                            <div style="font-size:0.8rem;font-weight:500;color:${isWifiScan ? '#f59e0b' : '#94a3b8'}">
+                            <div style="font-size:0.8rem;font-weight:500;color:${settings.tier0Enabled ? '#f59e0b' : '#94a3b8'}">
                                 📶 Built-in WiFi Scan
                             </div>
-                            <label style="display:flex;align-items:center;gap:0.25rem;cursor:pointer">
-                                <input type="checkbox" id="ws-tier0-toggle" ${isWifiScan ? 'checked' : ''} 
-                                       style="accent-color:#f59e0b">
-                                <span style="font-size:0.65rem;color:#64748b">${isWifiScan ? 'On' : 'Off'}</span>
+                            <label style="display:flex;align-items:center;gap:0.375rem;cursor:pointer;padding:2px 8px;border-radius:4px;background:${settings.tier0Enabled ? '#f59e0b15' : '#1e293b'}">
+                                <input type="checkbox" id="ws-tier0-toggle" ${settings.tier0Enabled ? 'checked' : ''} 
+                                       style="accent-color:#f59e0b;width:16px;height:16px">
+                                <span style="font-size:0.7rem;font-weight:500;color:${settings.tier0Enabled ? '#f59e0b' : '#64748b'}">${settings.tier0Enabled ? 'Enabled' : 'Disabled'}</span>
                             </label>
                         </div>
                         <div style="font-size:0.65rem;color:#64748b">
-                            Beacons only • ~30s interval • No hardware needed
+                            ${settings.tier0Enabled && isWifiScan ? 'Scanning • ' : settings.tier0Enabled && !isWifiScan ? 'Connecting • ' : ''}Beacons only • ~30s interval • No hardware needed
                         </div>
                         ${isWifiScan && !isEsp32 ? `
                             <div style="font-size:0.6rem;color:#f59e0b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#f59e0b10;border-radius:4px">
@@ -24267,16 +24267,15 @@ After spreading:
         if (tier0Toggle) {
             tier0Toggle.onchange = () => {
                 if (typeof WiFiSentinelModule !== 'undefined') {
+                    WiFiSentinelModule.updateSettings({ tier0Enabled: tier0Toggle.checked });
                     if (tier0Toggle.checked) {
-                        WiFiSentinelModule.startWifiScan();
-                        ModalsModule.showToast('WiFi scan started (Tier 0)', 'info');
+                        ModalsModule.showToast('WiFi scan enabled (Tier 0) — will start on app load', 'info');
                         // Re-render after timeout to show setup guide if bridge unreachable
                         setTimeout(() => {
                             if (State.get('activePanel') === 'wifisentinel') renderWifiSentinel();
                         }, 5000);
                     } else {
-                        WiFiSentinelModule.stopWifiScan();
-                        ModalsModule.showToast('WiFi scan stopped', 'info');
+                        ModalsModule.showToast('WiFi scan disabled — stopped', 'info');
                     }
                     renderWifiSentinel();
                 }
