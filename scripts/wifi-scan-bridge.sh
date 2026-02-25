@@ -2,7 +2,7 @@
 # =============================================================================
 # wifi-scan-bridge.sh — WiFi Sentinel Tier 0 Bridge
 #
-# Runs Android WiFi scans via termux-wifi-scanresults and serves results
+# Runs Android WiFi scans via termux-wifi-scaninfo and serves results
 # over a WebSocket on port 8765 for GridDown's WiFiSentinelModule.
 #
 # Requires:  termux-api (pkg install termux-api) + Termux:API companion app
@@ -13,7 +13,7 @@
 #   ./wifi-scan-bridge.sh 9000         # Start on custom port
 #
 # The bridge listens for {"command":"scan"} messages and responds with
-# the full termux-wifi-scanresults JSON array.
+# the full termux-wifi-scaninfo JSON array.
 #
 # Auto-restarts when a client disconnects — no manual intervention needed.
 #
@@ -33,17 +33,65 @@ if [ -d "$TERMUX_PREFIX/bin" ]; then
 fi
 
 # Check dependencies
-for cmd in termux-wifi-scanresults websocat; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "ERROR: $cmd not found. Install with:"
-        echo "  pkg install termux-api    # for termux-wifi-scanresults"
-        echo "  pkg install websocat      # for WebSocket server"
+missing=0
+
+if ! command -v websocat &>/dev/null && [ ! -f "$TERMUX_PREFIX/bin/websocat" ]; then
+    echo "ERROR: websocat not found."
+    echo "  Fix: pkg install websocat"
+    echo ""
+    missing=1
+fi
+
+if ! command -v termux-wifi-scaninfo &>/dev/null && [ ! -f "$TERMUX_PREFIX/bin/termux-wifi-scaninfo" ]; then
+    echo "ERROR: termux-wifi-scaninfo not found."
+    echo ""
+    echo "  WiFi Sentinel Tier 0 requires TWO separate things both named 'termux-api':"
+    echo ""
+    echo "  ┌─────────────────────────────────────────────────────────────────┐"
+    echo "  │  STEP 1: Install the CLI package (run this inside Termux):     │"
+    echo "  │                                                                 │"
+    echo "  │    pkg update && pkg install -y termux-api                      │"
+    echo "  │                                                                 │"
+    echo "  │  This installs the termux-wifi-scaninfo command.             │"
+    echo "  │                                                                 │"
+    echo "  │  STEP 2: Install the Termux:API Android app (APK):             │"
+    echo "  │                                                                 │"
+    echo "  │    Download from: github.com/termux/termux-api/releases         │"
+    echo "  │    Install the .apk file on your device.                        │"
+    echo "  │                                                                 │"
+    echo "  │  Both steps are required. The APK alone does NOT install the    │"
+    echo "  │  command-line tools. The CLI package alone does NOT work        │"
+    echo "  │  without the companion APK.                                     │"
+    echo "  └─────────────────────────────────────────────────────────────────┘"
+    echo ""
+
+    # Diagnostic: check if pkg thinks it's installed but binary is missing
+    if dpkg -s termux-api 2>/dev/null | grep -q 'Status:.*installed'; then
+        echo "  NOTE: dpkg reports termux-api is installed, but the command is missing."
+        echo "  Try reinstalling:"
+        echo "    pkg reinstall termux-api"
         echo ""
-        echo "Note: termux-api also requires the Termux:API companion app"
-        echo "      installed from the same source as Termux (GitHub or F-Droid)."
-        exit 1
+        echo "  Installed files from termux-api package:"
+        dpkg -L termux-api 2>/dev/null | grep bin/ | head -5
+        echo "  ..."
     fi
-done
+
+    # Check if the companion APK is installed
+    if command -v pm &>/dev/null; then
+        if pm list packages 2>/dev/null | grep -q 'com.termux.api'; then
+            echo "  ✓ Termux:API Android app is installed."
+        else
+            echo "  ✗ Termux:API Android app is NOT installed."
+            echo "    Download from: github.com/termux/termux-api/releases"
+        fi
+    fi
+    echo ""
+    missing=1
+fi
+
+if [ "$missing" -eq 1 ]; then
+    exit 1
+fi
 
 # Write the handler as a temp script (avoids bash-specific 'export -f' issues
 # when websocat's sh-c: prefix spawns /bin/sh instead of bash)
@@ -52,7 +100,7 @@ cat > "$HANDLER_SCRIPT" << 'HANDLER'
 #!/data/data/com.termux/files/usr/bin/bash
 while IFS= read -r line; do
     if echo "$line" | grep -q '"scan"'; then
-        results=$(termux-wifi-scanresults 2>/dev/null || echo '[]')
+        results=$(termux-wifi-scaninfo 2>/dev/null || echo '[]')
         echo "$results"
     fi
 done

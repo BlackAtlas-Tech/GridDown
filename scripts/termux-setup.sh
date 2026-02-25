@@ -207,7 +207,7 @@ else
 fi
 CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
 
-if command -v termux-wifi-scanresults > /dev/null 2>&1 || [ -f "$TERMUX_PREFIX/bin/termux-wifi-scanresults" ] || dpkg -s termux-api 2>/dev/null | grep -q '^Status:.*installed'; then
+if command -v termux-wifi-scaninfo > /dev/null 2>&1 || [ -f "$TERMUX_PREFIX/bin/termux-wifi-scaninfo" ] || dpkg -s termux-api 2>/dev/null | grep -q '^Status:.*installed'; then
     echo -e "  ${GREEN}✓${NC} termux-api found (WiFi Sentinel Tier 0 scanning)"
 else
     if [ -n "$TERMUX_APK_RELEASE" ] && [ "$TERMUX_APK_RELEASE" = "GOOGLE_PLAY_STORE" ]; then

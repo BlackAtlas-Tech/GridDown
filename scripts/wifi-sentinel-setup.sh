@@ -87,6 +87,13 @@ echo ""
 echo -e "${BOLD}[1/7] Installing Packages${NC}"
 echo ""
 
+# Update package repository first (required for fresh installs)
+if [ "$IS_TERMUX" = "1" ]; then
+    echo -e "  Updating package repository..."
+    pkg update -y 2>&1 | tail -1 || true
+    echo ""
+fi
+
 install_pkg() {
     local cmd="$1"
     local pkg="$2"
@@ -209,7 +216,7 @@ if [ "$IS_TERMUX" = "1" ]; then
         echo ""
         echo -e "  ${RED}${BOLD}⚠  Google Play Termux detected${NC}"
         echo -e "  ${YELLOW}   The Termux:API companion app is NOT available on Google Play.${NC}"
-        echo -e "  ${YELLOW}   termux-wifi-scanresults requires Termux:API, so Tier 0 WiFi${NC}"
+        echo -e "  ${YELLOW}   termux-wifi-scaninfo requires Termux:API, so Tier 0 WiFi${NC}"
         echo -e "  ${YELLOW}   scanning is NOT available with the Google Play version.${NC}"
         echo ""
         echo -e "  ${BOLD}   Tier 1 (ESP32-C5) still works${NC} — it only needs websocat."
@@ -221,7 +228,11 @@ if [ "$IS_TERMUX" = "1" ]; then
         echo ""
         WARNINGS=$((WARNINGS + 1))
     else
-        if install_pkg termux-wifi-scanresults termux-api "Android WiFi scan access for Tier 0 drone detection" optional; then
+        echo -e "  ${CYAN}Tier 0 requires TWO separate installs both named 'termux-api':${NC}"
+        echo -e "  ${DIM}  1. CLI package:  pkg install termux-api   (installs the commands)${NC}"
+        echo -e "  ${DIM}  2. Android app:  Termux:API APK from GitHub  (provides WiFi access)${NC}"
+        echo ""
+        if install_pkg termux-wifi-scaninfo termux-api "CLI tools for Android WiFi scan (Step 1 of 2)" optional; then
             HAS_TERMUX_API=1
         fi
         echo ""
@@ -437,11 +448,11 @@ elif [ "$HAS_TERMUX_API" != "1" ]; then
 elif [ "$HAS_WEBSOCAT" != "1" ]; then
     echo -e "  ${YELLOW}○${NC} Skipped — websocat not installed (required for bridge)"
 else
-    echo -e "  Testing WiFi scan via termux-wifi-scanresults..."
+    echo -e "  Testing WiFi scan via termux-wifi-scaninfo..."
     echo ""
 
     # Run a test scan (use full path as fallback)
-    WIFI_SCAN_CMD="termux-wifi-scanresults"
+    WIFI_SCAN_CMD="termux-wifi-scaninfo"
     if ! command -v "$WIFI_SCAN_CMD" &>/dev/null && [ -f "$TERMUX_PREFIX/bin/$WIFI_SCAN_CMD" ]; then
         WIFI_SCAN_CMD="$TERMUX_PREFIX/bin/$WIFI_SCAN_CMD"
     fi
@@ -560,7 +571,7 @@ ws-start-all() {
         ${SCRIPT_DIR}/serial-ws-bridge.sh '${LINK_5G:-${ESP32_DEVICES[1]:-/dev/atlasrf/wifi5g}}' ${WS_PORT_5G} &
         echo \"  Tier 1 — 5 GHz bridge on port ${WS_PORT_5G} (PID \$!)\"
     fi
-    if command -v termux-wifi-scanresults &>/dev/null; then
+    if command -v termux-wifi-scaninfo &>/dev/null; then
         ${SCRIPT_DIR}/wifi-scan-bridge.sh ${WS_PORT_SCAN} &
         echo \"  Tier 0 — WiFi scan bridge on port ${WS_PORT_SCAN} (PID \$!)\"
     fi
@@ -641,7 +652,7 @@ fi
 if [ -e /dev/atlasrf/wifi5g ] && command -v websocat &>/dev/null; then
     \"$GRIDDOWN_DIR/scripts/serial-ws-bridge.sh\" /dev/atlasrf/wifi5g ${WS_PORT_5G} &
 fi
-if command -v termux-wifi-scanresults &>/dev/null && command -v websocat &>/dev/null; then
+if command -v termux-wifi-scaninfo &>/dev/null && command -v websocat &>/dev/null; then
     \"$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh\" ${WS_PORT_SCAN} &
 fi"
 
