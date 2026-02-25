@@ -211,7 +211,7 @@ const WiFiSentinelModule = (function() {
         // Settings (persisted)
         settings: {
             tier0Enabled: false,        // Built-in WiFi scanning (requires Termux bridge)
-            tier1Enabled: true,         // ESP32 hardware
+            tier1Enabled: false,        // ESP32 hardware (enable when hardware connected)
             autoReconnect: true,        // Reconnect to ESP32 on startup
             alertOnNewDrone: true,
             alertOnDeauthFlood: true,
