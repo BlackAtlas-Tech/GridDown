@@ -310,6 +310,9 @@ const WiFiSentinelModule = (function() {
 
         // Cross-references with AtlasRF (drone/fpv correlation)
         crossRefs: new Map(),          // ws_bssid -> { rfTrackId, rfType, matchType, confidence, ... }
+
+        // Tier 0 cache ghost prevention: BSSIDs awaiting confirmation across 2+ scans
+        pendingTier0: new Map(),       // bssid -> { rssi, scanNum, firstSeen, ssid, mfg, conf, ch }
     };
 
     // ==================== Initialization ====================
@@ -699,22 +702,34 @@ const WiFiSentinelModule = (function() {
 
     /**
      * Process a WiFi scan result from Android/Termux (Tier 0).
-     * Input: array of { bssid, ssid, frequency_mhz, rssi, capabilities, timestamp }
+     * Input: array of { bssid, ssid, frequency_mhz, rssi, capabilities }
      *
-     * Android's WifiManager.getScanResults() returns CACHED results. Even after a
-     * drone powers off, its BSSID may persist in the cache for minutes. We detect
-     * cache ghosts two ways:
-     *   1. Android timestamp (microseconds since boot) — if unchanged between scans,
-     *      the entry is stale cached data, not a fresh detection.
-     *   2. Scan miss counting — after processing, any Tier 0 track NOT present in
-     *      the current scan has its missCount incremented. After 3 misses it goes stale.
+     * CACHE GHOST PREVENTION:
+     * Android's WifiManager.getScanResults() returns CACHED results that persist
+     * for minutes after an AP powers off. No single-scan field (timestamp, RSSI)
+     * reliably distinguishes cache from reality because Android may refresh
+     * timestamps and add noise to cached RSSI values.
+     *
+     * Solution: require RSSI CHANGE across consecutive scans as proof of a live
+     * radio signal. Real WiFi signals always fluctuate ±1-5 dBm between 30s scans
+     * due to multipath, thermal noise, and AGC. Cached entries return static or
+     * near-static values.
+     *
+     * Flow:
+     *   1. New BSSID → held in pendingTier0 (not shown to user)
+     *   2. Same BSSID appears in next scan with DIFFERENT RSSI → confirmed as
+     *      real, promoted to active track, alert fires
+     *   3. Same BSSID appears with IDENTICAL RSSI → still pending (likely cache)
+     *   4. After 4 consecutive identical-RSSI scans (~2 min) → discarded as ghost
+     *   5. Existing confirmed tracks: only refresh lastSeen if RSSI changed
      */
     function processWifiScanResults(results) {
         if (!Array.isArray(results)) return;
 
         state.stats.wifiScan.scans++;
+        const scanNum = state.stats.wifiScan.scans;
         let matchCount = 0;
-        const freshInThisScan = new Set();  // BSSIDs with genuinely fresh detections
+        const freshInThisScan = new Set();  // Confirmed-live BSSIDs in this scan
 
         for (const ap of results) {
             const fp = fingerprint(ap.bssid, ap.ssid);
@@ -723,41 +738,34 @@ const WiFiSentinelModule = (function() {
             const bssid = ap.bssid?.toUpperCase();
             if (!bssid) continue;
 
-            const dedupKey = `${bssid}:wifi_scan`;
-            if (!state.tracks.has(bssid) && isDuplicate(dedupKey)) continue;
-
             const channel = frequencyToChannel(ap.frequency_mhz || ap.frequency);
             const rssi = ap.rssi || ap.level || 0;
             let track = state.tracks.get(bssid);
 
-            // ── Ghost detection layer 1: Android timestamp comparison ──
-            const scanTs = ap.timestamp || 0;
-            if (track && scanTs && track.lastScanTimestamp && scanTs === track.lastScanTimestamp) {
-                // Identical timestamp → Android returned cached data, not a fresh radio observation
-                continue;  // Do NOT add to freshInThisScan → miss counter will increment
-            }
-
-            // ── Ghost detection layer 2: RSSI staleness (fallback when no timestamp) ──
-            if (track && !scanTs) {
-                // No timestamp available — use RSSI jitter as proxy.
-                // Real signals fluctuate ±1-3 dBm between 30s scans. Cached data returns
-                // the exact same integer dBm value every time.
+            // ── Case 1: Existing confirmed track ──
+            if (track) {
+                // Only refresh lastSeen (which resets the 5-min expiry timer)
+                // if RSSI actually changed — proof the radio is still active.
+                // Static RSSI = Android cache ghost → freeze lastSeen → maintenance expires it.
                 if (rssi !== 0 && rssi === track.lastScanRssi) {
                     track.staleRssiCount = (track.staleRssiCount || 0) + 1;
-                    if (track.staleRssiCount >= 4) {
-                        // 4 consecutive identical RSSI readings (~2 min) — almost certainly cached
-                        continue;  // Ghost — don't refresh, don't add to freshInThisScan
+                    // Still "present" in scan, so don't miss-count it — but don't
+                    // refresh lastSeen either. After maintenance stale/expiry window,
+                    // the frozen lastSeen will cause cleanup.
+                    if (track.staleRssiCount < 4) {
+                        freshInThisScan.add(bssid);  // Suppress miss counter while checking
                     }
-                } else {
-                    track.staleRssiCount = 0;  // RSSI changed → real signal, reset counter
+                    // After 4+ identical readings: stop suppressing misses → miss counter runs
+                    track.lastScanRssi = rssi;
+                    continue;  // Do NOT call updateTrack — lastSeen stays frozen
                 }
-            }
 
-            // ── Passed ghost checks — this is a genuine detection ──
-            freshInThisScan.add(bssid);
-            matchCount++;
+                // RSSI changed → live signal confirmed
+                track.staleRssiCount = 0;
+                track.lastScanRssi = rssi;
+                freshInThisScan.add(bssid);
+                matchCount++;
 
-            if (track) {
                 updateTrack(track, {
                     rssi, channel,
                     ssid: ap.ssid,
@@ -766,33 +774,65 @@ const WiFiSentinelModule = (function() {
                     type: 'beacon',
                 });
                 track.scanMissCount = 0;
-                track.lastScanTimestamp = scanTs;
-                track.lastScanRssi = rssi;
-            } else {
-                track = createTrack(bssid, ap.ssid, fp.mfg, fp.conf, 'wifi_scan', channel, rssi);
+
+                emitEvent('detection', {
+                    bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
+                    rssi, channel, tier: 'wifi_scan', type: 'beacon'
+                });
+                persistDetection({
+                    bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
+                    t: 'beacon', rssi, ch: channel, _tier: 'wifi_scan'
+                });
+                continue;
+            }
+
+            // ── Case 2: Pending confirmation (seen before, awaiting RSSI change) ──
+            const pending = state.pendingTier0.get(bssid);
+            if (pending) {
+                if (rssi !== 0 && rssi === pending.rssi) {
+                    // RSSI unchanged — still looks like cache
+                    pending.staleCount = (pending.staleCount || 1) + 1;
+                    if (pending.staleCount >= 4) {
+                        // 4 scans with identical RSSI (~2 min) → discard as ghost
+                        state.pendingTier0.delete(bssid);
+                    }
+                    continue;
+                }
+
+                // RSSI changed → real drone confirmed! Promote to active track.
+                state.pendingTier0.delete(bssid);
+                freshInThisScan.add(bssid);
+                matchCount++;
+
+                track = createTrack(bssid, pending.ssid, pending.mfg, pending.conf,
+                                    'wifi_scan', channel, rssi);
                 track.detectionTypes.add('beacon');
-                track.lastScanTimestamp = scanTs;
                 track.lastScanRssi = rssi;
                 state.tracks.set(bssid, track);
                 state.stats.tracksCreated++;
                 emitNewDroneAlert(track);
+
+                emitEvent('detection', {
+                    bssid, ssid: pending.ssid, mfg: pending.mfg, conf: pending.conf,
+                    rssi, channel, tier: 'wifi_scan', type: 'beacon'
+                });
+                persistDetection({
+                    bssid, ssid: pending.ssid, mfg: pending.mfg, conf: pending.conf,
+                    t: 'beacon', rssi, ch: channel, _tier: 'wifi_scan'
+                });
+                continue;
             }
 
-            emitEvent('detection', {
-                bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
-                rssi, channel, tier: 'wifi_scan', type: 'beacon'
+            // ── Case 3: Brand new BSSID — hold as pending ──
+            state.pendingTier0.set(bssid, {
+                rssi, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
+                ch: channel, firstSeen: Date.now(), staleCount: 0,
             });
-
-            // Persist to detection history (IndexedDB)
-            persistDetection({
-                bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
-                t: 'beacon', rssi, ch: channel, _tier: 'wifi_scan'
-            });
+            // Don't create track yet — wait for next scan to confirm RSSI change
         }
 
-        // ── Ghost detection layer 3: Scan miss sweep ──
-        // Tier 0 tracks NOT freshly detected in this scan get miss-counted.
-        // Cached ghosts rejected above also trigger this (they are not in freshInThisScan).
+        // ── Scan miss sweep for confirmed tracks ──
+        // Tier 0 tracks NOT freshly detected get miss-counted.
         // After 3 consecutive misses (~90s at 30s interval), force stale.
         for (const [bssid, track] of state.tracks) {
             if (track.tier !== 'wifi_scan') continue;
@@ -804,6 +844,12 @@ const WiFiSentinelModule = (function() {
                     emitEvent('track:stale', { bssid, mfg: track.mfg, reason: 'scan_miss' });
                 }
             }
+        }
+
+        // Prune old pending entries (older than 3 minutes — well past useful)
+        const pendingExpiry = Date.now() - 180000;
+        for (const [bssid, p] of state.pendingTier0) {
+            if (p.firstSeen < pendingExpiry) state.pendingTier0.delete(bssid);
         }
 
         state.stats.wifiScan.matches += matchCount;
@@ -1428,6 +1474,7 @@ const WiFiSentinelModule = (function() {
         state.esp32Connected = false;
         state.tier = null;
         state.esp32Health.clear();
+        state.pendingTier0.clear();
         state.lastConnectionError = null;
         state.tier0ReconnectAttempts = 0;
         state.tier1ReconnectAttempts = 0;
