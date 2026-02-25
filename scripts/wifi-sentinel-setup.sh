@@ -556,26 +556,44 @@ MARKER="# WiFi Sentinel aliases"
 # ── Build alias block ────────────────────────────────────────────
 ALIAS_BLOCK="$MARKER
 # Bridge start commands
+alias ws-start-scan='${SCRIPT_DIR}/wifi-scan-bridge.sh ${WS_PORT_SCAN}'
 alias ws-start-24='${SCRIPT_DIR}/serial-ws-bridge.sh ${LINK_24} ${WS_PORT_24}'
 alias ws-start-5g='${SCRIPT_DIR}/serial-ws-bridge.sh ${LINK_5G} ${WS_PORT_5G}'
-alias ws-start-scan='${SCRIPT_DIR}/wifi-scan-bridge.sh ${WS_PORT_SCAN}'
 
 # Start all bridges in background
 ws-start-all() {
     echo 'Starting WiFi Sentinel bridges...'
-    if [ -e '${LINK_24}' ] || [ -e '${ESP32_DEVICES[0]:-/dev/null}' ]; then
-        ${SCRIPT_DIR}/serial-ws-bridge.sh '${LINK_24:-${ESP32_DEVICES[0]:-/dev/atlasrf/wifi24}}' ${WS_PORT_24} &
-        echo \"  Tier 1 — 2.4 GHz bridge on port ${WS_PORT_24} (PID \$!)\"
-    fi
-    if [ -e '${LINK_5G}' ] || [ -e '${ESP32_DEVICES[1]:-/dev/null}' ]; then
-        ${SCRIPT_DIR}/serial-ws-bridge.sh '${LINK_5G:-${ESP32_DEVICES[1]:-/dev/atlasrf/wifi5g}}' ${WS_PORT_5G} &
-        echo \"  Tier 1 — 5 GHz bridge on port ${WS_PORT_5G} (PID \$!)\"
-    fi
+    local started=0
+    # Tier 0 — Termux WiFi scan (Android built-in)
     if command -v termux-wifi-scaninfo &>/dev/null; then
         ${SCRIPT_DIR}/wifi-scan-bridge.sh ${WS_PORT_SCAN} &
-        echo \"  Tier 0 — WiFi scan bridge on port ${WS_PORT_SCAN} (PID \$!)\"
+        echo \"  ✓ Tier 0 — WiFi scan bridge on port ${WS_PORT_SCAN} (PID \$!)\"
+        started=\$((started + 1))
+    else
+        echo \"  ○ Tier 0 — Skipped (termux-wifi-scaninfo not found)\"
     fi
-    echo 'Done. Open GridDown WiFi Sentinel panel to connect.'
+    # Tier 1 — ESP32-C5 2.4 GHz (only if device/symlink exists)
+    if [ -e '${LINK_24}' ]; then
+        ${SCRIPT_DIR}/serial-ws-bridge.sh '${LINK_24}' ${WS_PORT_24} &
+        echo \"  ✓ Tier 1 — 2.4 GHz bridge on port ${WS_PORT_24} (PID \$!)\"
+        started=\$((started + 1))
+    else
+        echo \"  ○ Tier 1 — 2.4 GHz skipped (${LINK_24} not found)\"
+    fi
+    # Tier 1 — ESP32-C5 5 GHz (only if device/symlink exists)
+    if [ -e '${LINK_5G}' ]; then
+        ${SCRIPT_DIR}/serial-ws-bridge.sh '${LINK_5G}' ${WS_PORT_5G} &
+        echo \"  ✓ Tier 1 — 5 GHz bridge on port ${WS_PORT_5G} (PID \$!)\"
+        started=\$((started + 1))
+    else
+        echo \"  ○ Tier 1 — 5 GHz skipped (${LINK_5G} not found)\"
+    fi
+    echo ''
+    if [ \$started -gt 0 ]; then
+        echo \"Started \$started bridge(s). Open GridDown WiFi Sentinel panel to connect.\"
+    else
+        echo 'No bridges started. Run wifi-sentinel-setup.sh to configure.'
+    fi
 }
 
 # Stop all bridges
