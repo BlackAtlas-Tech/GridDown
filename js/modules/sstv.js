@@ -1585,13 +1585,26 @@ const SSTVModule = (function() {
             if (typeof ModalsModule !== 'undefined') {
                 // Show callsign input modal
                 const callsign = await new Promise((resolve) => {
-                    ModalsModule.confirm({
-                        title: 'Callsign Required',
-                        message: 'Enter your amateur radio callsign to transmit SSTV:',
-                        input: true,
-                        inputPlaceholder: 'e.g., W1ABC',
-                        onConfirm: (value) => resolve(value ? value.toUpperCase() : null),
-                        onCancel: () => resolve(null)
+                    const bodyHtml = `
+                        <p style="color:#94a3b8;margin-bottom:12px">Enter your amateur radio callsign to transmit SSTV:</p>
+                        <input type="text" id="sstv-callsign-input" placeholder="e.g., W1ABC" style="width:100%;padding:8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:14px;text-transform:uppercase;margin-bottom:16px">
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                            <button id="confirm-ok" class="btn btn--sm btn--primary">Confirm</button>
+                        </div>
+                    `;
+                    ModalsModule.showModal('Callsign Required', bodyHtml);
+                    requestAnimationFrame(() => {
+                        const cancelBtn = document.getElementById('confirm-cancel');
+                        const okBtn = document.getElementById('confirm-ok');
+                        const input = document.getElementById('sstv-callsign-input');
+                        if (input) input.focus();
+                        if (cancelBtn) cancelBtn.addEventListener('click', () => { ModalsModule.closeModal(); resolve(null); });
+                        if (okBtn) okBtn.addEventListener('click', () => {
+                            const val = input?.value?.toUpperCase() || null;
+                            ModalsModule.closeModal();
+                            resolve(val || null);
+                        });
                     });
                 });
                 
@@ -1607,18 +1620,26 @@ const SSTVModule = (function() {
         if (!settings.licenseAcknowledged) {
             if (typeof ModalsModule !== 'undefined') {
                 const acknowledged = await new Promise((resolve) => {
-                    ModalsModule.confirm({
-                        title: 'License Acknowledgment',
-                        message: `SSTV transmission requires a valid amateur radio license.\n\n` +
-                                 `By continuing, you confirm:\n` +
-                                 `• You hold a valid amateur radio license\n` +
-                                 `• You will operate within legal band limits\n` +
-                                 `• You will identify with your callsign per regulations\n` +
-                                 `• You will comply with Part 97 (FCC) or equivalent rules`,
-                        confirmText: 'I Acknowledge',
-                        cancelText: 'Cancel',
-                        onConfirm: () => resolve(true),
-                        onCancel: () => resolve(false)
+                    const bodyHtml = `
+                        <p style="color:#94a3b8;margin-bottom:12px">SSTV transmission requires a valid amateur radio license.</p>
+                        <p style="color:#94a3b8;margin-bottom:16px">By continuing, you confirm:</p>
+                        <ul style="color:#94a3b8;margin:0 0 16px 16px;padding:0;list-style:disc">
+                            <li style="margin-bottom:4px">You hold a valid amateur radio license</li>
+                            <li style="margin-bottom:4px">You will operate within legal band limits</li>
+                            <li style="margin-bottom:4px">You will identify with your callsign per regulations</li>
+                            <li>You will comply with Part 97 (FCC) or equivalent rules</li>
+                        </ul>
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                            <button id="confirm-ok" class="btn btn--sm btn--primary">I Acknowledge</button>
+                        </div>
+                    `;
+                    ModalsModule.showModal('License Acknowledgment', bodyHtml);
+                    requestAnimationFrame(() => {
+                        const cancelBtn = document.getElementById('confirm-cancel');
+                        const okBtn = document.getElementById('confirm-ok');
+                        if (cancelBtn) cancelBtn.addEventListener('click', () => { ModalsModule.closeModal(); resolve(false); });
+                        if (okBtn) okBtn.addEventListener('click', () => { ModalsModule.closeModal(); resolve(true); });
                     });
                 });
                 

@@ -16480,16 +16480,16 @@ ${text}
 
                 <!-- Current Status -->
                 ${latest && latestInterp ? `
-                    <div class="card" style="margin-bottom:12px;border-left:3px solid ${latestInterp.primary.color}">
+                    <div class="card" style="margin-bottom:12px;border-left:3px solid ${latestInterp.color}">
                         <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Latest Sample — ${wq.timeAgo(latest.timestamp)}</div>
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                            <span style="font-size:22px;font-weight:700;color:${latestInterp.primary.color}">${latest.ecoli !== null ? wq.formatCount(latest.ecoli) : '—'}</span>
+                            <span style="font-size:22px;font-weight:700;color:${latestInterp.color}">${latest.ecoli !== null ? wq.formatCount(latest.ecoli) : '—'}</span>
                             <span style="font-size:11px;color:#94a3b8">CFU/100mL<br>E. coli</span>
                         </div>
-                        <div style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${latestInterp.primary.color}22;color:${latestInterp.primary.color}">
-                            ${latestInterp.primary.label}
+                        <div style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${latestInterp.color}22;color:${latestInterp.color}">
+                            ${latestInterp.label}
                         </div>
-                        ${latestInterp.primary.description ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${latestInterp.primary.description}</div>` : ''}
+                        ${latestInterp.description ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${latestInterp.description}</div>` : ''}
                         ${latestInterp.emergency ? `
                             <div style="margin-top:6px;padding:4px 8px;border-radius:4px;background:${latestInterp.emergency.color}22;border:1px solid ${latestInterp.emergency.color}44;font-size:10px;color:${latestInterp.emergency.color}">
                                 ⚠️ ${latestInterp.emergency.label}
@@ -16537,13 +16537,13 @@ ${text}
                     <div style="max-height:300px;overflow-y:auto">
                         ${[...samples].reverse().slice(0, 20).map(s => {
                             const interp = wq.interpretSample(s);
-                            const c = interp?.primary?.color || '#64748b';
+                            const c = interp?.color || '#64748b';
                             return `
                                 <div class="card" style="margin-bottom:6px;padding:8px;border-left:3px solid ${c};cursor:pointer" data-wq-sample="${s.id}">
                                     <div style="display:flex;align-items:center;justify-content:space-between">
                                         <div>
                                             <span style="font-weight:600;font-size:12px;color:${c}">${s.ecoli !== null ? wq.formatCount(s.ecoli) + ' CFU' : '—'}</span>
-                                            <span style="font-size:10px;color:#94a3b8;margin-left:6px">${interp?.primary?.label || 'Unknown'}</span>
+                                            <span style="font-size:10px;color:#94a3b8;margin-left:6px">${interp?.label || 'Unknown'}</span>
                                         </div>
                                         <div style="font-size:10px;color:#64748b">${wq.timeAgo(s.timestamp)}</div>
                                     </div>
@@ -16640,35 +16640,41 @@ ${text}
 
         const gps = typeof GPSModule !== 'undefined' ? GPSModule.getPosition() : null;
 
-        ModalsModule.show({
-            title: '💧 Manual Water Sample',
-            body: `
-                <div style="display:flex;flex-direction:column;gap:10px">
-                    <div>
-                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">E. coli (CFU/100mL) *</label>
-                        <input type="number" id="wq-ecoli" min="0" step="1" placeholder="e.g. 42" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
-                    </div>
-                    <div>
-                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Total Coliforms (CFU/100mL)</label>
-                        <input type="number" id="wq-tc" min="0" step="1" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
-                    </div>
-                    <div>
-                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Location Name</label>
-                        <input type="text" id="wq-location" placeholder="e.g. Eagle Creek" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
-                    </div>
-                    <div>
-                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Notes</label>
-                        <input type="text" id="wq-notes" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
-                    </div>
-                    ${gps ? `<div style="font-size:10px;color:#64748b">📍 GPS position will be attached: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}</div>` : `<div style="font-size:10px;color:#64748b">📍 No GPS fix — sample will not be geotagged</div>`}
+        const bodyHtml = `
+            <div style="display:flex;flex-direction:column;gap:10px">
+                <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">E. coli (CFU/100mL) *</label>
+                    <input type="number" id="wq-ecoli" min="0" step="1" placeholder="e.g. 42" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
                 </div>
-            `,
-            buttons: [
-                { label: 'Cancel', action: 'close' },
-                { label: 'Save Sample', style: 'primary', action: 'save' }
-            ],
-            onAction: (action) => {
-                if (action !== 'save') return;
+                <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Total Coliforms (CFU/100mL)</label>
+                    <input type="number" id="wq-tc" min="0" step="1" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Location Name</label>
+                    <input type="text" id="wq-location" placeholder="e.g. Eagle Creek" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                </div>
+                <div>
+                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Notes</label>
+                    <input type="text" id="wq-notes" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                </div>
+                ${gps ? `<div style="font-size:10px;color:#64748b">📍 GPS position will be attached: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}</div>` : `<div style="font-size:10px;color:#64748b">📍 No GPS fix — sample will not be geotagged</div>`}
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
+                    <button id="wq-modal-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                    <button id="wq-modal-save" class="btn btn--sm btn--primary">Save Sample</button>
+                </div>
+            </div>
+        `;
+
+        ModalsModule.showModal('💧 Manual Water Sample', bodyHtml);
+
+        // Wire button actions after modal renders
+        requestAnimationFrame(() => {
+            const cancelBtn = document.getElementById('wq-modal-cancel');
+            const saveBtn = document.getElementById('wq-modal-save');
+
+            if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
+            if (saveBtn) saveBtn.addEventListener('click', () => {
                 const ecoli = parseFloat(document.getElementById('wq-ecoli')?.value);
                 if (isNaN(ecoli)) {
                     ModalsModule.showToast('E. coli value is required', 'warning');
@@ -16683,9 +16689,10 @@ ${text}
                     lat: gps?.lat || null,
                     lon: gps?.lon || null,
                 });
+                ModalsModule.closeModal();
                 ModalsModule.showToast('💧 Sample saved', 'success');
                 PanelsModule.render();
-            }
+            });
         });
     }
 
@@ -19497,11 +19504,31 @@ ${text}
         if (typeof SSTVEnhanceModule === 'undefined') return;
         
         if (typeof ModalsModule !== 'undefined') {
-            const confirmed = await ModalsModule.confirm(
-                'Clear All Models',
-                'Are you sure you want to delete all downloaded AI models? You will need to re-import them to use AI enhancement.'
-            );
-            if (!confirmed) return;
+            const bodyHtml = `
+                <p style="color:#94a3b8;margin-bottom:16px">Are you sure you want to delete all downloaded AI models? You will need to re-import them to use AI enhancement.</p>
+                <div style="display:flex;gap:8px;justify-content:flex-end">
+                    <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                    <button id="confirm-ok" class="btn btn--sm" style="background:#ef4444;color:#fff">Clear All Models</button>
+                </div>
+            `;
+            ModalsModule.showModal('Clear All Models', bodyHtml);
+            requestAnimationFrame(() => {
+                const cancelBtn = document.getElementById('confirm-cancel');
+                const okBtn = document.getElementById('confirm-ok');
+                if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
+                if (okBtn) okBtn.addEventListener('click', async () => {
+                    ModalsModule.closeModal();
+                    try {
+                        const count = await SSTVEnhanceModule.clearAllModels();
+                        ModalsModule.showToast(`Cleared ${count} model(s)`, 'success');
+                        await loadEnhanceCacheInfo();
+                    } catch (err) {
+                        console.error('[SSTV Enhance] Clear error:', err);
+                        ModalsModule.showToast(`Failed to clear models: ${err.message}`, 'error');
+                    }
+                });
+            });
+            return;
         }
         
         try {
@@ -20706,13 +20733,22 @@ ${text}
         if (clearBtn) {
             clearBtn.onclick = () => {
                 if (typeof ModalsModule !== 'undefined') {
-                    ModalsModule.confirm({
-                        title: 'Clear Annotations',
-                        message: 'Remove all annotations from the image?',
-                        confirmText: 'Clear',
-                        onConfirm: () => {
+                    const bodyHtml = `
+                        <p style="color:#94a3b8;margin-bottom:16px">Remove all annotations from the image?</p>
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                            <button id="confirm-ok" class="btn btn--sm" style="background:#ef4444;color:#fff">Clear</button>
+                        </div>
+                    `;
+                    ModalsModule.showModal('Clear Annotations', bodyHtml);
+                    requestAnimationFrame(() => {
+                        const cancelBtn = document.getElementById('confirm-cancel');
+                        const okBtn = document.getElementById('confirm-ok');
+                        if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
+                        if (okBtn) okBtn.addEventListener('click', () => {
+                            ModalsModule.closeModal();
                             clearAnnotations();
-                        }
+                        });
                     });
                 } else {
                     clearAnnotations();
@@ -20732,15 +20768,24 @@ ${text}
         if (clearHistoryBtn) {
             clearHistoryBtn.onclick = async () => {
                 if (typeof ModalsModule !== 'undefined') {
-                    ModalsModule.confirm({
-                        title: 'Clear History',
-                        message: 'Delete all received images?',
-                        confirmText: 'Delete All',
-                        onConfirm: async () => {
+                    const bodyHtml = `
+                        <p style="color:#94a3b8;margin-bottom:16px">Delete all received images?</p>
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                            <button id="confirm-ok" class="btn btn--sm" style="background:#ef4444;color:#fff">Delete All</button>
+                        </div>
+                    `;
+                    ModalsModule.showModal('Clear History', bodyHtml);
+                    requestAnimationFrame(() => {
+                        const cancelBtn = document.getElementById('confirm-cancel');
+                        const okBtn = document.getElementById('confirm-ok');
+                        if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
+                        if (okBtn) okBtn.addEventListener('click', async () => {
+                            ModalsModule.closeModal();
                             await SSTVModule.clearHistory();
                             getSstvContent().innerHTML = renderSSTVHistory();
                             attachSSTVHandlers();
-                        }
+                        });
                     });
                 }
             };
@@ -21119,52 +21164,49 @@ ${text}
         if (typeof ModalsModule !== 'undefined') {
             const dataURL = SSTVModule.imageDataToDataURL(img.imageData);
             
-            ModalsModule.show({
-                title: `SSTV Image - ${img.mode}`,
-                content: `
-                    <div style="text-align:center">
-                        <img src="${dataURL}" style="max-width:100%;border-radius:8px;margin-bottom:16px">
-                        <div style="color:var(--text-secondary);font-size:13px">
-                            ${new Date(img.timestamp).toLocaleString()}<br>
-                            ${img.width}×${img.height} • ${img.duration?.toFixed(1) || '--'}s
-                        </div>
+            const bodyHtml = `
+                <div style="text-align:center">
+                    <img src="${dataURL}" style="max-width:100%;border-radius:8px;margin-bottom:16px">
+                    <div style="color:var(--text-secondary);font-size:13px">
+                        ${new Date(img.timestamp).toLocaleString()}<br>
+                        ${img.width}×${img.height} • ${img.duration?.toFixed(1) || '--'}s
                     </div>
-                `,
-                buttons: [
-                    {
-                        label: '✏️ Annotate & TX',
-                        class: 'btn--primary',
-                        onClick: () => {
-                            // Clone image data to avoid modifying original
-                            const clonedData = new ImageData(
-                                new Uint8ClampedArray(img.imageData.data),
-                                img.imageData.width,
-                                img.imageData.height
-                            );
-                            openImageForAnnotation(clonedData);
-                        }
-                    },
-                    {
-                        label: 'Export PNG',
-                        class: 'btn--secondary',
-                        onClick: () => {
-                            SSTVModule.exportImage(id);
-                        }
-                    },
-                    {
-                        label: 'Delete',
-                        class: 'btn--danger',
-                        onClick: async () => {
-                            await SSTVModule.deleteImage(id);
-                            getSstvContent().innerHTML = renderSSTVHistory();
-                            attachSSTVHandlers();
-                        }
-                    },
-                    {
-                        label: 'Close',
-                        class: 'btn--secondary'
-                    }
-                ]
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
+                    <button id="sstv-modal-annotate" class="btn btn--sm btn--primary">✏️ Annotate & TX</button>
+                    <button id="sstv-modal-export" class="btn btn--sm btn--secondary">Export PNG</button>
+                    <button id="sstv-modal-delete" class="btn btn--sm" style="color:#ef4444">Delete</button>
+                    <button id="sstv-modal-close" class="btn btn--sm btn--secondary">Close</button>
+                </div>
+            `;
+
+            ModalsModule.showModal(`SSTV Image - ${img.mode}`, bodyHtml);
+
+            requestAnimationFrame(() => {
+                const annotateBtn = document.getElementById('sstv-modal-annotate');
+                const exportBtn = document.getElementById('sstv-modal-export');
+                const deleteBtn = document.getElementById('sstv-modal-delete');
+                const closeBtn = document.getElementById('sstv-modal-close');
+
+                if (annotateBtn) annotateBtn.addEventListener('click', () => {
+                    const clonedData = new ImageData(
+                        new Uint8ClampedArray(img.imageData.data),
+                        img.imageData.width,
+                        img.imageData.height
+                    );
+                    ModalsModule.closeModal();
+                    openImageForAnnotation(clonedData);
+                });
+                if (exportBtn) exportBtn.addEventListener('click', () => {
+                    SSTVModule.exportImage(id);
+                });
+                if (deleteBtn) deleteBtn.addEventListener('click', async () => {
+                    await SSTVModule.deleteImage(id);
+                    ModalsModule.closeModal();
+                    getSstvContent().innerHTML = renderSSTVHistory();
+                    attachSSTVHandlers();
+                });
+                if (closeBtn) closeBtn.addEventListener('click', () => ModalsModule.closeModal());
             });
         }
     }
@@ -23246,14 +23288,23 @@ After spreading:
         if (clearBtn) {
             clearBtn.onclick = () => {
                 if (typeof ModalsModule !== 'undefined') {
-                    ModalsModule.confirm({
-                        title: 'Clear Beacons',
-                        message: 'Remove all received beacons from the list?',
-                        confirmText: 'Clear',
-                        onConfirm: () => {
+                    const bodyHtml = `
+                        <p style="color:#94a3b8;margin-bottom:16px">Remove all received beacons from the list?</p>
+                        <div style="display:flex;gap:8px;justify-content:flex-end">
+                            <button id="confirm-cancel" class="btn btn--sm btn--secondary">Cancel</button>
+                            <button id="confirm-ok" class="btn btn--sm" style="background:#ef4444;color:#fff">Clear</button>
+                        </div>
+                    `;
+                    ModalsModule.showModal('Clear Beacons', bodyHtml);
+                    requestAnimationFrame(() => {
+                        const cancelBtn = document.getElementById('confirm-cancel');
+                        const okBtn = document.getElementById('confirm-ok');
+                        if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
+                        if (okBtn) okBtn.addEventListener('click', () => {
+                            ModalsModule.closeModal();
                             SarsatModule.clearBeacons();
                             renderSarsat();
-                        }
+                        });
                     });
                 } else {
                     SarsatModule.clearBeacons();
