@@ -1760,10 +1760,22 @@ const WiFiSentinelModule = (function() {
         }
     }
 
+    // 6.58.7: rAF-coalesced map render request.  Multiple calls within the
+    // same animation frame (e.g. detection + end-of-scan) collapse into a
+    // single MapModule.render() to avoid redundant full canvas repaints.
+    const _rAF = typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (cb) => setTimeout(cb, 0);  // Node.js / test fallback
+    let _mapRenderScheduled = false;
     function requestMapRender() {
-        if (typeof MapModule !== 'undefined' && MapModule.render) {
-            MapModule.render();
-        }
+        if (_mapRenderScheduled) return;  // Already queued for this frame
+        _mapRenderScheduled = true;
+        _rAF(() => {
+            _mapRenderScheduled = false;
+            if (typeof MapModule !== 'undefined' && MapModule.render) {
+                MapModule.render();
+            }
+        });
     }
 
     function emitNewDroneAlert(track) {

@@ -484,16 +484,32 @@ const App = (function() {
                 WiFiSentinelModule.init();
                 console.log('WiFi Sentinel module initialized');
                 
+                // Shared throttle flag for all WiFi Sentinel panel refreshes
+                let _wsTrackRenderPending = false;
+                
                 // Refresh map on new drone detections
+                // 6.58.7: drone:new no longer calls MapModule.render() or
+                // PanelsModule.render() directly — the end-of-scan path already
+                // fires requestMapRender() + tracks:updated which handle both.
+                // Doubling up caused a rendering storm (2× full canvas repaint +
+                // 2× 390-line panel rebuild) that produced visible jank on first
+                // Tier 0 detection.  Alert/toast/sound remain unaffected (handled
+                // inside emitNewDroneAlert).
                 Events.on('wifi_sentinel:drone:new', () => {
-                    MapModule.render();
-                    if (State.get('activePanel') === 'wifisentinel') {
-                        PanelsModule.render();
+                    // Force a panel refresh via the THROTTLED path so the new
+                    // track appears promptly without double-rendering.
+                    if (State.get('activePanel') === 'wifisentinel' && !_wsTrackRenderPending) {
+                        _wsTrackRenderPending = true;
+                        setTimeout(() => {
+                            _wsTrackRenderPending = false;
+                            if (State.get('activePanel') === 'wifisentinel') {
+                                PanelsModule.render();
+                            }
+                        }, 150);  // Shorter than tracks:updated (500ms) for snappy feel
                     }
                 });
                 
                 // 7.8: Throttled panel refresh on track updates (max 2/sec to avoid DOM thrashing with fast ESP32 data)
-                let _wsTrackRenderPending = false;
                 Events.on('wifi_sentinel:tracks:updated', () => {
                     if (State.get('activePanel') === 'wifisentinel' && !_wsTrackRenderPending) {
                         _wsTrackRenderPending = true;
