@@ -69,7 +69,13 @@ echo ""
 IS_TERMUX=0
 if [ -d "/data/data/com.termux" ]; then
     IS_TERMUX=1
+    # Ensure Termux bin directories are in PATH (critical for command detection)
+    TERMUX_PREFIX="/data/data/com.termux/files/usr"
+    if [ -d "$TERMUX_PREFIX/bin" ]; then
+        export PATH="$TERMUX_PREFIX/bin:$TERMUX_PREFIX/sbin:$PATH"
+    fi
     echo -e "  Environment: ${GREEN}Termux on Android${NC}"
+    echo -e "  ${DIM}PREFIX: ${TERMUX_PREFIX}${NC}"
 else
     echo -e "  Environment: ${CYAN}Linux${NC}"
 fi
@@ -87,30 +93,42 @@ install_pkg() {
     local desc="$3"
     local required="$4"  # "required" or "optional"
 
+    # Method 1: Check if command is in PATH
     if command -v "$cmd" > /dev/null 2>&1; then
         local ver=""
-        # Get version from package manager (safe) instead of running cmd --version
-        # which can hang for commands like termux-wifi-scanresults that don't support it
         if [ "$IS_TERMUX" = "1" ]; then
             ver=$(dpkg -s "$pkg" 2>/dev/null | grep '^Version:' | cut -d' ' -f2 || echo "")
         fi
         if [ -z "$ver" ]; then
-            # Fallback: try --version with a 2s timeout to prevent hanging
             ver=$(timeout 2 "$cmd" --version 2>&1 | head -1 || echo "")
         fi
         echo -e "  ${GREEN}✓${NC} $pkg — $desc"
-        if [ -n "$ver" ]; then
-            echo -e "    ${DIM}v${ver}${NC}"
-        fi
+        [ -n "$ver" ] && echo -e "    ${DIM}v${ver}${NC}"
         return 0
     fi
 
-    # Also check if the package is installed but the command is different
-    if [ "$IS_TERMUX" = "1" ] && dpkg -s "$pkg" &>/dev/null; then
+    # Method 2: Check if binary exists at Termux prefix directly (PATH may be incomplete)
+    if [ "$IS_TERMUX" = "1" ] && [ -n "$TERMUX_PREFIX" ] && [ -f "$TERMUX_PREFIX/bin/$cmd" ]; then
         local ver
         ver=$(dpkg -s "$pkg" 2>/dev/null | grep '^Version:' | cut -d' ' -f2 || echo "installed")
         echo -e "  ${GREEN}✓${NC} $pkg — $desc"
-        echo -e "    ${DIM}v${ver}${NC}"
+        echo -e "    ${DIM}v${ver} (found at \$PREFIX/bin/$cmd)${NC}"
+        return 0
+    fi
+
+    # Method 3: Check dpkg package status
+    if [ "$IS_TERMUX" = "1" ] && dpkg -s "$pkg" 2>/dev/null | grep -q '^Status:.*installed'; then
+        local ver
+        ver=$(dpkg -s "$pkg" 2>/dev/null | grep '^Version:' | cut -d' ' -f2 || echo "installed")
+        echo -e "  ${GREEN}✓${NC} $pkg — $desc"
+        echo -e "    ${DIM}v${ver} (dpkg: installed)${NC}"
+        return 0
+    fi
+
+    # Method 4: Check pkg list-installed (alternative to dpkg on some Termux builds)
+    if [ "$IS_TERMUX" = "1" ] && pkg list-installed 2>/dev/null | grep -q "^${pkg}/"; then
+        echo -e "  ${GREEN}✓${NC} $pkg — $desc"
+        echo -e "    ${DIM}(detected via pkg list-installed)${NC}"
         return 0
     fi
 
@@ -415,15 +433,19 @@ if [ "$IS_TERMUX" != "1" ]; then
 elif [ "$HAS_TERMUX_API" != "1" ]; then
     echo -e "  ${YELLOW}○${NC} Skipped — termux-api not installed"
     echo -e "    ${DIM}Install with: pkg install termux-api${NC}"
-    echo -e "    ${DIM}Also install the Termux:API companion app from Google Play.${NC}"
+    echo -e "    ${DIM}Also install the Termux:API companion app from the same source as Termux.${NC}"
 elif [ "$HAS_WEBSOCAT" != "1" ]; then
     echo -e "  ${YELLOW}○${NC} Skipped — websocat not installed (required for bridge)"
 else
     echo -e "  Testing WiFi scan via termux-wifi-scanresults..."
     echo ""
 
-    # Run a test scan
-    SCAN_OUTPUT=$(termux-wifi-scanresults 2>&1 || echo "ERROR")
+    # Run a test scan (use full path as fallback)
+    WIFI_SCAN_CMD="termux-wifi-scanresults"
+    if ! command -v "$WIFI_SCAN_CMD" &>/dev/null && [ -f "$TERMUX_PREFIX/bin/$WIFI_SCAN_CMD" ]; then
+        WIFI_SCAN_CMD="$TERMUX_PREFIX/bin/$WIFI_SCAN_CMD"
+    fi
+    SCAN_OUTPUT=$($WIFI_SCAN_CMD 2>&1 || echo "ERROR")
 
     if echo "$SCAN_OUTPUT" | grep -q "ERROR\|error\|permission\|denied"; then
         echo -e "  ${RED}✗${NC} WiFi scan failed"
@@ -432,7 +454,7 @@ else
         echo -e "  ${YELLOW}Troubleshooting:${NC}"
         echo "    1. Grant location permission to the Termux:API app"
         echo "    2. Enable location services on the device"
-        echo "    3. Ensure the Termux:API app is installed from Google Play"
+        echo "    3. Ensure the Termux:API app is installed from the same source as Termux"
         WARNINGS=$((WARNINGS + 1))
     elif echo "$SCAN_OUTPUT" | grep -q '^\['; then
         # Count networks found

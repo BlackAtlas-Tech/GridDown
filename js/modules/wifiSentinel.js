@@ -227,6 +227,9 @@ const WiFiSentinelModule = (function() {
         // Connection error tracking (surfaced to panel)
         lastConnectionError: null,     // { type, message, timestamp, guide }
 
+        // Auto-reconnect suppression (set during explicit disconnect)
+        autoReconnectSuppressed: false,
+
         // Cross-references with AtlasRF (drone/fpv correlation)
         crossRefs: new Map(),          // ws_bssid -> { rfTrackId, rfType, matchType, confidence, ... }
     };
@@ -1021,6 +1024,15 @@ const WiFiSentinelModule = (function() {
                     state.esp32Connected = false;
                     emitEvent('disconnected', { method: 'websocket', unit: unitId });
                 }
+                // Auto-reconnect if autoReconnect is enabled (bridge may have restarted)
+                if (state.settings.autoReconnect && state.settings.tier1Enabled && !state.autoReconnectSuppressed) {
+                    setTimeout(() => {
+                        if (state.settings.autoReconnect && !state.wsConnections.has(unitId) && !state.autoReconnectSuppressed) {
+                            console.log(`WiFiSentinel: Tier 1 auto-reconnecting ${unitId} on port ${wsPort}...`);
+                            connectTermuxWs(unitId, wsPort);
+                        }
+                    }, 3000);
+                }
             };
             ws.onerror = (e) => {
                 connected = true; // Prevent timeout from double-firing
@@ -1083,6 +1095,9 @@ const WiFiSentinelModule = (function() {
 
         try {
             const ws = new WebSocket(url);
+            // Track the ws reference immediately so startWifiScan's guard can detect
+            // a connection-in-progress (before onopen sets wifiScanActive)
+            state.wifiScanWs = ws;
             let connected = false;
 
             const timeout = setTimeout(() => {
@@ -1105,7 +1120,6 @@ const WiFiSentinelModule = (function() {
                 connected = true;
                 clearTimeout(timeout);
                 state.lastConnectionError = null;
-                state.wifiScanWs = ws;
                 state.wifiScanActive = true;
 
                 // Start periodic scan requests only after connection succeeds
@@ -1142,6 +1156,15 @@ const WiFiSentinelModule = (function() {
                 }
                 if (wasActive) {
                     emitEvent('disconnected', { method: 'wifi_scan', tier: 0 });
+                }
+                // Auto-reconnect if Tier 0 is still enabled (bridge may have restarted)
+                if (state.settings.tier0Enabled && !state.autoReconnectSuppressed) {
+                    setTimeout(() => {
+                        if (state.settings.tier0Enabled && !state.wifiScanActive && !state.autoReconnectSuppressed) {
+                            console.log('WiFiSentinel: Tier 0 auto-reconnecting...');
+                            startWifiScan();
+                        }
+                    }, 3000);
                 }
             };
             ws.onerror = () => {
@@ -1212,6 +1235,9 @@ const WiFiSentinelModule = (function() {
     }
 
     function disconnectAll() {
+        // Suppress auto-reconnect during explicit disconnect
+        state.autoReconnectSuppressed = true;
+
         // Close serial ports
         for (const port of state.serialPorts) {
             try { port.close(); } catch (e) {}
@@ -1231,6 +1257,9 @@ const WiFiSentinelModule = (function() {
         state.esp32Health.clear();
         state.lastConnectionError = null;
         emitEvent('disconnected', { method: 'all' });
+
+        // Re-enable auto-reconnect after close events have fired
+        setTimeout(() => { state.autoReconnectSuppressed = false; }, 1000);
     }
 
     // ==================== Cross-Reference: AtlasRF Correlation ====================

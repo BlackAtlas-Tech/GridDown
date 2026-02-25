@@ -30,6 +30,12 @@ BASHRC="$HOME/.bashrc"
 SOURCE_LINE="source \"$ALIASES_FILE\""
 MARKER="# GridDown aliases"
 
+# ── Ensure Termux bin directories are in PATH ──────────────────
+TERMUX_PREFIX="/data/data/com.termux/files/usr"
+if [ -d "$TERMUX_PREFIX/bin" ]; then
+    export PATH="$TERMUX_PREFIX/bin:$TERMUX_PREFIX/sbin:$PATH"
+fi
+
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║       GridDown Termux Setup Script           ║${NC}"
@@ -178,8 +184,10 @@ CHECKS_TOTAL=0
 
 check() {
     CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
-    if command -v "$1" > /dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} $1 found: $($1 --version 2>&1 | head -1)"
+    if command -v "$1" > /dev/null 2>&1 || [ -f "$TERMUX_PREFIX/bin/$1" ]; then
+        local ver
+        ver=$(timeout 2 "$1" --version 2>&1 | head -1 || echo "installed")
+        echo -e "  ${GREEN}✓${NC} $1 found: $ver"
         CHECKS_PASSED=$((CHECKS_PASSED + 1))
     else
         echo -e "  ${RED}✗${NC} $1 not found — install with: ${BOLD}pkg install $2${NC}"
@@ -190,7 +198,7 @@ check python3 python
 check git git
 
 # Check for WiFi Sentinel bridge dependencies
-if command -v websocat > /dev/null 2>&1; then
+if command -v websocat > /dev/null 2>&1 || [ -f "$TERMUX_PREFIX/bin/websocat" ]; then
     echo -e "  ${GREEN}✓${NC} websocat found (required for WiFi Sentinel bridges)"
     CHECKS_PASSED=$((CHECKS_PASSED + 1))
 else
@@ -199,7 +207,7 @@ else
 fi
 CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
 
-if command -v termux-wifi-scanresults > /dev/null 2>&1; then
+if command -v termux-wifi-scanresults > /dev/null 2>&1 || [ -f "$TERMUX_PREFIX/bin/termux-wifi-scanresults" ] || dpkg -s termux-api 2>/dev/null | grep -q '^Status:.*installed'; then
     echo -e "  ${GREEN}✓${NC} termux-api found (WiFi Sentinel Tier 0 scanning)"
 else
     if [ -n "$TERMUX_APK_RELEASE" ] && [ "$TERMUX_APK_RELEASE" = "GOOGLE_PLAY_STORE" ]; then

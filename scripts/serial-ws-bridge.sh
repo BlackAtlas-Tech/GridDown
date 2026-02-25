@@ -21,11 +21,17 @@
 # SPDX-License-Identifier: Proprietary
 # =============================================================================
 
-set -euo pipefail
+set -u
 
 SERIAL_PORT="${1:?Usage: $0 <serial_port> [ws_port]}"
 WS_PORT="${2:-8766}"
 BAUD=115200
+
+# Ensure Termux bin is in PATH
+TERMUX_PREFIX="/data/data/com.termux/files/usr"
+if [ -d "$TERMUX_PREFIX/bin" ]; then
+    export PATH="$TERMUX_PREFIX/bin:$PATH"
+fi
 
 # Check dependencies
 if ! command -v websocat &>/dev/null; then
@@ -50,9 +56,28 @@ stty -F "$SERIAL_PORT" "$BAUD" cs8 -cstopb -parenb raw -echo 2>/dev/null || {
 echo "WiFi Sentinel Tier 1 Serial Bridge"
 echo "  Serial: $SERIAL_PORT @ ${BAUD} baud"
 echo "  WebSocket: ws://localhost:${WS_PORT}"
+echo "  Auto-restarts on client disconnect"
 echo "  Press Ctrl+C to stop"
 echo ""
 
-# Start: read serial → broadcast via WebSocket
-# websocat in server mode, piping serial input to all connected clients
-cat "$SERIAL_PORT" | websocat -s "$WS_PORT" --text
+CONNECTIONS=0
+
+# Main loop: restart websocat when client disconnects
+while true; do
+    CONNECTIONS=$((CONNECTIONS + 1))
+    echo "[$(date '+%H:%M:%S')] Waiting for connection #${CONNECTIONS} on port ${WS_PORT}..."
+
+    # Verify serial port still exists before each connection attempt
+    if [ ! -e "$SERIAL_PORT" ]; then
+        echo "[$(date '+%H:%M:%S')] Serial port $SERIAL_PORT disappeared — waiting for reconnection..."
+        sleep 3
+        continue
+    fi
+
+    # Read serial → broadcast via WebSocket
+    # websocat -s is single-connection; loop handles reconnects
+    cat "$SERIAL_PORT" 2>/dev/null | websocat -s "$WS_PORT" --text 2>/dev/null || true
+
+    echo "[$(date '+%H:%M:%S')] Client disconnected. Restarting in 2s..."
+    sleep 2
+done
