@@ -627,6 +627,14 @@ const PanelsModule = (function() {
             if (isPanelOpen) panelEl.classList.add('panel--open');
             else panelEl.classList.remove('panel--open');
             panelEl.classList.remove('panel--collapsed');
+            
+            // 6.58.7: Hide mobile-status bar and FAB when panel is open.
+            // Both sit at z-index > 150 (the panel) and visually obscure
+            // the close button (mobile-status) and panel content (FAB).
+            const mobileStatus = document.getElementById('mobile-status');
+            const mobileFab    = document.getElementById('mobile-fab');
+            if (mobileStatus) mobileStatus.style.display = isPanelOpen ? 'none' : '';
+            if (mobileFab)    mobileFab.style.display    = isPanelOpen ? 'none' : '';
         } else {
             // Desktop: collapse/expand in flex layout
             if (isPanelOpen) {

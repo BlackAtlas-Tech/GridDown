@@ -2387,6 +2387,23 @@ input::placeholder { color: var(--color-text-muted); }
     /* Coordinate converter mobile adjustments */
     .coord-format-selector { flex-wrap: wrap; }
     .coord-format-btn { min-width: calc(33% - 4px); }
+    
+    /* 6.58.7: Mobile panel close button — larger touch target (44px WCAG),
+       higher contrast, and safe-area-aware positioning so it's always
+       visible and reachable on tablets */
+    .panel__close-btn {
+        top: calc(12px + var(--safe-top, 0px));
+        right: 12px;
+        width: 44px;
+        height: 44px;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.85);
+        border-radius: 10px;
+    }
+    .panel__close-btn svg { width: 20px; height: 20px; }
+    .panel__close-btn:active { background: rgba(255, 255, 255, 0.2); }
+    .panel__header { padding-right: 52px; }
 }
 @media (max-width: 480px) {
     .stat-grid--3 { grid-template-columns: 1fr 1fr; }
