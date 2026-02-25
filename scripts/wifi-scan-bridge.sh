@@ -98,10 +98,20 @@ fi
 HANDLER_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/wifi-scan-handler.XXXXXX")
 cat > "$HANDLER_SCRIPT" << 'HANDLER'
 #!/data/data/com.termux/files/usr/bin/bash
+SCAN_COUNT=0
 while IFS= read -r line; do
     if echo "$line" | grep -q '"scan"'; then
+        SCAN_COUNT=$((SCAN_COUNT + 1))
         results=$(termux-wifi-scaninfo 2>/dev/null || echo '[]')
-        echo "$results"
+        # CRITICAL: Compact JSON to a single line.
+        # websocat exec: sends each stdout line as a separate WebSocket frame.
+        # If termux-wifi-scaninfo returns pretty-printed (multi-line) JSON,
+        # each line becomes its own frame → browser JSON.parse fails on all of them.
+        compact=$(echo "$results" | tr -d '\n')
+        echo "$compact"
+        # Count APs for terminal diagnostic (stderr so it doesn't go to WebSocket)
+        ap_count=$(echo "$compact" | grep -o '"bssid"' | wc -l)
+        echo "[scan #${SCAN_COUNT}] ${ap_count} APs returned" >&2
     fi
 done
 HANDLER
@@ -130,7 +140,8 @@ while true; do
 
     # Use exec: to run the handler script directly (portable, no export -f needed)
     # Bind to 0.0.0.0 so the bridge is reachable from any interface (not just localhost)
-    websocat ws-l:0.0.0.0:"$PORT" "exec:$HANDLER_SCRIPT" --text 2>/dev/null
+    # Note: stderr NOT suppressed — handler writes scan diagnostics to stderr for terminal visibility
+    websocat ws-l:0.0.0.0:"$PORT" "exec:$HANDLER_SCRIPT" --text
 
     echo "[$(date '+%H:%M:%S')] Client disconnected. Restarting in 1s..."
     sleep 1
