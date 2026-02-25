@@ -112,8 +112,9 @@ cleanup() {
     rm -f "$HANDLER_SCRIPT"
     echo ""
     echo "WiFi scan bridge stopped."
+    exit 0
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 echo "WiFi Sentinel Tier 0 Bridge"
 echo "  Listening on ws://localhost:${PORT}"

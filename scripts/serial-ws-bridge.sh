@@ -60,6 +60,13 @@ echo "  Auto-restarts on client disconnect"
 echo "  Press Ctrl+C to stop"
 echo ""
 
+cleanup() {
+    echo ""
+    echo "Serial bridge stopped."
+    exit 0
+}
+trap cleanup INT TERM
+
 CONNECTIONS=0
 
 # Main loop: restart websocat when client disconnects
