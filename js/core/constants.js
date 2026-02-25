@@ -409,6 +409,7 @@ const Constants = (function() {
         // Environment
         { id: 'weather', icon: 'weather', label: 'Weather', category: 'ENVIRONMENT' },
         { id: 'terrain', icon: 'mountain', label: 'Terrain', category: 'ENVIRONMENT' },
+        { id: 'waterquality', icon: 'droplet', label: 'Water', category: 'ENVIRONMENT' },
         // Comms
         { id: 'team', icon: 'team', label: 'Team', category: 'COMMS' },
         { id: 'comms', icon: 'radio', label: 'Comms', category: 'COMMS' },

@@ -1434,6 +1434,9 @@ const WaterQualityModule = (function() {
     }
 
     return {
+        // Lifecycle
+        init,
+
         // Connection
         isSerialAvailable,
         connectSerial,

@@ -594,6 +594,7 @@ const PanelsModule = (function() {
             case 'coords': renderCoordinateConverter(); break;
             case 'comms': renderComms(); break;
             case 'terrain': renderTerrain(); break;
+            case 'waterquality': renderWaterQuality(); break;
             case 'radio': renderRadio(); break;
             case 'sstv': renderSSTV(); break;
             case 'medical': renderMedical(); break;
@@ -16409,6 +16410,285 @@ ${text}
     /**
      * Render the Terrain Analysis panel
      */
+    // ==================== Water Quality (Fluidion ALERT One) ====================
+
+    function renderWaterQuality() {
+        _saveScroll(); _restoreScroll();
+        const container = document.getElementById('panel-content');
+        if (!container) return;
+
+        const wq = typeof WaterQualityModule !== 'undefined' ? WaterQualityModule : null;
+        const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
+        const isConnected = wq?.isConnected() || false;
+        const isConnecting = wq?.isConnecting() || false;
+        const isDownloading = wq?.isDownloading() || false;
+        const samples = wq?.getSamples() || [];
+        const stats = wq?.getStats() || { totalSamples: 0 };
+        const activeStandard = wq?.getActiveStandard() || 'who_drinking';
+        const standards = wq?.getStandards() || {};
+        const showOnMap = wq?.isShowOnMap() || false;
+        const isDemoMode = wq?.isDemoMode() || false;
+
+        // Latest sample for summary
+        const latest = samples.length > 0 ? samples[samples.length - 1] : null;
+        const latestInterp = latest ? wq?.interpretSample(latest) : null;
+
+        let statusText = 'Disconnected';
+        let statusColor = '#64748b';
+        if (isDownloading) { statusText = 'Downloading...'; statusColor = '#3b82f6'; }
+        else if (isConnected) { statusText = 'Connected'; statusColor = '#22c55e'; }
+        else if (isConnecting) { statusText = 'Connecting...'; statusColor = '#f59e0b'; }
+
+        container.innerHTML = `
+            <div class="panel__header">
+                <h2 class="panel__title" id="panel-title">
+                    ${Icons.get('droplet')}
+                    Water Quality
+                </h2>
+                <div class="flex items-center gap-2">
+                    ${isConnected ? '<span class="text-xs" style="color:#22c55e">● ALERT One</span>' : ''}
+                </div>
+            </div>
+
+            <div class="panel__body" role="region" aria-label="Water quality analysis">
+                ${!wq ? `
+                    <div class="alert alert--warning" style="margin-bottom:16px">
+                        ⚠️ Water quality module not loaded.
+                    </div>
+                ` : ''}
+
+                <!-- Connection -->
+                <div class="card" style="margin-bottom:12px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                        <div style="display:flex;align-items:center;gap:8px">
+                            <span style="font-size:18px">🧪</span>
+                            <div>
+                                <div style="font-weight:600;font-size:13px;color:#e2e8f0">Fluidion ALERT One</div>
+                                <div style="font-size:11px;color:${statusColor}">${statusText}</div>
+                            </div>
+                        </div>
+                        ${wq ? (isConnected ? `
+                            <button class="btn btn--sm btn--secondary" id="wq-disconnect">Disconnect</button>
+                        ` : `
+                            <button class="btn btn--sm btn--primary" id="wq-connect" ${!hasSerial ? 'disabled title="Web Serial API not available in this browser"' : ''}>
+                                ${isConnecting || isDownloading ? '⏳' : '🔌'} ${isConnecting ? 'Connecting...' : 'Connect USB'}
+                            </button>
+                        `) : ''}
+                    </div>
+                    ${!hasSerial ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">USB Serial requires Chrome/Edge. You can still import CSV files or enter samples manually.</div>` : ''}
+                </div>
+
+                <!-- Current Status -->
+                ${latest && latestInterp ? `
+                    <div class="card" style="margin-bottom:12px;border-left:3px solid ${latestInterp.primary.color}">
+                        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Latest Sample — ${wq.timeAgo(latest.timestamp)}</div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span style="font-size:22px;font-weight:700;color:${latestInterp.primary.color}">${latest.ecoli !== null ? wq.formatCount(latest.ecoli) : '—'}</span>
+                            <span style="font-size:11px;color:#94a3b8">CFU/100mL<br>E. coli</span>
+                        </div>
+                        <div style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${latestInterp.primary.color}22;color:${latestInterp.primary.color}">
+                            ${latestInterp.primary.label}
+                        </div>
+                        ${latestInterp.primary.description ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${latestInterp.primary.description}</div>` : ''}
+                        ${latestInterp.emergency ? `
+                            <div style="margin-top:6px;padding:4px 8px;border-radius:4px;background:${latestInterp.emergency.color}22;border:1px solid ${latestInterp.emergency.color}44;font-size:10px;color:${latestInterp.emergency.color}">
+                                ⚠️ ${latestInterp.emergency.label}
+                            </div>
+                        ` : ''}
+                    </div>
+                ` : `
+                    <div class="card" style="margin-bottom:12px;text-align:center;padding:16px;color:#64748b">
+                        <div style="font-size:24px;margin-bottom:8px">💧</div>
+                        <div style="font-size:12px">No water quality samples yet</div>
+                        <div style="font-size:10px;margin-top:4px">Connect ALERT One, import CSV, or add a manual sample</div>
+                    </div>
+                `}
+
+                <!-- Actions -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                    <button class="btn btn--sm btn--secondary" id="wq-manual" ${!wq ? 'disabled' : ''}>+ Manual Sample</button>
+                    <button class="btn btn--sm btn--secondary" id="wq-import" ${!wq ? 'disabled' : ''}>📂 Import CSV</button>
+                    ${samples.length > 0 ? `<button class="btn btn--sm btn--secondary" id="wq-export">💾 Export</button>` : ''}
+                    <button class="btn btn--sm btn--secondary" id="wq-demo" style="${isDemoMode ? 'color:#f59e0b' : ''}">${isDemoMode ? '⏹ Stop Demo' : '▶ Demo'}</button>
+                </div>
+
+                <!-- Settings row -->
+                <div class="card" style="margin-bottom:12px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                        <span style="font-size:11px;color:#94a3b8">Regulatory Standard</span>
+                        <select id="wq-standard" style="font-size:11px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 6px">
+                            ${Object.entries(standards).map(([key, std]) =>
+                                `<option value="${key}" ${key === activeStandard ? 'selected' : ''}>${std.shortName}</option>`
+                            ).join('')}
+                        </select>
+                    </div>
+                    <div style="display:flex;align-items:center;justify-content:space-between">
+                        <span style="font-size:11px;color:#94a3b8">Show on map</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="wq-map-toggle" ${showOnMap ? 'checked' : ''}>
+                            <span class="toggle-switch__slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Sample History -->
+                ${samples.length > 0 ? `
+                    <div class="section-label" style="margin-bottom:8px">📋 Sample History (${samples.length})</div>
+                    <div style="max-height:300px;overflow-y:auto">
+                        ${[...samples].reverse().slice(0, 20).map(s => {
+                            const interp = wq.interpretSample(s);
+                            const c = interp?.primary?.color || '#64748b';
+                            return `
+                                <div class="card" style="margin-bottom:6px;padding:8px;border-left:3px solid ${c};cursor:pointer" data-wq-sample="${s.id}">
+                                    <div style="display:flex;align-items:center;justify-content:space-between">
+                                        <div>
+                                            <span style="font-weight:600;font-size:12px;color:${c}">${s.ecoli !== null ? wq.formatCount(s.ecoli) + ' CFU' : '—'}</span>
+                                            <span style="font-size:10px;color:#94a3b8;margin-left:6px">${interp?.primary?.label || 'Unknown'}</span>
+                                        </div>
+                                        <div style="font-size:10px;color:#64748b">${wq.timeAgo(s.timestamp)}</div>
+                                    </div>
+                                    ${s.locationName || s.samplePoint ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 ${s.locationName || s.samplePoint}</div>` : ''}
+                                    ${s.source !== 'manual' ? `<div style="font-size:9px;color:#475569;margin-top:1px">Source: ${s.source}</div>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                        ${samples.length > 20 ? `<div style="text-align:center;font-size:10px;color:#64748b;padding:8px">Showing latest 20 of ${samples.length}</div>` : ''}
+                    </div>
+
+                    ${samples.length > 0 ? `
+                        <div style="margin-top:8px;text-align:right">
+                            <button class="btn btn--sm" id="wq-clear-all" style="color:#ef4444;font-size:10px">🗑 Clear All Samples</button>
+                        </div>
+                    ` : ''}
+                ` : ''}
+            </div>
+        `;
+
+        // Wire events
+        const connectBtn = container.querySelector('#wq-connect');
+        if (connectBtn) connectBtn.addEventListener('click', async () => {
+            if (wq) { await wq.connectSerial(); render(); }
+        });
+
+        const disconnectBtn = container.querySelector('#wq-disconnect');
+        if (disconnectBtn) disconnectBtn.addEventListener('click', () => {
+            if (wq) { wq.disconnectSerial(); render(); }
+        });
+
+        const manualBtn = container.querySelector('#wq-manual');
+        if (manualBtn) manualBtn.addEventListener('click', () => showManualSampleModal());
+
+        const importBtn = container.querySelector('#wq-import');
+        if (importBtn) importBtn.addEventListener('click', () => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.csv,.txt,.json';
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file && wq) {
+                    const count = await wq.importFile(file);
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast(`💧 Imported ${count} sample${count !== 1 ? 's' : ''}`, 'success');
+                    }
+                    render();
+                }
+            };
+            input.click();
+        });
+
+        const exportBtn = container.querySelector('#wq-export');
+        if (exportBtn) exportBtn.addEventListener('click', () => { if (wq) wq.downloadCSV(); });
+
+        const demoBtn = container.querySelector('#wq-demo');
+        if (demoBtn) demoBtn.addEventListener('click', () => {
+            if (wq) {
+                if (wq.isDemoMode()) wq.stopDemo();
+                else wq.startDemo();
+                render();
+            }
+        });
+
+        const stdSelect = container.querySelector('#wq-standard');
+        if (stdSelect) stdSelect.addEventListener('change', (e) => {
+            if (wq) { wq.setActiveStandard(e.target.value); render(); }
+        });
+
+        const mapToggle = container.querySelector('#wq-map-toggle');
+        if (mapToggle) mapToggle.addEventListener('change', (e) => {
+            if (wq) { wq.setShowOnMap(e.target.checked); if (typeof MapModule !== 'undefined') MapModule.render(); }
+        });
+
+        const clearBtn = container.querySelector('#wq-clear-all');
+        if (clearBtn) clearBtn.addEventListener('click', () => {
+            if (wq && confirm('Delete all water quality samples? This cannot be undone.')) {
+                wq.clearAllSamples();
+                render();
+            }
+        });
+
+        // Subscribe to module updates for live refresh
+        if (wq) {
+            wq.subscribe(() => {
+                if (State.get('activePanel') === 'waterquality') render();
+            });
+        }
+    }
+
+    function showManualSampleModal() {
+        const wq = typeof WaterQualityModule !== 'undefined' ? WaterQualityModule : null;
+        if (!wq || typeof ModalsModule === 'undefined') return;
+
+        const gps = typeof GPSModule !== 'undefined' ? GPSModule.getPosition() : null;
+
+        ModalsModule.show({
+            title: '💧 Manual Water Sample',
+            body: `
+                <div style="display:flex;flex-direction:column;gap:10px">
+                    <div>
+                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">E. coli (CFU/100mL) *</label>
+                        <input type="number" id="wq-ecoli" min="0" step="1" placeholder="e.g. 42" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Total Coliforms (CFU/100mL)</label>
+                        <input type="number" id="wq-tc" min="0" step="1" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Location Name</label>
+                        <input type="text" id="wq-location" placeholder="e.g. Eagle Creek" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Notes</label>
+                        <input type="text" id="wq-notes" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                    </div>
+                    ${gps ? `<div style="font-size:10px;color:#64748b">📍 GPS position will be attached: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}</div>` : `<div style="font-size:10px;color:#64748b">📍 No GPS fix — sample will not be geotagged</div>`}
+                </div>
+            `,
+            buttons: [
+                { label: 'Cancel', action: 'close' },
+                { label: 'Save Sample', style: 'primary', action: 'save' }
+            ],
+            onAction: (action) => {
+                if (action !== 'save') return;
+                const ecoli = parseFloat(document.getElementById('wq-ecoli')?.value);
+                if (isNaN(ecoli)) {
+                    ModalsModule.showToast('E. coli value is required', 'warning');
+                    return;
+                }
+                const tc = parseFloat(document.getElementById('wq-tc')?.value);
+                wq.addManualSample({
+                    ecoli,
+                    totalColiforms: isNaN(tc) ? null : tc,
+                    locationName: document.getElementById('wq-location')?.value || '',
+                    notes: document.getElementById('wq-notes')?.value || '',
+                    lat: gps?.lat || null,
+                    lon: gps?.lon || null,
+                });
+                ModalsModule.showToast('💧 Sample saved', 'success');
+                PanelsModule.render();
+            }
+        });
+    }
+
     async function renderTerrain() {
         // Use getPosition() for synchronous access to cached position
         // (getCurrentPosition() returns a Promise)

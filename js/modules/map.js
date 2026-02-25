@@ -916,6 +916,7 @@ const MapModule = (function() {
             renderDrawingRegion(width, height);
             renderRFLOSOverlay(width, height);
             renderStreamGaugeOverlay(width, height);
+            renderWaterQualityOverlay(width, height);
             renderOverlayMarkers(width, height);
         } else {
             // Gesture render — essentials only for speed
@@ -2480,6 +2481,16 @@ const MapModule = (function() {
         if (stations.length === 0) return;
         
         StreamGaugeModule.renderMapOverlay(ctx, latLonToPixel);
+    }
+
+    /**
+     * Render water quality sample markers on map
+     */
+    function renderWaterQualityOverlay(width, height) {
+        if (typeof WaterQualityModule === 'undefined') return;
+        if (!WaterQualityModule.isShowOnMap()) return;
+        
+        WaterQualityModule.renderMapOverlay(ctx, latLonToPixel);
     }
 
     function renderAttribution(width, height) {

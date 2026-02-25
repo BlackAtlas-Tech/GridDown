@@ -169,6 +169,12 @@ const App = (function() {
                 console.log('Stream gauge module initialized');
             }
             
+            // Initialize Water Quality module (Fluidion ALERT One)
+            if (typeof WaterQualityModule !== 'undefined') {
+                await WaterQualityModule.init();
+                console.log('Water quality module initialized');
+            }
+            
             // Initialize Barometer module
             if (typeof BarometerModule !== 'undefined') {
                 BarometerModule.init();
