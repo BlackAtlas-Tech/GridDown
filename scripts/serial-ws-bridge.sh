@@ -83,7 +83,7 @@ while true; do
 
     # Read serial → broadcast via WebSocket
     # websocat serves on 0.0.0.0 so it's reachable from any interface; loop handles reconnects
-    cat "$SERIAL_PORT" 2>/dev/null | websocat ws-l:0.0.0.0:"$WS_PORT" - --text 2>/dev/null || true
+    cat "$SERIAL_PORT" 2>/dev/null | websocat -E ws-l:0.0.0.0:"$WS_PORT" - --text 2>/dev/null || true
 
     echo "[$(date '+%H:%M:%S')] Client disconnected. Restarting in 2s..."
     sleep 2
