@@ -105,20 +105,34 @@ const WiFiSentinelModule = (function() {
 
     // Manufacturer display config
     const MFG_CONFIG = {
-        'DJI':       { color: '#ef4444', label: 'DJI',       icon: '🛸' },
-        'Parrot':    { color: '#f59e0b', label: 'Parrot',    icon: '🦜' },
-        'Skydio':    { color: '#3b82f6', label: 'Skydio',    icon: '🤖' },
-        'Autel':     { color: '#8b5cf6', label: 'Autel',     icon: '📡' },
-        'Yuneec':    { color: '#06b6d4', label: 'Yuneec',    icon: '🛸' },
-        'Hubsan':    { color: '#84cc16', label: 'Hubsan',    icon: '🛸' },
-        'FIMI':      { color: '#14b8a6', label: 'FIMI',      icon: '🛸' },
-        'Ryze':      { color: '#f97316', label: 'Ryze/Tello',icon: '🛸' },
-        'SkyViper':  { color: '#a855f7', label: 'SkyViper',  icon: '🛸' },
-        'Unknown':   { color: '#6b7280', label: 'Unknown',   icon: '❓' }
+        'DJI':       { color: '#ef4444', label: 'DJI',        icon: '🛸' },
+        'Parrot':    { color: '#f59e0b', label: 'Parrot',     icon: '🦜' },
+        'Skydio':    { color: '#3b82f6', label: 'Skydio',     icon: '🤖' },
+        'Autel':     { color: '#8b5cf6', label: 'Autel',      icon: '📡' },
+        'Yuneec':    { color: '#06b6d4', label: 'Yuneec',     icon: '🛸' },
+        'Hubsan':    { color: '#84cc16', label: 'Hubsan/EXO', icon: '🛸' },
+        'FIMI':      { color: '#14b8a6', label: 'FIMI',       icon: '🛸' },
+        'Ryze':      { color: '#f97316', label: 'Ryze/Tello', icon: '🛸' },
+        'SkyViper':  { color: '#a855f7', label: 'SkyViper',   icon: '🛸' },
+        'HolyStone': { color: '#eab308', label: 'Holy Stone', icon: '🛸' },
+        'Potensic':  { color: '#22d3ee', label: 'Potensic',   icon: '🛸' },
+        'Ruko':      { color: '#fb923c', label: 'Ruko',       icon: '🛸' },
+        'Snaptain':  { color: '#a3e635', label: 'Snaptain',   icon: '🛸' },
+        'Walkera':   { color: '#c084fc', label: 'Walkera',    icon: '🛸' },
+        'Wingsland': { color: '#2dd4bf', label: 'Wingsland',  icon: '🛸' },
+        'SwellPro':  { color: '#38bdf8', label: 'SwellPro',   icon: '🛸' },
+        'Eachine':   { color: '#fbbf24', label: 'Eachine',    icon: '🛸' },
+        'SJRC':      { color: '#34d399', label: 'SJRC',       icon: '🛸' },
+        'BetaFPV':   { color: '#f472b6', label: 'BetaFPV',    icon: '🏎️' },
+        'Teal':      { color: '#64748b', label: 'Teal Drones', icon: '🎖️' },
+        'iFlight':   { color: '#fb7185', label: 'iFlight',    icon: '🏎️' },
+        'FPV':       { color: '#94a3b8', label: 'FPV Generic', icon: '🏎️' },
+        'Unknown':   { color: '#6b7280', label: 'Unknown',    icon: '❓' }
     };
 
-    // OUI database (mirrors firmware wifi_sentinel.h — used for Tier 0 matching)
+    // OUI database — verified against IEEE MA-L registry (oui.csv Feb 2026)
     const OUI_DB = [
+        // DJI — SZ DJI Technology Co., Ltd (10 OUIs)
         { prefix: '60:60:1F', mfg: 'DJI' },
         { prefix: '34:D2:62', mfg: 'DJI' },
         { prefix: '48:1C:B9', mfg: 'DJI' },
@@ -129,17 +143,32 @@ const WiFiSentinelModule = (function() {
         { prefix: '0C:9A:E6', mfg: 'DJI' },
         { prefix: '88:29:85', mfg: 'DJI' },
         { prefix: '4C:43:F6', mfg: 'DJI' },
+        // DJI — Baiwang Technology Co Ltd (DJI subsidiary)
+        { prefix: '9C:5A:8A', mfg: 'DJI' },
+        // Parrot SA (5 OUIs)
         { prefix: 'A0:14:3D', mfg: 'Parrot' },
         { prefix: '90:03:B7', mfg: 'Parrot' },
         { prefix: '00:26:7E', mfg: 'Parrot' },
         { prefix: '00:12:1C', mfg: 'Parrot' },
+        { prefix: '90:3A:E6', mfg: 'Parrot' },
+        // Skydio Inc.
+        { prefix: '38:1D:14', mfg: 'Skydio' },
+        // Autel — chipset-level: FN-LINK modules used in Autel drones
         { prefix: '54:C9:DF', mfg: 'Autel' },
+        // Yuneec — chipset-level: D-Link modules used in Yuneec drones
         { prefix: '58:D5:6E', mfg: 'Yuneec' },
+        // Holy Stone Ent. Co., Ltd.
+        { prefix: '00:0C:BF', mfg: 'HolyStone' },
+        // Teal Drones, Inc. (military/defense, Holladay UT)
+        { prefix: 'B0:30:C8', mfg: 'Teal' },
+        // iFlight Technology Company Limited (FPV racing)
+        { prefix: '9C:4B:6B', mfg: 'iFlight' },
     ];
 
-    // SSID pattern database (mirrors firmware — used for Tier 0 matching)
+    // SSID pattern database — comprehensive drone WiFi fingerprints
+    // Used for Tier 0 (Android WiFi scan) and Tier 1 (ESP32) matching
     const SSID_DB = [
-        // DJI
+        // ── DJI ──────────────────────────────────────────────────────
         { prefix: 'DJI_', mfg: 'DJI' }, { prefix: 'DJI-', mfg: 'DJI' },
         { prefix: 'PHANTOM', mfg: 'DJI' }, { prefix: 'Phantom', mfg: 'DJI' },
         { prefix: 'MAVIC', mfg: 'DJI' }, { prefix: 'Mavic', mfg: 'DJI' },
@@ -147,27 +176,68 @@ const WiFiSentinelModule = (function() {
         { prefix: 'INSPIRE', mfg: 'DJI' }, { prefix: 'Inspire', mfg: 'DJI' },
         { prefix: 'Matrice', mfg: 'DJI' }, { prefix: 'MATRICE', mfg: 'DJI' },
         { prefix: 'DJI_RCN', mfg: 'DJI' }, { prefix: 'DJI_RC_', mfg: 'DJI' },
-        // Parrot
+        { prefix: 'Avata', mfg: 'DJI' }, { prefix: 'AVATA', mfg: 'DJI' },
+        { prefix: 'DJI_FPV', mfg: 'DJI' },
+        { prefix: 'AGRAS', mfg: 'DJI' }, { prefix: 'Agras', mfg: 'DJI' },
+        { prefix: 'Flycart', mfg: 'DJI' }, { prefix: 'FLYCART', mfg: 'DJI' },
+        // ── Parrot ───────────────────────────────────────────────────
         { prefix: 'ANAFI', mfg: 'Parrot' }, { prefix: 'Anafi', mfg: 'Parrot' },
         { prefix: 'DISCO-', mfg: 'Parrot' }, { prefix: 'BebopDrone-', mfg: 'Parrot' },
         { prefix: 'Bebop2-', mfg: 'Parrot' }, { prefix: 'Mambo_', mfg: 'Parrot' },
         { prefix: 'Swing_', mfg: 'Parrot' }, { prefix: 'SkyController', mfg: 'Parrot' },
-        // Skydio
-        { prefix: 'Skydio-', mfg: 'Skydio' }, { prefix: 'SKYDIO-', mfg: 'Skydio' },
-        // Autel
-        { prefix: 'AUTEL-', mfg: 'Autel' }, { prefix: 'Evo_', mfg: 'Autel' },
-        { prefix: 'EVO_', mfg: 'Autel' }, { exact: 'default-ssid', mfg: 'Autel' },
-        // Yuneec
+        { prefix: 'Parrot-', mfg: 'Parrot' }, { prefix: 'BLUEGRASS', mfg: 'Parrot' },
+        // ── Skydio (no trailing hyphen — matches Skydio2-, SkydioX2-, etc.) ──
+        { prefix: 'Skydio', mfg: 'Skydio' }, { prefix: 'SKYDIO', mfg: 'Skydio' },
+        // ── Autel ────────────────────────────────────────────────────
+        { prefix: 'AUTEL-', mfg: 'Autel' }, { prefix: 'Autel_', mfg: 'Autel' },
+        { prefix: 'Evo_', mfg: 'Autel' }, { prefix: 'EVO_', mfg: 'Autel' },
+        { prefix: 'EVO-', mfg: 'Autel' }, { prefix: 'AutelRobotics', mfg: 'Autel' },
+        { prefix: 'Dragonfish', mfg: 'Autel' },
+        { exact: 'default-ssid', mfg: 'Autel' }, // Autel Remote ID beacon
+        // ── Yuneec ───────────────────────────────────────────────────
         { prefix: 'Yuneec-', mfg: 'Yuneec' }, { prefix: 'YUNEEC-', mfg: 'Yuneec' },
         { prefix: 'Typhoon-', mfg: 'Yuneec' }, { prefix: 'H520-', mfg: 'Yuneec' },
-        // Hubsan / EXO
-        { prefix: 'Hubsan-', mfg: 'Hubsan' }, { prefix: 'EXO-', mfg: 'Hubsan' },
-        // FIMI
-        { prefix: 'FIMI-', mfg: 'FIMI' }, { prefix: 'FIMI_X8', mfg: 'FIMI' },
-        // Ryze (Tello)
+        { prefix: 'H480-', mfg: 'Yuneec' }, { prefix: 'H920-', mfg: 'Yuneec' },
+        { prefix: 'Mantis', mfg: 'Yuneec' }, { prefix: 'MANTIS', mfg: 'Yuneec' },
+        // ── Hubsan / EXO ─────────────────────────────────────────────
+        { prefix: 'Hubsan-', mfg: 'Hubsan' }, { prefix: 'HUBSAN', mfg: 'Hubsan' },
+        { prefix: 'EXO-', mfg: 'Hubsan' },
+        { prefix: 'Zino', mfg: 'Hubsan' }, { prefix: 'ZINO', mfg: 'Hubsan' },
+        // ── FIMI (Xiaomi sub-brand) ──────────────────────────────────
+        { prefix: 'FIMI-', mfg: 'FIMI' }, { prefix: 'FIMI_', mfg: 'FIMI' },
+        // ── Ryze / Tello ─────────────────────────────────────────────
         { prefix: 'TELLO-', mfg: 'Ryze' }, { prefix: 'RMTT-', mfg: 'Ryze' },
-        // SkyViper
+        // ── SkyViper ─────────────────────────────────────────────────
         { prefix: 'SKYVIPERGPS_', mfg: 'SkyViper' },
+        { prefix: 'SKYVIPER_', mfg: 'SkyViper' }, { prefix: 'SkyViper', mfg: 'SkyViper' },
+        // ── Holy Stone ───────────────────────────────────────────────
+        { prefix: 'HS-', mfg: 'HolyStone' },
+        { prefix: 'HolyStone', mfg: 'HolyStone' }, { prefix: 'HOLYSTONE', mfg: 'HolyStone' },
+        // ── Potensic ─────────────────────────────────────────────────
+        { prefix: 'Potensic', mfg: 'Potensic' }, { prefix: 'POTENSIC', mfg: 'Potensic' },
+        // ── Ruko ─────────────────────────────────────────────────────
+        { prefix: 'Ruko', mfg: 'Ruko' }, { prefix: 'RUKO', mfg: 'Ruko' },
+        // ── Snaptain ─────────────────────────────────────────────────
+        { prefix: 'SNAPTAIN', mfg: 'Snaptain' }, { prefix: 'Snaptain', mfg: 'Snaptain' },
+        // ── Walkera ──────────────────────────────────────────────────
+        { prefix: 'Walkera', mfg: 'Walkera' }, { prefix: 'WALKERA', mfg: 'Walkera' },
+        // ── Wingsland ────────────────────────────────────────────────
+        { prefix: 'Wingsland', mfg: 'Wingsland' }, { prefix: 'WINGSLAND', mfg: 'Wingsland' },
+        // ── SwellPro ─────────────────────────────────────────────────
+        { prefix: 'SwellPro', mfg: 'SwellPro' }, { prefix: 'SWELLPRO', mfg: 'SwellPro' },
+        { prefix: 'SplashDrone', mfg: 'SwellPro' },
+        // ── Eachine (budget FPV) ─────────────────────────────────────
+        { prefix: 'Eachine', mfg: 'Eachine' }, { prefix: 'EACHINE', mfg: 'Eachine' },
+        // ── SJRC ─────────────────────────────────────────────────────
+        { prefix: 'SJRC', mfg: 'SJRC' }, { prefix: 'SJ-RC', mfg: 'SJRC' },
+        // ── BetaFPV (racing/cinewhoop) ───────────────────────────────
+        { prefix: 'BetaFPV', mfg: 'BetaFPV' }, { prefix: 'BETAFPV', mfg: 'BetaFPV' },
+        // ── Teal Drones (military/defense) ───────────────────────────
+        { prefix: 'Teal-', mfg: 'Teal' }, { prefix: 'TEAL-', mfg: 'Teal' },
+        // ── iFlight (FPV racing) ─────────────────────────────────────
+        { prefix: 'iFlight', mfg: 'iFlight' },
+        // ── FPV generic (racing quads) ───────────────────────────────
+        { prefix: 'GEPRC', mfg: 'FPV' },
     ];
 
     // ==================== State ====================
@@ -1300,7 +1370,7 @@ const WiFiSentinelModule = (function() {
      * AtlasRF may use slightly different names than WiFi Sentinel's MFG_CONFIG keys.
      */
     const MFG_ALIASES = {
-        'dji': 'DJI', 'da-jiang': 'DJI', 'sz dji': 'DJI',
+        'dji': 'DJI', 'da-jiang': 'DJI', 'sz dji': 'DJI', 'dji baiwang': 'DJI',
         'parrot': 'Parrot', 'parrot sa': 'Parrot',
         'skydio': 'Skydio',
         'autel': 'Autel', 'autel robotics': 'Autel',
@@ -1308,7 +1378,20 @@ const WiFiSentinelModule = (function() {
         'hubsan': 'Hubsan', 'exo': 'Hubsan',
         'fimi': 'FIMI', 'xiaomi fimi': 'FIMI',
         'ryze': 'Ryze', 'ryze tech': 'Ryze', 'tello': 'Ryze',
-        'skyviper': 'SkyViper',
+        'skyviper': 'SkyViper', 'sky viper': 'SkyViper',
+        'holy stone': 'HolyStone', 'holystone': 'HolyStone',
+        'potensic': 'Potensic',
+        'ruko': 'Ruko',
+        'snaptain': 'Snaptain',
+        'walkera': 'Walkera',
+        'wingsland': 'Wingsland',
+        'swellpro': 'SwellPro', 'swell pro': 'SwellPro',
+        'eachine': 'Eachine',
+        'sjrc': 'SJRC', 'sj-rc': 'SJRC',
+        'betafpv': 'BetaFPV', 'beta fpv': 'BetaFPV',
+        'teal': 'Teal', 'teal drones': 'Teal',
+        'iflight': 'iFlight',
+        'geprc': 'FPV',
     };
 
     function normalizeMfg(name) {
