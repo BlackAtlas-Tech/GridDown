@@ -13,7 +13,8 @@
  *     - Operator phone detection, active link tracking, deauth flood alerts
  *
  *   Tier 0 — Built-in WiFi (WiFi Sentinel Lite)
- *     - Termux `termux-wifi-scanresults` via WebSocket bridge
+ *     - Termux `termux-wifi-scaninfo` via WebSocket bridge
+ *     - Returns results from Android's most recent background WiFi scan
  *     - Beacon-only detection (Android WiFi scan API)
  *     - ~30-second scan interval (Android throttle)
  *     - Confidence capped at "med"
@@ -77,7 +78,7 @@ const WiFiSentinelModule = (function() {
                 'Follow prompts to install packages and detect hardware',
                 'Run: ws-start-all (starts all bridges)',
             ],
-            hint: 'For Tier 0 WiFi scan, also install the Termux:API app from GitHub (github.com/termux/termux-api/releases). Google Play Termux does not support Tier 0.',
+            hint: 'For Tier 0 WiFi scan, you need TWO things both called "termux-api": (1) pkg install termux-api (CLI tools), and (2) the Termux:API Android app from GitHub. Google Play Termux does not support Tier 0.',
         },
         serial: {
             title: 'Termux Serial Bridge Setup',
@@ -92,12 +93,13 @@ const WiFiSentinelModule = (function() {
         wifiScan: {
             title: 'Termux WiFi Scan Bridge Setup',
             steps: [
-                'Install Termux + Termux:API app from GitHub (not Google Play)',
-                'Install CLI: pkg install termux-api websocat',
-                'Grant Termux:API location permission',
+                'Install Termux from GitHub (github.com/termux/termux-app/releases)',
+                'In Termux run: pkg update && pkg install -y termux-api websocat',
+                'Install the Termux:API Android APP from GitHub (github.com/termux/termux-api/releases) — this is a separate APK, not the same as the pkg above',
+                'Open the Termux:API app once → grant Location permission',
                 'Run: ./scripts/wifi-scan-bridge.sh',
             ],
-            hint: 'Termux:API is NOT on Google Play. Install both Termux and Termux:API from the same source (GitHub or F-Droid).',
+            hint: 'Two things are both called "termux-api": (1) the CLI package installed via pkg, and (2) the Termux:API Android app (APK). Both are required. The APK is NOT on Google Play.',
         },
     };
 
