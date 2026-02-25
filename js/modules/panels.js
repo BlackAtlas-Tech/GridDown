@@ -23918,7 +23918,7 @@ After spreading:
                             🚀 Getting Started
                         </div>
                         <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.5rem">
-                            WiFi Sentinel detects drones by fingerprinting 802.11 frames against 9 manufacturer signatures.
+                            WiFi Sentinel detects drones by fingerprinting 802.11 frames against ${Object.keys(MFG).filter(k => k !== 'Unknown').length} manufacturer signatures.
                             Both tiers require Termux as a bridge between Android hardware and the browser.
                             For Tier 0: run <code style="font-family:monospace;color:#fbbf24">pkg install termux-api</code> AND install the Termux:API app (APK) from GitHub.
                         </div>

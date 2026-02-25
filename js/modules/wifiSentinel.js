@@ -712,6 +712,7 @@ const WiFiSentinelModule = (function() {
             matchCount++;
 
             const bssid = ap.bssid?.toUpperCase();
+            if (!bssid) continue;  // Guard against null/undefined BSSID
             const dedupKey = `${bssid}:wifi_scan`;
             if (!state.tracks.has(bssid) && isDuplicate(dedupKey)) continue;
 
@@ -738,6 +739,12 @@ const WiFiSentinelModule = (function() {
             emitEvent('detection', {
                 bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
                 rssi: ap.rssi || ap.level, channel, tier: 'wifi_scan', type: 'beacon'
+            });
+
+            // Persist to detection history (IndexedDB)
+            persistDetection({
+                bssid, ssid: ap.ssid, mfg: fp.mfg, conf: fp.conf,
+                t: 'beacon', rssi: ap.rssi || ap.level, ch: channel, _tier: 'wifi_scan'
             });
         }
 
@@ -1210,6 +1217,7 @@ const WiFiSentinelModule = (function() {
                 clearTimeout(timeout);
                 state.lastConnectionError = null;
                 state.wifiScanActive = true;
+                state.tier = state.esp32Connected ? 'esp32' : 'wifi_scan'; // Set tier (ESP32 takes precedence)
                 state.tier0ReconnectAttempts = 0; // Reset backoff on success
 
                 // Start periodic scan requests only after connection succeeds
@@ -1239,6 +1247,8 @@ const WiFiSentinelModule = (function() {
                 const wasActive = state.wifiScanActive;
                 state.wifiScanWs = null;
                 state.wifiScanActive = false;
+                // Clear tier if WiFi scan was the active tier (ESP32 takes precedence)
+                if (state.tier === 'wifi_scan') state.tier = null;
                 // Stop the polling timer if the bridge disconnects
                 if (state.wifiScanTimer) {
                     clearInterval(state.wifiScanTimer);
@@ -1357,6 +1367,8 @@ const WiFiSentinelModule = (function() {
         state.tier = null;
         state.esp32Health.clear();
         state.lastConnectionError = null;
+        state.tier0ReconnectAttempts = 0;
+        state.tier1ReconnectAttempts = 0;
         emitEvent('disconnected', { method: 'all' });
 
         // Re-enable auto-reconnect after close events have fired
