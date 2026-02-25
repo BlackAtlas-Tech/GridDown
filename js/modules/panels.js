@@ -16412,288 +16412,649 @@ ${text}
      */
     // ==================== Water Quality (Fluidion ALERT One) ====================
 
+    let wqActiveTab = 'overview';
+
     function renderWaterQuality() {
-        _saveScroll(); _restoreScroll();
-        const container = document.getElementById('panel-content');
-        if (!container) return;
+        _saveScroll();
+        if (typeof WaterQualityModule === 'undefined') {
+            container.innerHTML = `
+                <div class="panel-section" role="region" aria-label="Water Quality">
+                    <div class="section-label">💧 Water Quality</div>
+                    <div class="card" style="padding:16px;text-align:center;color:rgba(255,255,255,0.5)">
+                        Water Quality module not loaded
+                    </div>
+                </div>`;
+            return;
+        }
 
-        const wq = typeof WaterQualityModule !== 'undefined' ? WaterQualityModule : null;
-        const hasSerial = typeof navigator !== 'undefined' && 'serial' in navigator;
-        const isConnected = wq?.isConnected() || false;
-        const isConnecting = wq?.isConnecting() || false;
-        const isDownloading = wq?.isDownloading() || false;
-        const samples = wq?.getSamples() || [];
-        const stats = wq?.getStats() || { totalSamples: 0 };
-        const activeStandard = wq?.getActiveStandard() || 'who_drinking';
-        const standards = wq?.getStandards() || {};
-        const showOnMap = wq?.isShowOnMap() || false;
-        const isDemoMode = wq?.isDemoMode() || false;
+        const isConnected = WaterQualityModule.isConnected();
+        const isConnecting = WaterQualityModule.isConnecting();
+        const isDownloading = WaterQualityModule.isDownloading();
+        const isDemoMode = WaterQualityModule.isDemoMode();
+        const hasSerial = WaterQualityModule.isSerialAvailable();
+        const samples = WaterQualityModule.getSamples();
+        const stats = WaterQualityModule.getStats();
+        const activeStd = WaterQualityModule.getActiveStandard();
+        const standards = WaterQualityModule.getStandards();
 
-        // Latest sample for summary
-        const latest = samples.length > 0 ? samples[samples.length - 1] : null;
-        const latestInterp = latest ? wq?.interpretSample(latest) : null;
-
-        let statusText = 'Disconnected';
-        let statusColor = '#64748b';
-        if (isDownloading) { statusText = 'Downloading...'; statusColor = '#3b82f6'; }
-        else if (isConnected) { statusText = 'Connected'; statusColor = '#22c55e'; }
-        else if (isConnecting) { statusText = 'Connecting...'; statusColor = '#f59e0b'; }
+        // Latest sample
+        const latestSample = samples.length > 0
+            ? samples.reduce((a, b) => a.timestamp > b.timestamp ? a : b)
+            : null;
 
         container.innerHTML = `
-            <div class="panel__header">
-                <h2 class="panel__title" id="panel-title">
-                    ${Icons.get('droplet')}
-                    Water Quality
-                </h2>
-                <div class="flex items-center gap-2">
-                    ${isConnected ? '<span class="text-xs" style="color:#22c55e">● ALERT One</span>' : ''}
-                </div>
-            </div>
-
-            <div class="panel__body" role="region" aria-label="Water quality analysis">
-                ${!wq ? `
-                    <div class="alert alert--warning" style="margin-bottom:16px">
-                        ⚠️ Water quality module not loaded.
-                    </div>
-                ` : ''}
-
-                <!-- Connection -->
-                <div class="card" style="margin-bottom:12px">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                        <div style="display:flex;align-items:center;gap:8px">
-                            <span style="font-size:18px">🧪</span>
-                            <div>
-                                <div style="font-weight:600;font-size:13px;color:#e2e8f0">Fluidion ALERT One</div>
-                                <div style="font-size:11px;color:${statusColor}">${statusText}</div>
-                            </div>
-                        </div>
-                        ${wq ? (isConnected ? `
-                            <button class="btn btn--sm btn--secondary" id="wq-disconnect">Disconnect</button>
-                        ` : `
-                            <button class="btn btn--sm btn--primary" id="wq-connect" ${!hasSerial ? 'disabled title="Web Serial API not available in this browser"' : ''}>
-                                ${isConnecting || isDownloading ? '⏳' : '🔌'} ${isConnecting ? 'Connecting...' : 'Connect USB'}
-                            </button>
-                        `) : ''}
-                    </div>
-                    ${!hasSerial ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">USB Serial requires Chrome/Edge. You can still import CSV files or enter samples manually.</div>` : ''}
+            <div class="panel-section" role="region" aria-label="Water Quality">
+                <div class="section-label">
+                    💧 Water Quality — Fluidion ALERT One
                 </div>
 
-                <!-- Current Status -->
-                ${latest && latestInterp ? `
-                    <div class="card" style="margin-bottom:12px;border-left:3px solid ${latestInterp.color}">
-                        <div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Latest Sample — ${wq.timeAgo(latest.timestamp)}</div>
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                            <span style="font-size:22px;font-weight:700;color:${latestInterp.color}">${latest.ecoli !== null ? wq.formatCount(latest.ecoli) : '—'}</span>
-                            <span style="font-size:11px;color:#94a3b8">CFU/100mL<br>E. coli</span>
-                        </div>
-                        <div style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:${latestInterp.color}22;color:${latestInterp.color}">
-                            ${latestInterp.label}
-                        </div>
-                        ${latestInterp.description ? `<div style="font-size:10px;color:#94a3b8;margin-top:4px">${latestInterp.description}</div>` : ''}
-                        ${latestInterp.emergency ? `
-                            <div style="margin-top:6px;padding:4px 8px;border-radius:4px;background:${latestInterp.emergency.color}22;border:1px solid ${latestInterp.emergency.color}44;font-size:10px;color:${latestInterp.emergency.color}">
-                                ⚠️ ${latestInterp.emergency.label}
-                            </div>
-                        ` : ''}
-                    </div>
-                ` : `
-                    <div class="card" style="margin-bottom:12px;text-align:center;padding:16px;color:#64748b">
-                        <div style="font-size:24px;margin-bottom:8px">💧</div>
-                        <div style="font-size:12px">No water quality samples yet</div>
-                        <div style="font-size:10px;margin-top:4px">Connect ALERT One, import CSV, or add a manual sample</div>
-                    </div>
-                `}
-
-                <!-- Actions -->
-                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
-                    <button class="btn btn--sm btn--secondary" id="wq-manual" ${!wq ? 'disabled' : ''}>+ Manual Sample</button>
-                    <button class="btn btn--sm btn--secondary" id="wq-import" ${!wq ? 'disabled' : ''}>📂 Import CSV</button>
-                    ${samples.length > 0 ? `<button class="btn btn--sm btn--secondary" id="wq-export">💾 Export</button>` : ''}
-                    <button class="btn btn--sm btn--secondary" id="wq-demo" style="${isDemoMode ? 'color:#f59e0b' : ''}">${isDemoMode ? '⏹ Stop Demo' : '▶ Demo'}</button>
+                <!-- Tab Bar -->
+                <div style="display:flex;gap:4px;margin-bottom:12px">
+                    <button class="chip ${wqActiveTab === 'overview' ? 'chip--active' : ''}" data-wq-tab="overview" style="flex:1">Overview</button>
+                    <button class="chip ${wqActiveTab === 'samples' ? 'chip--active' : ''}" data-wq-tab="samples" style="flex:1">Samples (${samples.length})</button>
+                    <button class="chip ${wqActiveTab === 'entry' ? 'chip--active' : ''}" data-wq-tab="entry" style="flex:1">+ Entry</button>
                 </div>
 
-                <!-- Settings row -->
-                <div class="card" style="margin-bottom:12px">
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-                        <span style="font-size:11px;color:#94a3b8">Regulatory Standard</span>
-                        <select id="wq-standard" style="font-size:11px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;padding:2px 6px">
-                            ${Object.entries(standards).map(([key, std]) =>
-                                `<option value="${key}" ${key === activeStandard ? 'selected' : ''}>${std.shortName}</option>`
-                            ).join('')}
-                        </select>
-                    </div>
-                    <div style="display:flex;align-items:center;justify-content:space-between">
-                        <span style="font-size:11px;color:#94a3b8">Show on map</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="wq-map-toggle" ${showOnMap ? 'checked' : ''}>
-                            <span class="toggle-switch__slider"></span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Sample History -->
-                ${samples.length > 0 ? `
-                    <div class="section-label" style="margin-bottom:8px">📋 Sample History (${samples.length})</div>
-                    <div style="max-height:300px;overflow-y:auto">
-                        ${[...samples].reverse().slice(0, 20).map(s => {
-                            const interp = wq.interpretSample(s);
-                            const c = interp?.color || '#64748b';
-                            return `
-                                <div class="card" style="margin-bottom:6px;padding:8px;border-left:3px solid ${c};cursor:pointer" data-wq-sample="${s.id}">
-                                    <div style="display:flex;align-items:center;justify-content:space-between">
-                                        <div>
-                                            <span style="font-weight:600;font-size:12px;color:${c}">${s.ecoli !== null ? wq.formatCount(s.ecoli) + ' CFU' : '—'}</span>
-                                            <span style="font-size:10px;color:#94a3b8;margin-left:6px">${interp?.label || 'Unknown'}</span>
-                                        </div>
-                                        <div style="font-size:10px;color:#64748b">${wq.timeAgo(s.timestamp)}</div>
-                                    </div>
-                                    ${s.locationName || s.samplePoint ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">📍 ${s.locationName || s.samplePoint}</div>` : ''}
-                                    ${s.source !== 'manual' ? `<div style="font-size:9px;color:#475569;margin-top:1px">Source: ${s.source}</div>` : ''}
-                                </div>
-                            `;
-                        }).join('')}
-                        ${samples.length > 20 ? `<div style="text-align:center;font-size:10px;color:#64748b;padding:8px">Showing latest 20 of ${samples.length}</div>` : ''}
-                    </div>
-
-                    ${samples.length > 0 ? `
-                        <div style="margin-top:8px;text-align:right">
-                            <button class="btn btn--sm" id="wq-clear-all" style="color:#ef4444;font-size:10px">🗑 Clear All Samples</button>
-                        </div>
-                    ` : ''}
-                ` : ''}
+                ${wqActiveTab === 'overview' ? renderWQOverview(isConnected, isConnecting, isDownloading, isDemoMode, hasSerial, latestSample, samples, stats, activeStd, standards) : ''}
+                ${wqActiveTab === 'samples' ? renderWQSamples(samples) : ''}
+                ${wqActiveTab === 'entry' ? renderWQEntry() : ''}
             </div>
         `;
 
-        // Wire events
-        const connectBtn = container.querySelector('#wq-connect');
-        if (connectBtn) connectBtn.addEventListener('click', async () => {
-            if (wq) { await wq.connectSerial(); render(); }
-        });
-
-        const disconnectBtn = container.querySelector('#wq-disconnect');
-        if (disconnectBtn) disconnectBtn.addEventListener('click', () => {
-            if (wq) { wq.disconnectSerial(); render(); }
-        });
-
-        const manualBtn = container.querySelector('#wq-manual');
-        if (manualBtn) manualBtn.addEventListener('click', () => showManualSampleModal());
-
-        const importBtn = container.querySelector('#wq-import');
-        if (importBtn) importBtn.addEventListener('click', () => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.csv,.txt,.json';
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file && wq) {
-                    const count = await wq.importFile(file);
-                    if (typeof ModalsModule !== 'undefined') {
-                        ModalsModule.showToast(`💧 Imported ${count} sample${count !== 1 ? 's' : ''}`, 'success');
-                    }
-                    render();
-                }
-            };
-            input.click();
-        });
-
-        const exportBtn = container.querySelector('#wq-export');
-        if (exportBtn) exportBtn.addEventListener('click', () => { if (wq) wq.downloadCSV(); });
-
-        const demoBtn = container.querySelector('#wq-demo');
-        if (demoBtn) demoBtn.addEventListener('click', () => {
-            if (wq) {
-                if (wq.isDemoMode()) wq.stopDemo();
-                else wq.startDemo();
-                render();
-            }
-        });
-
-        const stdSelect = container.querySelector('#wq-standard');
-        if (stdSelect) stdSelect.addEventListener('change', (e) => {
-            if (wq) { wq.setActiveStandard(e.target.value); render(); }
-        });
-
-        const mapToggle = container.querySelector('#wq-map-toggle');
-        if (mapToggle) mapToggle.addEventListener('change', (e) => {
-            if (wq) { wq.setShowOnMap(e.target.checked); if (typeof MapModule !== 'undefined') MapModule.render(); }
-        });
-
-        const clearBtn = container.querySelector('#wq-clear-all');
-        if (clearBtn) clearBtn.addEventListener('click', () => {
-            if (wq && confirm('Delete all water quality samples? This cannot be undone.')) {
-                wq.clearAllSamples();
-                render();
-            }
-        });
-
-        // Subscribe to module updates for live refresh
-        if (wq) {
-            wq.subscribe(() => {
-                if (State.get('activePanel') === 'waterquality') render();
-            });
-        }
+        attachWQHandlers();
+        _restoreScroll();
     }
 
-    function showManualSampleModal() {
-        const wq = typeof WaterQualityModule !== 'undefined' ? WaterQualityModule : null;
-        if (!wq || typeof ModalsModule === 'undefined') return;
+    function renderWQOverview(isConnected, isConnecting, isDownloading, isDemoMode, hasSerial, latest, samples, stats, activeStd, standards) {
+        // Danger level color for latest
+        const latestColor = latest && latest.interpretation ? latest.interpretation.color : '#6b7280';
+        const latestLabel = latest && latest.interpretation ? latest.interpretation.label : 'No Data';
+        const latestValue = latest ? (latest.ecoli ?? latest.enterococci ?? latest.totalColiform) : null;
 
-        const gps = typeof GPSModule !== 'undefined' ? GPSModule.getPosition() : null;
+        return `
+            <!-- Device Connection Card -->
+            <div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid ${isConnected ? '#22c55e' : '#6b7280'}">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div>
+                        <div style="font-weight:600;font-size:13px;color:rgba(255,255,255,0.9)">
+                            ${isConnected ? (isDemoMode ? '💧 Demo Mode' : '💧 ALERT One Connected')
+                                : isConnecting ? '💧 Connecting...' : '💧 ALERT One'}
+                        </div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:2px">
+                            ${isConnected
+                                ? (isDownloading ? '📥 Receiving data...' : 'Ready — trigger Download Data on device')
+                                : isDemoMode ? 'Simulated water quality data' : 'USB-C serial connection'}
+                        </div>
+                    </div>
+                    ${isConnected ? `
+                        <button class="btn btn--secondary wq-disconnect-btn" style="font-size:11px;padding:6px 10px;color:#ef4444">
+                            Disconnect
+                        </button>
+                    ` : ''}
+                </div>
 
-        const bodyHtml = `
-            <div style="display:flex;flex-direction:column;gap:10px">
-                <div>
-                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">E. coli (CFU/100mL) *</label>
-                    <input type="number" id="wq-ecoli" min="0" step="1" placeholder="e.g. 42" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                ${!isConnected && !isDemoMode ? `
+                    <div style="display:flex;gap:6px;margin-top:8px">
+                        <button class="btn btn--primary wq-connect-btn" style="flex:2;font-size:12px;padding:8px" ${!hasSerial ? 'disabled title="Web Serial not supported in this browser"' : ''}>
+                            🔌 Connect Device
+                        </button>
+                        <button class="btn btn--secondary wq-import-btn" style="flex:1;font-size:12px;padding:8px" title="Import CSV/text file">
+                            📁 Import
+                        </button>
+                        <button class="btn btn--secondary wq-demo-btn" style="flex:1;font-size:12px;padding:8px" title="Load demo data">
+                            🧪 Demo
+                        </button>
+                    </div>
+                    <input type="file" id="wq-file-input" accept=".csv,.txt,.tsv,.json" style="display:none">
+                    ${!hasSerial ? '<div style="font-size:10px;color:#f59e0b;margin-top:6px">⚠️ Web Serial requires Chrome or Edge. Use Import for file-based data.</div>' : ''}
+                ` : ''}
+
+                ${isDemoMode ? `
+                    <button class="btn btn--secondary wq-demo-stop-btn" style="width:100%;font-size:11px;padding:6px;margin-top:6px">
+                        Stop Demo
+                    </button>
+                ` : ''}
+            </div>
+
+            <!-- Latest Reading Card -->
+            ${latest ? `
+                <div class="card" style="padding:12px;margin-bottom:12px;border-left:3px solid ${latestColor}">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:4px">
+                        Latest Sample • ${WaterQualityModule.timeAgo(latest.timestamp)} • ${latest.locationName || latest.samplePoint || 'Unknown location'}
+                    </div>
+
+                    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
+                        <span style="font-size:28px;font-weight:700;font-family:monospace;color:${latestColor}">
+                            ${WaterQualityModule.formatCount(latestValue)}
+                        </span>
+                        <span style="font-size:12px;color:rgba(255,255,255,0.6)">CFU/100mL</span>
+                        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;background:${latestColor}22;color:${latestColor};margin-left:auto">
+                            ${latestLabel}
+                        </span>
+                    </div>
+
+                    ${latest.ecoli !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">E. coli: ${WaterQualityModule.formatCount(latest.ecoli)} CFU/100mL</div>` : ''}
+                    ${latest.totalColiform !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Total Coliform: ${WaterQualityModule.formatCount(latest.totalColiform)} CFU/100mL</div>` : ''}
+                    ${latest.enterococci !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Enterococci: ${WaterQualityModule.formatCount(latest.enterococci)} CFU/100mL</div>` : ''}
+                    ${latest.temperature !== null ? `<div style="font-size:11px;color:rgba(255,255,255,0.6)">Water Temp: ${latest.temperature}°C</div>` : ''}
+
+                    <!-- Treatment Recommendation -->
+                    ${latest.interpretation && latest.interpretation.treatment ? `
+                        <div style="margin-top:10px;padding:8px;background:rgba(0,0,0,0.3);border-radius:6px">
+                            <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.9);margin-bottom:4px">
+                                ${latest.interpretation.treatment.icon} ${latest.interpretation.treatment.title}
+                            </div>
+                            ${latest.interpretation.treatment.steps.map(s =>
+                                `<div style="font-size:11px;color:rgba(255,255,255,0.6);padding:1px 0;padding-left:12px;text-indent:-8px">• ${s}</div>`
+                            ).join('')}
+                        </div>
+                    ` : ''}
+
+                    <!-- Use Advisories -->
+                    ${latest.interpretation && latest.interpretation.advisories ? `
+                        <div style="margin-top:10px">
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">USE ADVISORIES</div>
+                            <div style="display:flex;flex-wrap:wrap;gap:4px">
+                                ${latest.interpretation.advisories.map(a => `
+                                    <span style="font-size:10px;padding:3px 6px;border-radius:4px;
+                                        background:${a.safe ? 'rgba(34,197,94,0.15)' : a.conditional ? 'rgba(245,158,11,0.15)' : 'rgba(239,68,68,0.15)'};
+                                        color:${a.safe ? '#22c55e' : a.conditional ? '#f59e0b' : '#ef4444'};
+                                        border:1px solid ${a.safe ? 'rgba(34,197,94,0.3)' : a.conditional ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}">
+                                        ${a.icon} ${a.use}: ${a.note}
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
-                <div>
-                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Total Coliforms (CFU/100mL)</label>
-                    <input type="number" id="wq-tc" min="0" step="1" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+            ` : `
+                <div class="card" style="padding:20px;text-align:center;margin-bottom:12px">
+                    <div style="font-size:32px;margin-bottom:8px">💧</div>
+                    <div style="font-size:13px;color:rgba(255,255,255,0.6)">No samples yet</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:4px">
+                        Connect ALERT One, import a file, or add a manual entry
+                    </div>
                 </div>
-                <div>
-                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Location Name</label>
-                    <input type="text" id="wq-location" placeholder="e.g. Eagle Creek" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+            `}
+
+            <!-- Assessment Standard Selector -->
+            <div class="card" style="padding:10px;margin-bottom:12px">
+                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">ASSESSMENT STANDARD</div>
+                <select class="wq-standard-select" style="width:100%;padding:6px 8px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
+                    ${Object.entries(standards).map(([key, std]) =>
+                        `<option value="${key}" ${key === activeStd ? 'selected' : ''}>${std.name}</option>`
+                    ).join('')}
+                </select>
+            </div>
+
+            <!-- Stats Summary -->
+            <div class="card" style="padding:10px;margin-bottom:12px">
+                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">SAMPLE HISTORY</div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,0.6)">
+                    <span>Total: ${stats.totalSamples}</span>
+                    <span>📡 Serial: ${stats.bySource.serial}</span>
+                    <span>📁 Import: ${stats.bySource.import}</span>
+                    <span>✍️ Manual: ${stats.bySource.manual}</span>
+                    <span>📍 Geotagged: ${stats.geotagged}</span>
                 </div>
-                <div>
-                    <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:3px">Notes</label>
-                    <input type="text" id="wq-notes" placeholder="Optional" style="width:100%;padding:6px 8px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;font-size:13px">
+                ${stats.totalSamples > 0 ? `
+                    <div style="display:flex;gap:6px;margin-top:8px">
+                        <button class="btn btn--secondary wq-export-btn" style="flex:1;font-size:11px;padding:6px">
+                            📤 Export CSV
+                        </button>
+                        <button class="btn btn--secondary wq-map-toggle-btn" style="flex:1;font-size:11px;padding:6px;${WaterQualityModule.isShowOnMap() ? 'background:rgba(34,197,94,0.2);border-color:rgba(34,197,94,0.4)' : ''}">
+                            🗺️ ${WaterQualityModule.isShowOnMap() ? 'Shown on Map' : 'Show on Map'}
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+
+            <!-- Quick Reference -->
+            <div class="card" style="padding:10px">
+                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">QUICK REFERENCE — E. coli CFU/100mL</div>
+                <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:10px">
+                    <span style="color:#22c55e;font-weight:600">0</span>
+                    <span style="color:rgba(255,255,255,0.5)">Safe — potable without treatment</span>
+                    <span style="color:#84cc16;font-weight:600">1–10</span>
+                    <span style="color:rgba(255,255,255,0.5)">Low risk — standard field treatment</span>
+                    <span style="color:#f59e0b;font-weight:600">10–100</span>
+                    <span style="color:rgba(255,255,255,0.5)">Moderate — multi-barrier treatment</span>
+                    <span style="color:#f97316;font-weight:600">100–1K</span>
+                    <span style="color:rgba(255,255,255,0.5)">High — seek alternative source</span>
+                    <span style="color:#ef4444;font-weight:600">1K–10K</span>
+                    <span style="color:rgba(255,255,255,0.5)">Severe — avoid all contact</span>
+                    <span style="color:#991b1b;font-weight:600">&gt;10K</span>
+                    <span style="color:rgba(255,255,255,0.5)">Hazardous — potential raw sewage</span>
                 </div>
-                ${gps ? `<div style="font-size:10px;color:#64748b">📍 GPS position will be attached: ${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}</div>` : `<div style="font-size:10px;color:#64748b">📍 No GPS fix — sample will not be geotagged</div>`}
-                <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px">
-                    <button id="wq-modal-cancel" class="btn btn--sm btn--secondary">Cancel</button>
-                    <button id="wq-modal-save" class="btn btn--sm btn--primary">Save Sample</button>
+            </div>
+        `;
+    }
+
+    function renderWQSamples(samples) {
+        if (samples.length === 0) {
+            return `
+                <div class="card" style="padding:20px;text-align:center">
+                    <div style="color:rgba(255,255,255,0.5);font-size:13px">No samples recorded</div>
+                </div>
+            `;
+        }
+
+        const sorted = [...samples].sort((a, b) => b.timestamp - a.timestamp);
+
+        return `
+            <div style="display:flex;flex-direction:column;gap:6px">
+                ${sorted.map(s => {
+                    const color = s.interpretation ? s.interpretation.color : '#6b7280';
+                    const label = s.interpretation ? s.interpretation.label : '?';
+                    const value = s.ecoli ?? s.enterococci ?? s.totalColiform ?? null;
+                    const param = s.ecoli !== null ? 'E. coli' : s.enterococci !== null ? 'Enterococci' : 'T. Coliform';
+
+                    return `
+                        <div class="card wq-sample-card" data-wq-sample="${s.id}" style="padding:10px;cursor:pointer;border-left:3px solid ${color};transition:background 0.15s">
+                            <div style="display:flex;align-items:center;justify-content:space-between">
+                                <div>
+                                    <span style="font-size:16px;font-weight:700;font-family:monospace;color:${color}">
+                                        ${WaterQualityModule.formatCount(value)}
+                                    </span>
+                                    <span style="font-size:10px;color:rgba(255,255,255,0.5);margin-left:4px">${param}</span>
+                                </div>
+                                <span style="font-size:10px;font-weight:600;padding:2px 6px;border-radius:3px;background:${color}22;color:${color}">
+                                    ${label}
+                                </span>
+                            </div>
+                            <div style="display:flex;gap:8px;margin-top:4px;font-size:10px;color:rgba(255,255,255,0.4)">
+                                <span>${WaterQualityModule.formatTimestamp(s.timestamp)}</span>
+                                <span>${s.locationName || s.samplePoint || '—'}</span>
+                                <span>${s.waterType || ''}</span>
+                                <span style="margin-left:auto">${s.source}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+
+            ${samples.length > 0 ? `
+                <div style="margin-top:10px;text-align:center">
+                    <button class="btn btn--secondary wq-clear-all-btn" style="font-size:11px;padding:6px 12px;color:#ef4444">
+                        🗑️ Clear All Samples
+                    </button>
+                </div>
+            ` : ''}
+        `;
+    }
+
+    function renderWQEntry() {
+        return `
+            <div class="card" style="padding:12px">
+                <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:10px">
+                    ✍️ Manual Sample Entry
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                    <div>
+                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">E. coli (CFU/100mL)</label>
+                        <input type="number" id="wq-ecoli" min="0" step="1" placeholder="0"
+                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
+                    </div>
+                    <div>
+                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Total Coliform (CFU/100mL)</label>
+                        <input type="number" id="wq-tc" min="0" step="1" placeholder="—"
+                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
+                    </div>
+                    <div>
+                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Enterococci (CFU/100mL)</label>
+                        <input type="number" id="wq-ent" min="0" step="1" placeholder="—"
+                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
+                    </div>
+                    <div>
+                        <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Water Temp (°C)</label>
+                        <input type="number" id="wq-temp" min="-5" max="50" step="0.5" placeholder="—"
+                            style="width:100%;padding:6px;font-size:13px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;font-family:monospace">
+                    </div>
+                </div>
+
+                <div style="margin-top:8px">
+                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Water Type</label>
+                    <select id="wq-watertype" style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
+                        <option value="freshwater">Freshwater (river, lake, spring)</option>
+                        <option value="seawater">Seawater / Brackish</option>
+                        <option value="drinking">Drinking Water Source</option>
+                        <option value="groundwater">Groundwater / Well</option>
+                        <option value="stormwater">Stormwater / Runoff</option>
+                    </select>
+                </div>
+
+                <div style="margin-top:8px">
+                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Location Name</label>
+                    <input type="text" id="wq-location" placeholder="e.g., Creek crossing at mile 3"
+                        style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px">
+                </div>
+
+                <div style="margin-top:8px">
+                    <label style="font-size:10px;color:rgba(255,255,255,0.5);display:block;margin-bottom:2px">Notes</label>
+                    <textarea id="wq-notes" rows="2" placeholder="Observations: clarity, odor, flow..."
+                        style="width:100%;padding:6px;font-size:12px;background:rgba(0,0,0,0.3);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:4px;resize:vertical"></textarea>
+                </div>
+
+                <button class="btn btn--primary btn--full wq-add-sample-btn" style="margin-top:10px;font-size:13px;padding:10px">
+                    💧 Add Sample &amp; Interpret
+                </button>
+            </div>
+        `;
+    }
+
+    function attachWQHandlers() {
+        if (typeof WaterQualityModule === 'undefined') return;
+
+        // Tab switching
+        container.querySelectorAll('[data-wq-tab]').forEach(btn => {
+            btn.onclick = () => {
+                wqActiveTab = btn.dataset.wqTab;
+                renderWaterQuality();
+            };
+        });
+
+        // Connect
+        const connectBtn = container.querySelector('.wq-connect-btn');
+        if (connectBtn) {
+            connectBtn.onclick = async () => {
+                try {
+                    await WaterQualityModule.connectSerial();
+                    renderWaterQuality();
+                } catch (e) {
+                    console.error('WQ connect failed:', e);
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Connection failed: ' + e.message, 'error');
+                    }
+                }
+            };
+        }
+
+        // Disconnect
+        const disconnectBtn = container.querySelector('.wq-disconnect-btn');
+        if (disconnectBtn) {
+            disconnectBtn.onclick = async () => {
+                await WaterQualityModule.disconnectSerial();
+                renderWaterQuality();
+            };
+        }
+
+        // Import file
+        const importBtn = container.querySelector('.wq-import-btn');
+        const fileInput = container.querySelector('#wq-file-input');
+        if (importBtn && fileInput) {
+            importBtn.onclick = () => fileInput.click();
+            fileInput.onchange = async (e) => {
+                if (e.target.files.length > 0) {
+                    try {
+                        await WaterQualityModule.importFile(e.target.files[0]);
+                        renderWaterQuality();
+                    } catch (err) {
+                        if (typeof ModalsModule !== 'undefined') {
+                            ModalsModule.showToast('Import failed: ' + err.message, 'error');
+                        }
+                    }
+                }
+            };
+        }
+
+        // Demo
+        const demoBtn = container.querySelector('.wq-demo-btn');
+        if (demoBtn) {
+            demoBtn.onclick = () => {
+                WaterQualityModule.startDemo();
+                renderWaterQuality();
+            };
+        }
+
+        const demoStopBtn = container.querySelector('.wq-demo-stop-btn');
+        if (demoStopBtn) {
+            demoStopBtn.onclick = () => {
+                WaterQualityModule.stopDemo();
+                renderWaterQuality();
+            };
+        }
+
+        // Standard selector
+        const stdSelect = container.querySelector('.wq-standard-select');
+        if (stdSelect) {
+            stdSelect.onchange = () => {
+                WaterQualityModule.setActiveStandard(stdSelect.value);
+                renderWaterQuality();
+            };
+        }
+
+        // Export CSV
+        const exportBtn = container.querySelector('.wq-export-btn');
+        if (exportBtn) {
+            exportBtn.onclick = () => WaterQualityModule.downloadCSV();
+        }
+
+        // Map toggle
+        const mapToggle = container.querySelector('.wq-map-toggle-btn');
+        if (mapToggle) {
+            mapToggle.onclick = () => {
+                WaterQualityModule.setShowOnMap(!WaterQualityModule.isShowOnMap());
+                renderWaterQuality();
+                if (typeof MapModule !== 'undefined') MapModule.render();
+            };
+        }
+
+        // Clear all
+        const clearBtn = container.querySelector('.wq-clear-all-btn');
+        if (clearBtn) {
+            clearBtn.onclick = async () => {
+                if (confirm('Delete all water quality samples? This cannot be undone.')) {
+                    await WaterQualityModule.clearAllSamples();
+                    renderWaterQuality();
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('All samples cleared', 'info');
+                    }
+                }
+            };
+        }
+
+        // Manual entry
+        const addBtn = container.querySelector('.wq-add-sample-btn');
+        if (addBtn) {
+            addBtn.onclick = async () => {
+                const ecoliInput = container.querySelector('#wq-ecoli');
+                const tcInput = container.querySelector('#wq-tc');
+                const entInput = container.querySelector('#wq-ent');
+                const tempInput = container.querySelector('#wq-temp');
+                const typeInput = container.querySelector('#wq-watertype');
+                const locInput = container.querySelector('#wq-location');
+                const notesInput = container.querySelector('#wq-notes');
+
+                const ecoli = ecoliInput && ecoliInput.value !== '' ? parseFloat(ecoliInput.value) : null;
+                const tc = tcInput && tcInput.value !== '' ? parseFloat(tcInput.value) : null;
+                const ent = entInput && entInput.value !== '' ? parseFloat(entInput.value) : null;
+
+                if (ecoli === null && tc === null && ent === null) {
+                    if (typeof ModalsModule !== 'undefined') {
+                        ModalsModule.showToast('Enter at least one measurement value', 'warning');
+                    }
+                    return;
+                }
+
+                const data = {
+                    ecoli: ecoli,
+                    totalColiform: tc,
+                    enterococci: ent,
+                    temperature: tempInput && tempInput.value !== '' ? parseFloat(tempInput.value) : null,
+                    waterType: typeInput ? typeInput.value : 'freshwater',
+                    locationName: locInput ? locInput.value : '',
+                    notes: notesInput ? notesInput.value : ''
+                };
+
+                await WaterQualityModule.addManualSample(data);
+
+                // Switch to overview to show interpretation
+                wqActiveTab = 'overview';
+                renderWaterQuality();
+
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('💧 Sample added and interpreted', 'success');
+                }
+            };
+        }
+
+        // Sample detail click
+        container.querySelectorAll('.wq-sample-card').forEach(card => {
+            card.onclick = () => {
+                const sampleId = card.dataset.wqSample;
+                openWQSampleModal(sampleId);
+            };
+        });
+    }
+
+    function openWQSampleModal(sampleId) {
+        if (typeof WaterQualityModule === 'undefined') return;
+        if (!modalContainer) return;
+
+        const sample = WaterQualityModule.getSample(sampleId);
+        if (!sample) return;
+
+        const interp = sample.interpretation;
+        const color = interp ? interp.color : '#6b7280';
+
+        modalContainer.innerHTML = `
+            <div class="modal-backdrop" id="modal-backdrop" role="presentation">
+                <div class="modal" role="dialog" aria-modal="true" style="max-width:560px;width:95%">
+                    <div class="modal__header">
+                        <h3 class="modal__title">💧 Sample Detail</h3>
+                        <button class="modal__close" id="modal-close" aria-label="Close dialog">&times;</button>
+                    </div>
+                    <div class="modal__body" style="padding:12px;max-height:70vh;overflow-y:auto">
+                        <!-- Risk Banner -->
+                        <div style="padding:12px;border-radius:8px;background:${color}15;border:1px solid ${color}33;margin-bottom:12px;text-align:center">
+                            <div style="font-size:24px;font-weight:700;color:${color};font-family:monospace">
+                                ${WaterQualityModule.formatCount(sample.ecoli ?? sample.enterococci ?? sample.totalColiform)} CFU/100mL
+                            </div>
+                            <div style="font-size:14px;font-weight:600;color:${color};margin-top:4px">${interp ? interp.label : 'Unknown'}</div>
+                        </div>
+
+                        <!-- Measurements -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+                            ${sample.ecoli !== null ? `
+                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">E. coli</div>
+                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.ecoli)}</div>
+                                </div>
+                            ` : ''}
+                            ${sample.totalColiform !== null ? `
+                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Total Coliform</div>
+                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.totalColiform)}</div>
+                                </div>
+                            ` : ''}
+                            ${sample.enterococci !== null ? `
+                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Enterococci</div>
+                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${WaterQualityModule.formatCount(sample.enterococci)}</div>
+                                </div>
+                            ` : ''}
+                            ${sample.temperature !== null ? `
+                                <div style="padding:8px;background:rgba(0,0,0,0.2);border-radius:6px">
+                                    <div style="font-size:10px;color:rgba(255,255,255,0.5)">Water Temp</div>
+                                    <div style="font-size:16px;font-weight:600;font-family:monospace;color:#fff">${sample.temperature}°C</div>
+                                </div>
+                            ` : ''}
+                        </div>
+
+                        <!-- Smart Assessment -->
+                        ${interp && interp.assessment ? `
+                            <div style="padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;margin-bottom:12px">
+                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:4px">ASSESSMENT</div>
+                                <div style="font-size:12px;color:rgba(255,255,255,0.7);line-height:1.5">${interp.assessment}</div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Treatment -->
+                        ${interp && interp.treatment ? `
+                            <div style="padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;margin-bottom:12px">
+                                <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:6px">
+                                    ${interp.treatment.icon} ${interp.treatment.title}
+                                </div>
+                                ${interp.treatment.steps.map(s =>
+                                    `<div style="font-size:11px;color:rgba(255,255,255,0.6);padding:2px 0 2px 12px;text-indent:-8px">• ${s}</div>`
+                                ).join('')}
+                            </div>
+                        ` : ''}
+
+                        <!-- Use Advisories Grid -->
+                        ${interp && interp.advisories ? `
+                            <div style="margin-bottom:12px">
+                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">USE ADVISORIES</div>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+                                    ${interp.advisories.map(a => `
+                                        <div style="padding:6px 8px;border-radius:4px;font-size:11px;
+                                            background:${a.safe ? 'rgba(34,197,94,0.1)' : a.conditional ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)'};
+                                            border:1px solid ${a.safe ? 'rgba(34,197,94,0.2)' : a.conditional ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)'}">
+                                            <span>${a.icon} ${a.use}</span>
+                                            <div style="color:${a.safe ? '#22c55e' : a.conditional ? '#f59e0b' : '#ef4444'};font-weight:600;margin-top:2px">${a.note}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- Multi-Standard Results -->
+                        ${interp && interp.allStandards ? `
+                            <div style="margin-bottom:12px">
+                                <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:6px">ALL STANDARDS</div>
+                                ${Object.entries(interp.allStandards).map(([key, result]) => `
+                                    <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+                                        <span style="font-size:11px;color:rgba(255,255,255,0.5)">${STANDARDS[key] ? STANDARDS[key].name : key}</span>
+                                        <span style="font-size:11px;font-weight:600;color:${result.color}">${result.label}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+
+                        <!-- Metadata -->
+                        <div style="padding:8px;background:rgba(0,0,0,0.15);border-radius:6px;font-size:10px;color:rgba(255,255,255,0.4)">
+                            <div>Timestamp: ${WaterQualityModule.formatTimestamp(sample.timestamp)}</div>
+                            <div>Source: ${sample.source} ${sample.deviceId ? '• Device: ' + sample.deviceId : ''}</div>
+                            ${sample.calibration ? `<div>Calibration: ${sample.calibration}</div>` : ''}
+                            ${sample.volume ? `<div>Volume: ${sample.volume}mL</div>` : ''}
+                            <div>Water type: ${sample.waterType || 'Unknown'}</div>
+                            ${sample.lat ? `<div>Location: ${sample.lat.toFixed(5)}, ${sample.lon.toFixed(5)}</div>` : ''}
+                            ${sample.locationName ? `<div>Name: ${sample.locationName}</div>` : ''}
+                            ${sample.notes ? `<div>Notes: ${sample.notes}</div>` : ''}
+                            <div>Sample ID: ${sample.id}</div>
+                        </div>
+
+                        <!-- Delete Button -->
+                        <div style="margin-top:12px;text-align:center">
+                            <button class="btn btn--secondary wq-delete-sample-btn" data-wq-delete="${sample.id}" style="font-size:11px;padding:6px 16px;color:#ef4444">
+                                🗑️ Delete Sample
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
 
-        ModalsModule.showModal('💧 Manual Water Sample', bodyHtml);
+        // Modal handlers
+        const backdrop = modalContainer.querySelector('#modal-backdrop');
+        const closeBtn = modalContainer.querySelector('#modal-close');
 
-        // Wire button actions after modal renders
-        requestAnimationFrame(() => {
-            const cancelBtn = document.getElementById('wq-modal-cancel');
-            const saveBtn = document.getElementById('wq-modal-save');
+        const closeModal = () => { modalContainer.innerHTML = ''; };
+        if (closeBtn) closeBtn.onclick = closeModal;
+        if (backdrop) backdrop.onclick = (e) => { if (e.target === backdrop) closeModal(); };
 
-            if (cancelBtn) cancelBtn.addEventListener('click', () => ModalsModule.closeModal());
-            if (saveBtn) saveBtn.addEventListener('click', () => {
-                const ecoli = parseFloat(document.getElementById('wq-ecoli')?.value);
-                if (isNaN(ecoli)) {
-                    ModalsModule.showToast('E. coli value is required', 'warning');
-                    return;
+        const deleteBtn = modalContainer.querySelector('.wq-delete-sample-btn');
+        if (deleteBtn) {
+            deleteBtn.onclick = async () => {
+                const id = deleteBtn.dataset.wqDelete;
+                if (confirm('Delete this sample?')) {
+                    await WaterQualityModule.deleteSample(id);
+                    closeModal();
+                    renderWaterQuality();
                 }
-                const tc = parseFloat(document.getElementById('wq-tc')?.value);
-                wq.addManualSample({
-                    ecoli,
-                    totalColiforms: isNaN(tc) ? null : tc,
-                    locationName: document.getElementById('wq-location')?.value || '',
-                    notes: document.getElementById('wq-notes')?.value || '',
-                    lat: gps?.lat || null,
-                    lon: gps?.lon || null,
-                });
-                ModalsModule.closeModal();
-                ModalsModule.showToast('💧 Sample saved', 'success');
-                PanelsModule.render();
-            });
-        });
+            };
+        }
     }
 
     async function renderTerrain() {
