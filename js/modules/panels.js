@@ -23895,7 +23895,7 @@ After spreading:
                         </div>
                         ${!settings.tier0Enabled ? `
                             <div style="font-size:0.6rem;color:#64748b;margin-top:0.375rem;padding:0.25rem 0.5rem;background:#1e293b;border-radius:4px">
-                                Uses Android WiFi scan via Termux bridge — requires <span style="font-family:monospace;color:#94a3b8">termux-api</span> + <span style="font-family:monospace;color:#94a3b8">websocat</span> + <span style="font-family:monospace;color:#94a3b8">wifi-scan-bridge.sh</span>
+                                Requires Termux + Termux:API app (from GitHub or F-Droid, not Google Play) + <span style="font-family:monospace;color:#94a3b8">websocat</span> + <span style="font-family:monospace;color:#94a3b8">wifi-scan-bridge.sh</span>
                             </div>
                         ` : ''}
                         ${settings.tier0Enabled && !isWifiScan ? `
@@ -23920,12 +23920,13 @@ After spreading:
                         <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.5rem">
                             WiFi Sentinel detects drones by fingerprinting 802.11 frames against 9 manufacturer signatures.
                             Both tiers require Termux as a bridge between Android hardware and the browser.
+                            For Tier 0, install Termux + Termux:API from GitHub (not Google Play).
                         </div>
                         <div style="font-size:0.7rem;color:#e2e8f0;margin-bottom:0.375rem;font-weight:500">Quick Setup:</div>
                         <div style="background:#0f172a;border-radius:6px;padding:0.5rem;font-size:0.65rem;line-height:1.8;margin-bottom:0.5rem">
                             <div style="display:flex;gap:0.375rem;align-items:baseline">
                                 <span style="color:#64748b;min-width:1rem">1.</span>
-                                <span style="color:#94a3b8">Open <span style="color:#e2e8f0;font-weight:500">Termux</span> on this device</span>
+                                <span style="color:#94a3b8">Install <span style="color:#e2e8f0;font-weight:500">Termux</span> from GitHub releases (not Google Play)</span>
                             </div>
                             <div style="display:flex;gap:0.375rem;align-items:baseline">
                                 <span style="color:#64748b;min-width:1rem">2.</span>

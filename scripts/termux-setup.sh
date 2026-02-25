@@ -202,7 +202,15 @@ CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
 if command -v termux-wifi-scanresults > /dev/null 2>&1; then
     echo -e "  ${GREEN}✓${NC} termux-api found (WiFi Sentinel Tier 0 scanning)"
 else
-    echo -e "  ${YELLOW}○${NC} termux-api not installed (optional, for WiFi Sentinel Tier 0: pkg install termux-api)"
+    if [ -n "$TERMUX_APK_RELEASE" ] && [ "$TERMUX_APK_RELEASE" = "GOOGLE_PLAY_STORE" ]; then
+        echo -e "  ${YELLOW}○${NC} termux-api: Tier 0 WiFi scan unavailable on Google Play Termux"
+        echo -e "    (Termux:API app is not on Google Play. Tier 1 ESP32 still works.)"
+        echo -e "    (For Tier 0: install Termux from GitHub — github.com/termux/termux-app/releases)"
+    else
+        echo -e "  ${YELLOW}○${NC} termux-api not installed (optional, for WiFi Sentinel Tier 0)"
+        echo -e "    Install CLI: ${BOLD}pkg install termux-api${NC}"
+        echo -e "    Install app: Termux:API from same source as Termux (F-Droid or GitHub)"
+    fi
 fi
 
 # Check for optional SDR tools

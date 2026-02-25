@@ -174,17 +174,65 @@ echo ""
 
 # termux-api — required for Tier 0 WiFi scanning
 if [ "$IS_TERMUX" = "1" ]; then
-    if install_pkg termux-wifi-scanresults termux-api "Android WiFi scan access for Tier 0 drone detection" optional; then
-        HAS_TERMUX_API=1
+    # Detect Termux installation source
+    TERMUX_SOURCE="unknown"
+    if [ -n "$TERMUX_APK_RELEASE" ]; then
+        TERMUX_SOURCE="$TERMUX_APK_RELEASE"
+    elif [ -f "/data/data/com.termux/files/usr/etc/termux/termux.properties" ] 2>/dev/null; then
+        # Heuristic: Google Play version uses different paths/properties
+        if pm list packages 2>/dev/null | grep -q "com.termux.api"; then
+            TERMUX_SOURCE="has_api_app"
+        fi
     fi
-    echo ""
 
-    # Remind about the companion app
-    if [ "$HAS_TERMUX_API" = "1" ]; then
-        echo -e "  ${YELLOW}⚠${NC}  The ${BOLD}Termux:API${NC} companion app must also be installed from Google Play."
-        echo -e "     ${DIM}pkg install termux-api installs the CLI tools, but the Android app${NC}"
-        echo -e "     ${DIM}provides the system-level WiFi access. Both are required.${NC}"
+    echo -e "  Termux source: ${BOLD}${TERMUX_SOURCE}${NC}"
+
+    if [ "$TERMUX_SOURCE" = "GOOGLE_PLAY_STORE" ]; then
         echo ""
+        echo -e "  ${RED}${BOLD}⚠  Google Play Termux detected${NC}"
+        echo -e "  ${YELLOW}   The Termux:API companion app is NOT available on Google Play.${NC}"
+        echo -e "  ${YELLOW}   termux-wifi-scanresults requires Termux:API, so Tier 0 WiFi${NC}"
+        echo -e "  ${YELLOW}   scanning is NOT available with the Google Play version.${NC}"
+        echo ""
+        echo -e "  ${BOLD}   Tier 1 (ESP32-C5) still works${NC} — it only needs websocat."
+        echo ""
+        echo -e "  ${DIM}   For Tier 0 support, install Termux + Termux:API from GitHub:${NC}"
+        echo -e "  ${DIM}     https://github.com/termux/termux-app/releases${NC}"
+        echo -e "  ${DIM}     https://github.com/termux/termux-api/releases${NC}"
+        echo -e "  ${DIM}   (Requires uninstalling Google Play Termux first — backup data!)${NC}"
+        echo ""
+        WARNINGS=$((WARNINGS + 1))
+    else
+        if install_pkg termux-wifi-scanresults termux-api "Android WiFi scan access for Tier 0 drone detection" optional; then
+            HAS_TERMUX_API=1
+        fi
+        echo ""
+
+        # Check for the companion Android app (required in addition to the CLI package)
+        if [ "$HAS_TERMUX_API" = "1" ]; then
+            # The CLI tools (pkg install termux-api) are installed, but we also need
+            # the Termux:API Android app for the system-level bridge
+            API_APP_INSTALLED=0
+            if pm list packages 2>/dev/null | grep -q "com.termux.api"; then
+                API_APP_INSTALLED=1
+            fi
+
+            if [ "$API_APP_INSTALLED" = "1" ]; then
+                echo -e "  ${GREEN}✓${NC} Termux:API companion app detected"
+            else
+                echo -e "  ${YELLOW}⚠${NC}  The ${BOLD}Termux:API${NC} companion app must also be installed."
+                echo -e "     ${DIM}The CLI tools (termux-api package) are installed, but the Android${NC}"
+                echo -e "     ${DIM}app provides the system-level WiFi access. Both are required.${NC}"
+                echo ""
+                echo -e "     Install from the same source as Termux:"
+                echo -e "     ${DIM}• F-Droid: search 'Termux:API'${NC}"
+                echo -e "     ${DIM}• GitHub:  https://github.com/termux/termux-api/releases${NC}"
+                echo ""
+                echo -e "     ${RED}Do NOT mix sources.${NC} All Termux apps must come from the same source"
+                echo -e "     (F-Droid, GitHub, or Google Play) due to signing key differences."
+                WARNINGS=$((WARNINGS + 1))
+            fi
+        fi
     fi
 fi
 

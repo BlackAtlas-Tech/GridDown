@@ -72,12 +72,12 @@ const WiFiSentinelModule = (function() {
         quickSetup: {
             title: 'WiFi Sentinel Quick Setup',
             steps: [
-                'Open Termux on this device',
-                'Run: bash scripts/wifi-sentinel-setup.sh',
+                'Install Termux from GitHub (github.com/termux/termux-app/releases)',
+                'Open Termux: bash scripts/wifi-sentinel-setup.sh',
                 'Follow prompts to install packages and detect hardware',
                 'Run: ws-start-all (starts all bridges)',
             ],
-            hint: 'The setup script handles everything — packages, permissions, ESP32 detection, and bridge aliases.',
+            hint: 'For Tier 0 WiFi scan, also install the Termux:API app from GitHub (github.com/termux/termux-api/releases). Google Play Termux does not support Tier 0.',
         },
         serial: {
             title: 'Termux Serial Bridge Setup',
@@ -92,12 +92,12 @@ const WiFiSentinelModule = (function() {
         wifiScan: {
             title: 'Termux WiFi Scan Bridge Setup',
             steps: [
-                'Install packages: pkg install termux-api websocat',
-                'Install Termux:API app from Google Play',
+                'Install Termux + Termux:API app from GitHub (not Google Play)',
+                'Install CLI: pkg install termux-api websocat',
                 'Grant Termux:API location permission',
                 'Run: ./scripts/wifi-scan-bridge.sh',
             ],
-            hint: 'Or run: bash scripts/wifi-sentinel-setup.sh for guided setup.',
+            hint: 'Termux:API is NOT on Google Play. Install both Termux and Termux:API from the same source (GitHub or F-Droid).',
         },
     };
 
