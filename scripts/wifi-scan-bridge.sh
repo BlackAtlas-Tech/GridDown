@@ -129,7 +129,8 @@ while true; do
     echo "[$(date '+%H:%M:%S')] Waiting for connection #${CONNECTIONS} on port ${PORT}..."
 
     # Use exec: to run the handler script directly (portable, no export -f needed)
-    websocat -s "$PORT" --text "exec:$HANDLER_SCRIPT" 2>/dev/null
+    # Bind to 0.0.0.0 so the bridge is reachable from any interface (not just localhost)
+    websocat ws-l:0.0.0.0:"$PORT" "exec:$HANDLER_SCRIPT" --text 2>/dev/null
 
     echo "[$(date '+%H:%M:%S')] Client disconnected. Restarting in 1s..."
     sleep 1

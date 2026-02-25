@@ -217,7 +217,7 @@ const WiFiSentinelModule = (function() {
             alertOnDeauthFlood: true,
             alertSoundEnabled: true,
             connectionMethod: 'auto',   // 'serial' | 'websocket' | 'auto'
-            termuxWsHost: 'localhost',
+            termuxWsHost: (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : 'localhost',
         },
 
         // IndexedDB handle
@@ -231,6 +231,12 @@ const WiFiSentinelModule = (function() {
 
         // Auto-reconnect suppression (set during explicit disconnect)
         autoReconnectSuppressed: false,
+
+        // Reconnect backoff (prevents toast spam on repeated failures)
+        tier0ReconnectAttempts: 0,
+        tier1ReconnectAttempts: 0,
+        maxReconnectAttempts: 5,       // Stop retrying after this many failures
+        lastErrorToastTime: 0,         // Throttle error toasts to 1 per 30s
 
         // Cross-references with AtlasRF (drone/fpv correlation)
         crossRefs: new Map(),          // ws_bssid -> { rfTrackId, rfType, matchType, confidence, ... }
@@ -992,14 +998,13 @@ const WiFiSentinelModule = (function() {
                     ws.close();
                     const err = {
                         type: 'termux_bridge',
-                        message: `Could not connect to Termux serial bridge on port ${wsPort} — is the bridge script running?`,
+                        message: `Could not connect to serial bridge at ${url} — is the bridge running?`,
                         timestamp: Date.now(),
                         guide: TERMUX_SETUP_GUIDE.serial,
                         port: wsPort,
                         unit: unitId,
                     };
-                    state.lastConnectionError = err;
-                    emitEvent('error', err);
+                    emitThrottledError(err);
                 }
             }, CONFIG.wsConnectTimeoutMs);
 
@@ -1007,6 +1012,7 @@ const WiFiSentinelModule = (function() {
                 connected = true;
                 clearTimeout(timeout);
                 state.lastConnectionError = null;
+                state.tier1ReconnectAttempts = 0; // Reset backoff on success
                 state.wsConnections.set(unitId, ws);
                 state.esp32Connected = true;
                 state.tier = 'esp32';
@@ -1026,14 +1032,28 @@ const WiFiSentinelModule = (function() {
                     state.esp32Connected = false;
                     emitEvent('disconnected', { method: 'websocket', unit: unitId });
                 }
-                // Auto-reconnect if autoReconnect is enabled (bridge may have restarted)
+                // Auto-reconnect with exponential backoff
                 if (state.settings.autoReconnect && state.settings.tier1Enabled && !state.autoReconnectSuppressed) {
-                    setTimeout(() => {
-                        if (state.settings.autoReconnect && !state.wsConnections.has(unitId) && !state.autoReconnectSuppressed) {
-                            console.log(`WiFiSentinel: Tier 1 auto-reconnecting ${unitId} on port ${wsPort}...`);
-                            connectTermuxWs(unitId, wsPort);
-                        }
-                    }, 3000);
+                    state.tier1ReconnectAttempts++;
+                    if (state.tier1ReconnectAttempts <= state.maxReconnectAttempts) {
+                        const delay = Math.min(3000 * Math.pow(2, state.tier1ReconnectAttempts - 1), 60000);
+                        console.log(`WiFiSentinel: Tier 1 reconnect ${unitId} attempt ${state.tier1ReconnectAttempts}/${state.maxReconnectAttempts} in ${delay/1000}s`);
+                        setTimeout(() => {
+                            if (state.settings.autoReconnect && !state.wsConnections.has(unitId) && !state.autoReconnectSuppressed) {
+                                connectTermuxWs(unitId, wsPort);
+                            }
+                        }, delay);
+                    } else {
+                        console.warn(`WiFiSentinel: Tier 1 ${unitId} max reconnect attempts reached.`);
+                        emitThrottledError({
+                            type: 'termux_bridge',
+                            message: `Serial bridge ${unitId} unreachable after ${state.maxReconnectAttempts} attempts — toggle Tier 1 off/on to retry`,
+                            timestamp: Date.now(),
+                            guide: TERMUX_SETUP_GUIDE.serial,
+                            port: wsPort,
+                            unit: unitId,
+                        });
+                    }
                 }
             };
             ws.onerror = (e) => {
@@ -1041,14 +1061,13 @@ const WiFiSentinelModule = (function() {
                 clearTimeout(timeout);
                 const err = {
                     type: 'termux_bridge',
-                    message: `Termux serial bridge connection failed on port ${wsPort} — bridge script may not be running`,
+                    message: `Serial bridge connection failed at ${url}`,
                     timestamp: Date.now(),
                     guide: TERMUX_SETUP_GUIDE.serial,
                     port: wsPort,
                     unit: unitId,
                 };
-                state.lastConnectionError = err;
-                emitEvent('error', err);
+                emitThrottledError(err);
             };
         } catch (e) {
             const err = {
@@ -1059,8 +1078,7 @@ const WiFiSentinelModule = (function() {
                 port: wsPort,
                 unit: unitId,
             };
-            state.lastConnectionError = err;
-            emitEvent('error', err);
+            emitThrottledError(err);
         }
     }
 
@@ -1107,14 +1125,13 @@ const WiFiSentinelModule = (function() {
                     ws.close();
                     const err = {
                         type: 'termux_wifi_scan',
-                        message: `Could not connect to Termux WiFi scan bridge on port ${CONFIG.wifiScanWsPort} — is the bridge script running?`,
+                        message: `Could not connect to WiFi scan bridge at ${url} — is the bridge running?`,
                         timestamp: Date.now(),
                         guide: TERMUX_SETUP_GUIDE.wifiScan,
                         port: CONFIG.wifiScanWsPort,
                     };
-                    state.lastConnectionError = err;
                     state.wifiScanActive = false;
-                    emitEvent('error', err);
+                    emitThrottledError(err);
                 }
             }, CONFIG.wsConnectTimeoutMs);
 
@@ -1123,6 +1140,7 @@ const WiFiSentinelModule = (function() {
                 clearTimeout(timeout);
                 state.lastConnectionError = null;
                 state.wifiScanActive = true;
+                state.tier0ReconnectAttempts = 0; // Reset backoff on success
 
                 // Start periodic scan requests only after connection succeeds
                 if (!state.wifiScanTimer) {
@@ -1159,14 +1177,27 @@ const WiFiSentinelModule = (function() {
                 if (wasActive) {
                     emitEvent('disconnected', { method: 'wifi_scan', tier: 0 });
                 }
-                // Auto-reconnect if Tier 0 is still enabled (bridge may have restarted)
+                // Auto-reconnect with exponential backoff
                 if (state.settings.tier0Enabled && !state.autoReconnectSuppressed) {
-                    setTimeout(() => {
-                        if (state.settings.tier0Enabled && !state.wifiScanActive && !state.autoReconnectSuppressed) {
-                            console.log('WiFiSentinel: Tier 0 auto-reconnecting...');
-                            startWifiScan();
-                        }
-                    }, 3000);
+                    state.tier0ReconnectAttempts++;
+                    if (state.tier0ReconnectAttempts <= state.maxReconnectAttempts) {
+                        const delay = Math.min(3000 * Math.pow(2, state.tier0ReconnectAttempts - 1), 60000);
+                        console.log(`WiFiSentinel: Tier 0 reconnect attempt ${state.tier0ReconnectAttempts}/${state.maxReconnectAttempts} in ${delay/1000}s`);
+                        setTimeout(() => {
+                            if (state.settings.tier0Enabled && !state.wifiScanActive && !state.autoReconnectSuppressed) {
+                                startWifiScan();
+                            }
+                        }, delay);
+                    } else {
+                        console.warn('WiFiSentinel: Tier 0 max reconnect attempts reached. Toggle off/on to retry.');
+                        emitThrottledError({
+                            type: 'termux_wifi_scan',
+                            message: `WiFi scan bridge unreachable after ${state.maxReconnectAttempts} attempts — toggle Tier 0 off/on to retry`,
+                            timestamp: Date.now(),
+                            guide: TERMUX_SETUP_GUIDE.wifiScan,
+                            port: CONFIG.wifiScanWsPort,
+                        });
+                    }
                 }
             };
             ws.onerror = () => {
@@ -1174,19 +1205,18 @@ const WiFiSentinelModule = (function() {
                 clearTimeout(timeout);
                 const err = {
                     type: 'termux_wifi_scan',
-                    message: `Termux WiFi scan bridge connection failed on port ${CONFIG.wifiScanWsPort}`,
+                    message: `WiFi scan bridge connection failed at ${url}`,
                     timestamp: Date.now(),
                     guide: TERMUX_SETUP_GUIDE.wifiScan,
                     port: CONFIG.wifiScanWsPort,
                 };
-                state.lastConnectionError = err;
                 state.wifiScanActive = false;
                 // Stop the polling timer — no point polling a dead socket
                 if (state.wifiScanTimer) {
                     clearInterval(state.wifiScanTimer);
                     state.wifiScanTimer = null;
                 }
-                emitEvent('error', err);
+                emitThrottledError(err);
             };
         } catch (e) {
             const err = {
@@ -1196,9 +1226,8 @@ const WiFiSentinelModule = (function() {
                 guide: TERMUX_SETUP_GUIDE.wifiScan,
                 port: CONFIG.wifiScanWsPort,
             };
-            state.lastConnectionError = err;
             state.wifiScanActive = false;
-            emitEvent('error', err);
+            emitThrottledError(err);
         }
     }
 
@@ -1480,6 +1509,19 @@ const WiFiSentinelModule = (function() {
         }
     }
 
+    /** Emit an error event, but throttle to at most 1 toast per 30s to prevent spam */
+    function emitThrottledError(err) {
+        state.lastConnectionError = err;
+        const now = Date.now();
+        if (now - state.lastErrorToastTime >= 30000) {
+            state.lastErrorToastTime = now;
+            emitEvent('error', err);
+        } else {
+            // Still log, just don't toast
+            console.warn('WiFiSentinel:', err.message);
+        }
+    }
+
     function requestMapRender() {
         if (typeof MapModule !== 'undefined' && MapModule.render) {
             MapModule.render();
@@ -1686,7 +1728,10 @@ const WiFiSentinelModule = (function() {
             Object.assign(state.settings, updates);
             saveSettings();
             if (updates.tier0Enabled === false) stopWifiScan();
-            if (updates.tier0Enabled === true && !state.wifiScanActive) startWifiScan();
+            if (updates.tier0Enabled === true && !state.wifiScanActive) {
+                state.tier0ReconnectAttempts = 0; // Reset backoff on manual toggle
+                startWifiScan();
+            }
         },
 
         // Constants
