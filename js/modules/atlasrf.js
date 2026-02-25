@@ -788,6 +788,12 @@ const AtlasRFModule = (function() {
             const baseUrl = getBaseUrl();
             const seededIds = new Set();
             
+            // 6.58.7: Record timestamp before fetches begin.  Any track whose
+            // lastUpdate is >= seedStartTime arrived via WS/MQTT *during* the
+            // async fetch window and must NOT be reconciled away — it's a
+            // legitimate live track that simply wasn't in the REST snapshot.
+            const seedStartTime = Date.now();
+            
             // Build per-type fetch promises using TRACK_TYPES endpoints
             // and seedMaxAgeByType for correct time windows
             const fetches = Object.entries(TRACK_TYPES)
@@ -820,12 +826,39 @@ const AtlasRFModule = (function() {
             // Reconcile: remove any tracks in state that AtlasRF no longer
             // reports.  This purges "zombies" that accumulated while GridDown
             // was disconnected (tablet locked, cable unplugged, WiFi drop).
-            let reconciled = 0;
-            for (const [id] of state.tracks) {
-                if (!seededIds.has(id)) {
-                    handleTrackLost(id);
-                    reconciled++;
-                }
+            //
+            // Two safety guards prevent false purges:
+            //  1. Skip noPosition types (e.g. FPV) — they were never fetched
+            //     in the seed, so absence from seededIds is expected.
+            //  2. Skip tracks whose lastUpdate >= seedStartTime — these arrived
+            //     via WS/MQTT *during* the async fetch window and are real.
+            //
+            // Collect IDs first, then delete — avoids mutating the Map during
+            // iteration and batches updateTrackCounts() into a single call.
+            const toRemove = [];
+            for (const [id, track] of state.tracks) {
+                if (seededIds.has(id)) continue;
+                
+                // Guard 1: noPosition types weren't seeded — don't purge
+                const typeConfig = TRACK_TYPES[track.type];
+                if (typeConfig && typeConfig.noPosition) continue;
+                
+                // Guard 2: arrived via WS/MQTT during seed window — don't purge
+                const trackTime = track.lastUpdate || track.timestamp || 0;
+                if (trackTime >= seedStartTime) continue;
+                
+                toRemove.push(id);
+            }
+            
+            for (const id of toRemove) {
+                const track = state.tracks.get(id);
+                state.tracks.delete(id);
+                emitEvent('track:lost', { trackId: id, type: track?.type });
+            }
+            const reconciled = toRemove.length;
+            if (reconciled > 0) {
+                updateTrackCounts();
+                requestMapRefresh();
             }
             
             if (totalSeeded > 0 || reconciled > 0) {
@@ -1331,33 +1364,57 @@ const AtlasRFModule = (function() {
         if (!state.connected) return;
         
         try {
-            // Use the maximum seed age across all types (600s) so radiosonde
-            // and APRS tracks aren't missed.  Client-side age filtering in
-            // updateTrackCounts() and purgeStaleTrack() already applies the
-            // display threshold (trackMaxAgeSeconds = 300s) per render cycle.
-            const maxSeedAge = Math.max(...Object.values(CONFIG.seedMaxAgeByType));
-            const response = await fetch(
-                `${getBaseUrl()}/api/tracks?max_age=${maxSeedAge}`,
-                { cache: 'no-store' }  // Prevent browser caching stale track data
-            );
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const baseUrl = getBaseUrl();
+            const fetchStartTime = Date.now();
+            const fetchedIds = new Set();
             
-            const tracks = await response.json();
+            // 6.58.7: Use per-type endpoints (same as seedInitialTracks) so
+            // FPV tracks on /api/fpv/tracks are included, and each type gets
+            // its correct max_age.  The old generic /api/tracks?max_age=600
+            // missed FPV entirely, causing FPV tracks delivered via WS to be
+            // reconciled away every poll cycle.
+            const fetches = Object.entries(TRACK_TYPES)
+                .filter(([, cfg]) => cfg.endpoint)
+                .map(([type, cfg]) => {
+                    const maxAge = CONFIG.seedMaxAgeByType[type] || CONFIG.trackMaxAgeSeconds;
+                    const url = `${baseUrl}${cfg.endpoint}?max_age=${maxAge}`;
+                    return fetch(url, { cache: 'no-store' })
+                        .then(r => r.ok ? r.json() : [])
+                        .then(tracks => ({ type, tracks }))
+                        .catch(() => ({ type, tracks: [] }));
+                });
+            
+            const results = await Promise.all(fetches);
             state.stats.lastUpdate = Date.now();
             
-            // Clear existing tracks and repopulate
-            const newTrackIds = new Set();
-            
-            tracks.forEach(track => {
-                handleTrackUpdate(track);
-                newTrackIds.add(track.id);
-            });
-            
-            // Remove stale tracks not in response
-            for (const [id, track] of state.tracks) {
-                if (!newTrackIds.has(id)) {
-                    handleTrackLost(id);
+            for (const { type, tracks } of results) {
+                if (!Array.isArray(tracks)) continue;
+                for (const track of tracks) {
+                    handleTrackUpdate(track);
+                    if (track.id) fetchedIds.add(track.id);
                 }
+            }
+            
+            // Remove stale tracks not in response (collect first, then batch-delete)
+            const toRemove = [];
+            for (const [id, track] of state.tracks) {
+                if (fetchedIds.has(id)) continue;
+                
+                // Don't purge tracks that arrived after fetch started
+                const trackTime = track.lastUpdate || track.timestamp || 0;
+                if (trackTime >= fetchStartTime) continue;
+                
+                toRemove.push(id);
+            }
+            
+            for (const id of toRemove) {
+                const track = state.tracks.get(id);
+                state.tracks.delete(id);
+                emitEvent('track:lost', { trackId: id, type: track?.type });
+            }
+            if (toRemove.length > 0) {
+                updateTrackCounts();
+                requestMapRefresh();
             }
             
         } catch (e) {
@@ -1399,18 +1456,21 @@ const AtlasRFModule = (function() {
      */
     function purgeStaleTrack() {
         const now = Date.now();
-        let purged = 0;
+        const toRemove = [];
         
         for (const [id, track] of state.tracks) {
             const age = now - (track.lastUpdate || track.timestamp || 0);
             if (age > getTrackMaxAgeMs(track.type)) {
-                state.tracks.delete(id);
-                purged++;
+                toRemove.push(id);
             }
         }
         
-        if (purged > 0) {
-            console.debug(`AtlasRF: Purged ${purged} stale tracks`);
+        for (const id of toRemove) {
+            state.tracks.delete(id);
+        }
+        
+        if (toRemove.length > 0) {
+            console.debug(`AtlasRF: Purged ${toRemove.length} stale tracks`);
             updateTrackCounts();
             requestMapRefresh();
         }

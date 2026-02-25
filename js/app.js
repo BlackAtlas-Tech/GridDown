@@ -338,10 +338,6 @@ const App = (function() {
                     }
                 });
                 
-                Events.on('atlasrf:track:new', () => {
-                    MapModule.render();
-                });
-                
                 // Throttled panel re-render for track updates.
                 // Track batches arrive every ~500ms from atlasrf.js EventBus,
                 // but renderAtlasRF() rebuilds entire panel HTML via template
@@ -358,6 +354,12 @@ const App = (function() {
                     }, 2000);
                 };
                 
+                // 6.58.7: track:new no longer calls MapModule.render() directly —
+                // handleTrackUpdate() already fires requestMapRefresh() (throttled
+                // at 100ms) which handles the canvas repaint.  Doubling up with an
+                // unthrottled render here caused the same redundant-render pattern
+                // as the WiFi Sentinel storm (see 6.58.7 wifi fix).  Panel refresh
+                // goes through the 2-second throttle like all other track events.
                 Events.on('atlasrf:track:new', throttledRFPanelRender);
                 Events.on('atlasrf:track:update', throttledRFPanelRender);
                 Events.on('atlasrf:track:batch', throttledRFPanelRender);
