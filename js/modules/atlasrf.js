@@ -52,6 +52,18 @@ const AtlasRFModule = (function() {
         trackMaxAgeSeconds: 300,  // 5 minutes
         trackStaleThresholdMs: 60000,  // 1 minute
         
+        // Per-type max_age for initial seed — must match AtlasRF server defaults.
+        // Radiosondes poll every 120s and APRS stations beacon every 1–30 min,
+        // so their server endpoints use 600s.  A uniform 300s misses anything
+        // whose last_seen falls between 300–600s ago.
+        seedMaxAgeByType: {
+            aircraft:   300,   // ADS-B + UAT — updates every 1–5s
+            ship:       300,   // AIS — updates every 2–30s
+            drone:      300,   // Remote ID — updates every 1–3s
+            radiosonde: 600,   // SondeHub polls every 120s
+            aprs:       600,   // APRS beacons every 1–30 min
+        },
+        
         // Weather settings
         fisBStaleThresholdMinutes: 15,
         weatherAutoFallback: true,
@@ -84,6 +96,15 @@ const AtlasRFModule = (function() {
             description: 'Periodic fetch every 5 seconds'
         }
     };
+
+    /**
+     * Return the max display/purge age in milliseconds for a given track type.
+     * Radiosondes and APRS use 600s (matching AtlasRF server defaults);
+     * everything else uses the global trackMaxAgeSeconds (300s).
+     */
+    function getTrackMaxAgeMs(type) {
+        return (CONFIG.seedMaxAgeByType[type] || CONFIG.trackMaxAgeSeconds) * 1000;
+    }
 
     // Track type definitions with display properties
     const TRACK_TYPES = {
@@ -752,24 +773,63 @@ const AtlasRFModule = (function() {
      * appear as each gets its next update — seconds for ADS-B, minutes for
      * ships/APRS/radiosondes.
      *
-     * This one-shot GET /api/tracks backfills everything AtlasRF is
-     * currently tracking so the map is fully populated immediately.
-     * It is intentionally fire-and-forget; a failure here is harmless
-     * because the WebSocket will deliver updates anyway.
+     * Fetches each track type via its dedicated REST endpoint using the
+     * server's native max_age default (300s for fast updaters, 600s for
+     * radiosondes and APRS).  A uniform /api/tracks?max_age=300 would
+     * miss any radiosonde or APRS station whose last_seen falls between
+     * 300–600s ago.
+     *
+     * After seeding, any track in state.tracks that was NOT returned by
+     * the server is removed — this reconciles "zombie" tracks that
+     * AtlasRF stopped tracking while GridDown was disconnected.
      */
     async function seedInitialTracks() {
         try {
-            const url = `${getBaseUrl()}/api/tracks?max_age=${CONFIG.trackMaxAgeSeconds}`;
-            console.log('AtlasRF: Seeding initial tracks from', url);
+            const baseUrl = getBaseUrl();
+            const seededIds = new Set();
             
-            const response = await fetch(url, { cache: 'no-store' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            // Build per-type fetch promises using TRACK_TYPES endpoints
+            // and seedMaxAgeByType for correct time windows
+            const fetches = Object.entries(TRACK_TYPES)
+                .filter(([, cfg]) => cfg.endpoint && !cfg.noPosition)
+                .map(([type, cfg]) => {
+                    const maxAge = CONFIG.seedMaxAgeByType[type] || CONFIG.trackMaxAgeSeconds;
+                    const url = `${baseUrl}${cfg.endpoint}?max_age=${maxAge}`;
+                    return fetch(url, { cache: 'no-store' })
+                        .then(r => r.ok ? r.json() : [])
+                        .then(tracks => ({ type, tracks }))
+                        .catch(() => ({ type, tracks: [] }));
+                });
             
-            const tracks = await response.json();
+            console.log(`AtlasRF: Seeding tracks from ${fetches.length} type endpoints`);
+            const results = await Promise.all(fetches);
             
-            if (Array.isArray(tracks) && tracks.length > 0) {
-                tracks.forEach(track => handleTrackUpdate(track));
-                console.log(`AtlasRF: Seeded ${tracks.length} tracks`);
+            let totalSeeded = 0;
+            for (const { type, tracks } of results) {
+                if (!Array.isArray(tracks)) continue;
+                for (const track of tracks) {
+                    handleTrackUpdate(track);
+                    if (track.id) seededIds.add(track.id);
+                    totalSeeded++;
+                }
+                if (tracks.length > 0) {
+                    console.debug(`AtlasRF: Seeded ${tracks.length} ${type} tracks`);
+                }
+            }
+            
+            // Reconcile: remove any tracks in state that AtlasRF no longer
+            // reports.  This purges "zombies" that accumulated while GridDown
+            // was disconnected (tablet locked, cable unplugged, WiFi drop).
+            let reconciled = 0;
+            for (const [id] of state.tracks) {
+                if (!seededIds.has(id)) {
+                    handleTrackLost(id);
+                    reconciled++;
+                }
+            }
+            
+            if (totalSeeded > 0 || reconciled > 0) {
+                console.log(`AtlasRF: Seed complete — ${totalSeeded} tracks loaded, ${reconciled} stale removed`);
             } else {
                 console.log('AtlasRF: No active tracks to seed');
             }
@@ -1271,8 +1331,13 @@ const AtlasRFModule = (function() {
         if (!state.connected) return;
         
         try {
+            // Use the maximum seed age across all types (600s) so radiosonde
+            // and APRS tracks aren't missed.  Client-side age filtering in
+            // updateTrackCounts() and purgeStaleTrack() already applies the
+            // display threshold (trackMaxAgeSeconds = 300s) per render cycle.
+            const maxSeedAge = Math.max(...Object.values(CONFIG.seedMaxAgeByType));
             const response = await fetch(
-                `${getBaseUrl()}/api/tracks?max_age=${CONFIG.trackMaxAgeSeconds}`,
+                `${getBaseUrl()}/api/tracks?max_age=${maxSeedAge}`,
                 { cache: 'no-store' }  // Prevent browser caching stale track data
             );
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -1334,12 +1399,11 @@ const AtlasRFModule = (function() {
      */
     function purgeStaleTrack() {
         const now = Date.now();
-        const maxAge = CONFIG.trackMaxAgeSeconds * 1000;
         let purged = 0;
         
         for (const [id, track] of state.tracks) {
             const age = now - (track.lastUpdate || track.timestamp || 0);
-            if (age > maxAge) {
+            if (age > getTrackMaxAgeMs(track.type)) {
                 state.tracks.delete(id);
                 purged++;
             }
@@ -1507,12 +1571,11 @@ const AtlasRFModule = (function() {
         state.trackCounts = { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
         
         const now = Date.now();
-        const maxAge = CONFIG.trackMaxAgeSeconds * 1000;
         
         for (const [id, track] of state.tracks) {
             // Apply same filters as renderOnMap so counts match what's displayed
             const age = now - (track.lastUpdate || track.timestamp || 0);
-            if (age > maxAge) continue;
+            if (age > getTrackMaxAgeMs(track.type)) continue;
             
             // Skip tracks without position — UNLESS the type is flagged noPosition
             // (e.g. FPV drones are RF-only detections with no GPS coordinates)
@@ -1678,7 +1741,7 @@ const AtlasRFModule = (function() {
             if (!isTrackTypeEnabled(track.type)) continue;
             
             const age = now - (track.lastUpdate || track.timestamp || 0);
-            if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
+            if (age > getTrackMaxAgeMs(track.type)) continue;
             
             // Check drone/aircraft position
             const lat = track.lat ?? track.latitude;
@@ -2060,7 +2123,7 @@ const AtlasRFModule = (function() {
             
             // Skip stale tracks
             const age = now - (track.lastUpdate || track.timestamp || 0);
-            if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
+            if (age > getTrackMaxAgeMs(track.type)) continue;
             
             if (!tracksByType.has(track.type)) {
                 tracksByType.set(track.type, []);
@@ -2105,7 +2168,7 @@ const AtlasRFModule = (function() {
         
         // Calculate track age for alpha
         const age = now - (track.lastUpdate || track.timestamp || 0);
-        const staleRatio = Math.min(age / (CONFIG.trackMaxAgeSeconds * 1000), 1);
+        const staleRatio = Math.min(age / getTrackMaxAgeMs(track.type), 1);
         const alpha = 1 - (staleRatio * 0.5);  // Fade from 1.0 to 0.5
         
         ctx.save();
@@ -2326,7 +2389,7 @@ const AtlasRFModule = (function() {
 
             // Skip stale tracks
             const age = now - (track.lastUpdate || track.timestamp || 0);
-            if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
+            if (age > getTrackMaxAgeMs(track.type)) continue;
 
             // Pilot screen position
             const pilotPx = latLonToPixel(pilotLat, pilotLon);
@@ -2339,7 +2402,7 @@ const AtlasRFModule = (function() {
             const dronePx = (droneLat && droneLon) ? latLonToPixel(droneLat, droneLon) : null;
 
             // Fade with track age
-            const staleRatio = Math.min(age / (CONFIG.trackMaxAgeSeconds * 1000), 1);
+            const staleRatio = Math.min(age / getTrackMaxAgeMs(track.type), 1);
             const alpha = 1 - (staleRatio * 0.5);
 
             ctx.save();
@@ -2717,7 +2780,7 @@ const AtlasRFModule = (function() {
                 if (!lat || !lon) continue;
                 
                 const age = now - (track.lastUpdate || track.timestamp || 0);
-                if (age > CONFIG.trackMaxAgeSeconds * 1000) continue;
+                if (age > getTrackMaxAgeMs(track.type)) continue;
                 
                 positions.push(latLonToPixel(lat, lon));
             }
@@ -2831,7 +2894,11 @@ const AtlasRFModule = (function() {
         WEATHER_SOURCES,
         EMERGENCY_SQUAWKS,
         CONNECTION_METHODS,
-        CONFIG
+        CONFIG,
+        
+        // Internals exposed for testing / external integration
+        seedInitialTracks,
+        handleTrackUpdate,
     };
 })();
 

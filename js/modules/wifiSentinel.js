@@ -126,6 +126,12 @@ const WiFiSentinelModule = (function() {
         'BetaFPV':   { color: '#f472b6', label: 'BetaFPV',    icon: '🏎️' },
         'Teal':      { color: '#64748b', label: 'Teal Drones', icon: '🎖️' },
         'iFlight':   { color: '#fb7185', label: 'iFlight',    icon: '🏎️' },
+        'Bwine':     { color: '#e879f9', label: 'Bwine',      icon: '🛸' },
+        'JJRC':      { color: '#d946ef', label: 'JJRC',       icon: '🛸' },
+        'Syma':      { color: '#fca5a5', label: 'Syma',       icon: '🛸' },
+        'MJX':       { color: '#86efac', label: 'MJX',        icon: '🛸' },
+        'Contixo':   { color: '#7dd3fc', label: 'Contixo',    icon: '🛸' },
+        'CFly':      { color: '#fdba74', label: 'C-Fly',      icon: '🛸' },
         'FPV':       { color: '#94a3b8', label: 'FPV Generic', icon: '🏎️' },
         'Unknown':   { color: '#6b7280', label: 'Unknown',    icon: '❓' }
     };
@@ -180,6 +186,10 @@ const WiFiSentinelModule = (function() {
         { prefix: 'DJI_FPV', mfg: 'DJI' },
         { prefix: 'AGRAS', mfg: 'DJI' }, { prefix: 'Agras', mfg: 'DJI' },
         { prefix: 'Flycart', mfg: 'DJI' }, { prefix: 'FLYCART', mfg: 'DJI' },
+        { prefix: 'Mini-', mfg: 'DJI' }, { prefix: 'MINI-', mfg: 'DJI' },
+        { prefix: 'Neo-', mfg: 'DJI' }, { prefix: 'NEO-', mfg: 'DJI' },
+        { prefix: 'DJI_MINI', mfg: 'DJI' }, { prefix: 'DJI_NEO', mfg: 'DJI' },
+        { prefix: 'Flip-', mfg: 'DJI' }, { prefix: 'FLIP-', mfg: 'DJI' },
         // ── Parrot ───────────────────────────────────────────────────
         { prefix: 'ANAFI', mfg: 'Parrot' }, { prefix: 'Anafi', mfg: 'Parrot' },
         { prefix: 'DISCO-', mfg: 'Parrot' }, { prefix: 'BebopDrone-', mfg: 'Parrot' },
@@ -203,6 +213,8 @@ const WiFiSentinelModule = (function() {
         { prefix: 'Hubsan-', mfg: 'Hubsan' }, { prefix: 'HUBSAN', mfg: 'Hubsan' },
         { prefix: 'EXO-', mfg: 'Hubsan' },
         { prefix: 'Zino', mfg: 'Hubsan' }, { prefix: 'ZINO', mfg: 'Hubsan' },
+        { prefix: 'ZinoMini', mfg: 'Hubsan' }, { prefix: 'ZINOMINI', mfg: 'Hubsan' },
+        { prefix: 'Hubsan_', mfg: 'Hubsan' },
         // ── FIMI (Xiaomi sub-brand) ──────────────────────────────────
         { prefix: 'FIMI-', mfg: 'FIMI' }, { prefix: 'FIMI_', mfg: 'FIMI' },
         // ── Ryze / Tello ─────────────────────────────────────────────
@@ -238,6 +250,28 @@ const WiFiSentinelModule = (function() {
         { prefix: 'iFlight', mfg: 'iFlight' },
         // ── FPV generic (racing quads) ───────────────────────────────
         { prefix: 'GEPRC', mfg: 'FPV' },
+        // ── Bwine (Amazon popular, shares support with Ruko) ─────────
+        { prefix: 'Bwine-', mfg: 'Bwine' }, { prefix: 'BWINE-', mfg: 'Bwine' },
+        { prefix: 'Bwine_', mfg: 'Bwine' }, { prefix: 'BWINE_', mfg: 'Bwine' },
+        { prefix: 'BRG_', mfg: 'Bwine' },   // Bwine controller bridge SSID
+        // ── JJRC (major Chinese brand — Elfie, X12, X9 Heron) ───────
+        { prefix: 'JJRC-', mfg: 'JJRC' }, { prefix: 'JJRC_', mfg: 'JJRC' },
+        { prefix: 'JJRC ', mfg: 'JJRC' },
+        // ── Syma (global budget brand — X5SW, W1PRO, X8 series) ─────
+        { prefix: 'SYMA-', mfg: 'Syma' }, { prefix: 'Syma-', mfg: 'Syma' },
+        { prefix: 'SYMA_', mfg: 'Syma' }, { prefix: 'Syma_', mfg: 'Syma' },
+        { prefix: 'FPV_SYMA', mfg: 'Syma' },
+        // ── MJX (Bugs series — B4W, B16 Pro, B20) ───────────────────
+        { prefix: 'MJX-', mfg: 'MJX' }, { prefix: 'MJX_', mfg: 'MJX' },
+        { prefix: 'Bugs-', mfg: 'MJX' }, { prefix: 'BUGS-', mfg: 'MJX' },
+        { prefix: 'Bugs_', mfg: 'MJX' },
+        // ── Contixo (retail/Best Buy — F22, F28 series) ─────────────
+        { prefix: 'Contixo', mfg: 'Contixo' }, { prefix: 'CONTIXO', mfg: 'Contixo' },
+        { prefix: 'FC28', mfg: 'Contixo' }, { prefix: 'FC22', mfg: 'Contixo' },
+        // ── C-Fly (Faith series, also JJRC X12/Eachine EX4 rebrand) ─
+        { prefix: 'CFLY-', mfg: 'CFly' }, { prefix: 'C-Fly', mfg: 'CFly' },
+        { prefix: 'CFly', mfg: 'CFly' }, { prefix: 'CFLY_', mfg: 'CFly' },
+        { prefix: 'Faith-', mfg: 'CFly' }, { prefix: 'FAITH-', mfg: 'CFly' },
     ];
 
     // ==================== State ====================
