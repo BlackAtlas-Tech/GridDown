@@ -900,6 +900,30 @@ function handleDisconnect() {
         }
     } catch (e) { /* already disconnected */ }
     
+    // Release screen wake lock so Android can sleep normally
+    try {
+        if (MeshtasticClient._wakeLock) {
+            MeshtasticClient._wakeLock.release();
+            MeshtasticClient._wakeLock = null;
+            console.log('[MeshtasticClient] Wake lock released');
+        }
+        if (MeshtasticClient._wakeLockVisibilityHandler) {
+            document.removeEventListener('visibilitychange', MeshtasticClient._wakeLockVisibilityHandler);
+            MeshtasticClient._wakeLockVisibilityHandler = null;
+        }
+    } catch (_) {}
+    
+    // Remove GATT disconnection listener to prevent reconnect loops
+    try {
+        if (MeshtasticClient._gattDisconnectHandler) {
+            const { device: dev, handler } = MeshtasticClient._gattDisconnectHandler;
+            dev.removeEventListener('gattserverdisconnected', handler);
+            MeshtasticClient._gattDisconnectHandler = null;
+        }
+    } catch (_) {}
+    
+    MeshtasticClient._bleDevice = null;
+    
     if (MeshtasticClient.callbacks.onDisconnect) {
         MeshtasticClient.callbacks.onDisconnect();
     }
@@ -1051,21 +1075,23 @@ async function connectBLE() {
     //
     // There is no transport.connect() method — connection happens in the factory.
     //
-    // Strategy:
+    // Strategy (based on Google Chrome Web Bluetooth reconnect sample):
     //   1. Call requestDevice() ourselves (consumes user gesture, gets bleDevice)
-    //   2. Call createFromDevice(bleDevice) with retry (GATT can fail on first try)
-    //   3. new MeshDevice(transport) — pipes transport streams automatically
-    //   4. device.configure() — sends wantConfigId, triggers config exchange
-    //   5. Wait for DeviceConfigured status (7) via onDeviceStatus subscription
+    //   2. Establish GATT with exponential backoff via bleDevice.gatt.connect()
+    //   3. Once GATT is stable, call createFromDevice() for service discovery
+    //   4. new MeshDevice(transport) — pipes transport streams automatically
+    //   5. device.configure() — sends wantConfigId, triggers config exchange
+    //   6. Wait for DeviceConfigured status (7) via onDeviceStatus subscription
+    //   7. Acquire screen wake lock to prevent Android Doze from killing BLE
     //
     // If createFromDevice doesn't exist (older library), fall back to create().
     // =========================================================================
     
     const MESHTASTIC_SERVICE_UUID = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
-    const GATT_RETRIES = 3;
-    const GATT_RETRY_DELAYS = [0, 2000, 3000]; // ms delay before each attempt
+    const GATT_MAX_RETRIES = 5;
+    const GATT_BASE_DELAY = 2000; // 2 seconds, doubles each retry
     
-    let device, transport;
+    let device, transport, bleDeviceRef;
     
     // Check which factory methods are available
     const hasCreateFromDevice = typeof WebBluetoothTransport.createFromDevice === 'function';
@@ -1078,8 +1104,17 @@ async function connectBLE() {
         // =================================================================
         // PREFERRED PATH: Separate device selection from GATT connection
         // This allows GATT retries without re-prompting the user.
+        //
+        // Android BLE (especially Samsung) commonly fails the first 1-3
+        // GATT connection attempts with status 133 (GATT_ERROR). Samsung
+        // devices can take 10-20 seconds to release a stale GATT link.
+        // The Google Chrome Web Bluetooth sample uses exponential backoff
+        // with device.gatt.connect() to handle this.
+        //
+        // We pre-connect GATT with retry, then call createFromDevice()
+        // which will find GATT already connected and just resolve services.
         // =================================================================
-        console.log('[MeshtasticClient] Using retryable path (requestDevice + createFromDevice)...');
+        console.log('[MeshtasticClient] Using retryable path (requestDevice + GATT backoff + createFromDevice)...');
         
         // Step 1: Request device (consumes user gesture — happens once)
         const bleDevice = await navigator.bluetooth.requestDevice({
@@ -1089,36 +1124,45 @@ async function connectBLE() {
         
         console.log('[MeshtasticClient] Bluetooth device selected:', bleDevice.name);
         MeshtasticClient.lastBleDeviceName = bleDevice.name || null;
+        bleDeviceRef = bleDevice;
         
-        // Step 2: GATT connection with retry
-        for (let attempt = 0; attempt < GATT_RETRIES; attempt++) {
+        // Step 2: Establish GATT link with exponential backoff
+        // Based on: https://googlechrome.github.io/samples/web-bluetooth/automatic-reconnect.html
+        let gattConnected = false;
+        
+        for (let attempt = 0; attempt < GATT_MAX_RETRIES; attempt++) {
             try {
                 if (attempt > 0) {
-                    console.log(`[MeshtasticClient] GATT retry ${attempt + 1}/${GATT_RETRIES} — clearing stale connections...`);
+                    // Always try to tear down stale GATT before retry, even if
+                    // .connected is false — Android may have a half-open link
+                    // at the OS level that the JS API doesn't reflect.
+                    try { bleDevice.gatt.disconnect(); } catch (_) {}
                     
-                    // Tear down stale GATT connection so Android BLE stack releases it
-                    if (bleDevice?.gatt?.connected) {
-                        try {
-                            bleDevice.gatt.disconnect();
-                            console.log('[MeshtasticClient] Disconnected stale GATT');
-                        } catch (_) {}
-                    }
-                    
-                    await new Promise(r => setTimeout(r, GATT_RETRY_DELAYS[attempt] || 2000));
+                    // Exponential backoff: 2s, 4s, 8s, 16s
+                    const delay = GATT_BASE_DELAY * Math.pow(2, attempt - 1);
+                    console.log(`[MeshtasticClient] GATT retry ${attempt + 1}/${GATT_MAX_RETRIES} in ${delay}ms...`);
+                    await new Promise(r => setTimeout(r, delay));
                 }
                 
-                console.log(`[MeshtasticClient] Calling createFromDevice() (attempt ${attempt + 1})...`);
-                transport = await WebBluetoothTransport.createFromDevice(bleDevice);
-                console.log('[MeshtasticClient] ✅ Transport created via createFromDevice()');
-                break; // Success
+                console.log(`[MeshtasticClient] gatt.connect() attempt ${attempt + 1}/${GATT_MAX_RETRIES}...`);
+                await bleDevice.gatt.connect();
+                console.log('[MeshtasticClient] ✅ GATT link established');
+                gattConnected = true;
+                break;
                 
             } catch (err) {
-                console.warn(`[MeshtasticClient] GATT attempt ${attempt + 1}/${GATT_RETRIES} failed:`, err.message);
-                if (attempt >= GATT_RETRIES - 1) {
-                    throw new Error(`BLE connection failed after ${GATT_RETRIES} attempts: ${err.message}`);
+                console.warn(`[MeshtasticClient] GATT attempt ${attempt + 1}/${GATT_MAX_RETRIES} failed:`, err.message);
+                if (attempt >= GATT_MAX_RETRIES - 1) {
+                    throw new Error(`BLE GATT connection failed after ${GATT_MAX_RETRIES} attempts: ${err.message}`);
                 }
             }
         }
+        
+        // Step 3: GATT is connected — now createFromDevice resolves services/characteristics
+        // gatt.connect() inside createFromDevice returns immediately since already connected
+        console.log('[MeshtasticClient] Calling createFromDevice() for service discovery...');
+        transport = await WebBluetoothTransport.createFromDevice(bleDevice);
+        console.log('[MeshtasticClient] ✅ Transport created via createFromDevice()');
         
     } else if (hasCreate) {
         // =================================================================
@@ -1128,17 +1172,17 @@ async function connectBLE() {
         transport = await WebBluetoothTransport.create();
         console.log('[MeshtasticClient] ✅ Transport created via create()');
         
-        // Extract device name from transport internals if possible
+        // Extract device name and reference from transport internals if possible
         try {
-            MeshtasticClient.lastBleDeviceName = 
-                transport?.gattServer?.device?.name || null;
+            bleDeviceRef = transport?.gattServer?.device || null;
+            MeshtasticClient.lastBleDeviceName = bleDeviceRef?.name || null;
         } catch (_) {}
         
     } else {
         throw new Error('TransportWebBluetooth has no create() or createFromDevice() — library API may have changed');
     }
     
-    // Step 3: Create MeshDevice — this immediately pipes transport.fromDevice
+    // Step 4: Create MeshDevice — this immediately pipes transport.fromDevice
     // into the packet decoder, so status events will start flowing
     console.log('[MeshtasticClient] Creating MeshDevice...');
     device = new MeshDevice(transport);
@@ -1154,6 +1198,122 @@ async function connectBLE() {
     MeshtasticClient.device = device;
     MeshtasticClient.transport = transport;
     MeshtasticClient.connectionType = 'ble';
+    
+    // Store the BluetoothDevice for auto-reconnect on disconnect
+    // bleDeviceRef was set in the createFromDevice or create() branch above;
+    // fall back to extracting from transport internals if somehow unset
+    if (!bleDeviceRef) {
+        try { bleDeviceRef = transport?.gattServer?.device || null; } catch (_) {}
+    }
+    MeshtasticClient._bleDevice = bleDeviceRef;
+    
+    // Step 5: Listen for GATT disconnection events from the browser/OS.
+    // Android fires this when Doze suspends BLE, device goes out of range,
+    // or BLE stack drops the link. Without this, GridDown doesn't know the
+    // connection died and sits in a stale "connected" state.
+    // Pattern from: https://googlechrome.github.io/samples/web-bluetooth/automatic-reconnect.html
+    //
+    // IMPORTANT: Simply calling gatt.connect() again is NOT sufficient for
+    // Meshtastic. The transport holds characteristic handles from the old
+    // GATT session — after reconnect those are stale. We must rebuild the
+    // entire transport + MeshDevice + configure pipeline.
+    if (bleDeviceRef) {
+        const onGattDisconnected = async () => {
+            console.warn('[MeshtasticClient] ⚠️ GATT server disconnected by OS/hardware');
+            
+            // Don't auto-reconnect if user explicitly disconnected
+            if (!MeshtasticClient.isConnected && !MeshtasticClient.device) {
+                console.log('[MeshtasticClient] User-initiated disconnect — skipping auto-reconnect');
+                return;
+            }
+            
+            // Tear down current device/transport (stale handles)
+            for (const unsub of MeshtasticClient._subscriptions) {
+                try { if (typeof unsub === 'function') unsub(); } catch (_) {}
+            }
+            MeshtasticClient._subscriptions = [];
+            MeshtasticClient.device = null;
+            MeshtasticClient.transport = null;
+            
+            // Re-establish GATT with exponential backoff
+            const RECONNECT_MAX = 5;
+            const RECONNECT_BASE = 2000;
+            
+            for (let attempt = 0; attempt < RECONNECT_MAX; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        try { bleDeviceRef.gatt.disconnect(); } catch (_) {}
+                        const delay = RECONNECT_BASE * Math.pow(2, attempt - 1);
+                        console.log(`[MeshtasticClient] Auto-reconnect GATT retry ${attempt + 1}/${RECONNECT_MAX} in ${delay}ms...`);
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                    
+                    console.log(`[MeshtasticClient] Auto-reconnect gatt.connect() attempt ${attempt + 1}...`);
+                    await bleDeviceRef.gatt.connect();
+                    console.log('[MeshtasticClient] ✅ Auto-reconnect GATT re-established');
+                    
+                    // Rebuild transport with fresh characteristic handles
+                    const newTransport = await WebBluetoothTransport.createFromDevice(bleDeviceRef);
+                    const newDevice = new MeshDevice(newTransport);
+                    
+                    patchDeviceLogger(newDevice);
+                    setupEventHandlers(newDevice);
+                    
+                    MeshtasticClient.device = newDevice;
+                    MeshtasticClient.transport = newTransport;
+                    
+                    // Re-configure to get fresh node info
+                    if (typeof newDevice.configure === 'function') {
+                        newDevice.configure().catch(err => {
+                            console.warn('[MeshtasticClient] Auto-reconnect configure() error:', err?.message);
+                        });
+                    }
+                    
+                    // Re-acquire wake lock
+                    try {
+                        if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+                            MeshtasticClient._wakeLock = await navigator.wakeLock.request('screen');
+                        }
+                    } catch (_) {}
+                    
+                    console.log('[MeshtasticClient] ✅ Auto-reconnect complete');
+                    return; // Success
+                    
+                } catch (err) {
+                    console.warn(`[MeshtasticClient] Auto-reconnect attempt ${attempt + 1}/${RECONNECT_MAX} failed:`, err.message);
+                }
+            }
+            
+            // All retries exhausted — treat as full disconnect
+            console.error('[MeshtasticClient] Auto-reconnect failed after', RECONNECT_MAX, 'attempts');
+            handleDisconnect();
+        };
+        
+        bleDeviceRef.addEventListener('gattserverdisconnected', onGattDisconnected);
+        MeshtasticClient._gattDisconnectHandler = { device: bleDeviceRef, handler: onGattDisconnected };
+    }
+    
+    // Step 6: Acquire screen wake lock to prevent Android Doze from
+    // suspending the BLE connection. Released in disconnect().
+    try {
+        if ('wakeLock' in navigator) {
+            MeshtasticClient._wakeLock = await navigator.wakeLock.request('screen');
+            console.log('[MeshtasticClient] ✅ Screen wake lock acquired');
+            
+            // Re-acquire if page becomes visible again after being hidden
+            MeshtasticClient._wakeLockVisibilityHandler = async () => {
+                if (document.visibilityState === 'visible' && MeshtasticClient.isConnected) {
+                    try {
+                        MeshtasticClient._wakeLock = await navigator.wakeLock.request('screen');
+                        console.log('[MeshtasticClient] ✅ Wake lock re-acquired after visibility change');
+                    } catch (_) {}
+                }
+            };
+            document.addEventListener('visibilitychange', MeshtasticClient._wakeLockVisibilityHandler);
+        }
+    } catch (e) {
+        console.warn('[MeshtasticClient] Wake lock not available:', e.message);
+    }
     
     // Step 4: Start configuration exchange
     if (typeof device.configure === 'function') {
@@ -1444,6 +1604,32 @@ async function reconnectBLE(deviceName) {
     
     try {
         if (typeof WebBluetoothTransport.createFromDevice === 'function') {
+            // Pre-connect GATT with exponential backoff (same as connectBLE)
+            // Samsung BLE stack may need multiple attempts after a previous session
+            const GATT_MAX_RETRIES = 5;
+            const GATT_BASE_DELAY = 2000;
+            
+            for (let attempt = 0; attempt < GATT_MAX_RETRIES; attempt++) {
+                try {
+                    if (attempt > 0) {
+                        try { bleDevice.gatt.disconnect(); } catch (_) {}
+                        const delay = GATT_BASE_DELAY * Math.pow(2, attempt - 1);
+                        console.log(`[MeshtasticClient] Reconnect GATT retry ${attempt + 1}/${GATT_MAX_RETRIES} in ${delay}ms...`);
+                        await new Promise(r => setTimeout(r, delay));
+                    }
+                    
+                    console.log(`[MeshtasticClient] Reconnect gatt.connect() attempt ${attempt + 1}/${GATT_MAX_RETRIES}...`);
+                    await bleDevice.gatt.connect();
+                    console.log('[MeshtasticClient] Reconnect: ✅ GATT link established');
+                    break;
+                } catch (err) {
+                    console.warn(`[MeshtasticClient] Reconnect GATT attempt ${attempt + 1}/${GATT_MAX_RETRIES} failed:`, err.message);
+                    if (attempt >= GATT_MAX_RETRIES - 1) {
+                        throw new Error(`Reconnect GATT failed after ${GATT_MAX_RETRIES} attempts: ${err.message}`);
+                    }
+                }
+            }
+            
             console.log('[MeshtasticClient] Reconnect: Using createFromDevice()...');
             transport = await WebBluetoothTransport.createFromDevice(bleDevice);
             console.log('[MeshtasticClient] Reconnect: Transport created via createFromDevice()');

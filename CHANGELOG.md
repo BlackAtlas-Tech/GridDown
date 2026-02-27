@@ -2,6 +2,40 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.58.8] - 2025-02-26
+
+### Fixed — Meshtastic BLE: Complete Connection Rewrite
+- **js/modules/meshtastic-client.js** — Root cause: code was written against a non-existent API. The `@meshtastic/transport-web-bluetooth` v0.1.5 library uses static factory methods (`create()`, `createFromDevice()`), NOT the constructor+connect pattern GridDown was calling (`new TransportWebBluetooth(bleDevice)`, `transport.connect()`). Connection was broken on all platforms (Mac, Windows, Android).
+
+#### API Correction (all platforms)
+- **`connectBLE()`** — Complete rewrite using correct factory API:
+  - `navigator.bluetooth.requestDevice()` → `bleDevice.gatt.connect()` (with retry) → `createFromDevice(bleDevice)` for service discovery
+  - Removed all calls to non-existent `transport.connect()` method
+  - Removed all wrong constructor patterns (`new TransportWebBluetooth(bleDevice)`)
+  - Single `requestDevice()` call with `create()` fallback in mutually exclusive `else-if` (no gesture fallthrough)
+- **`reconnectBLE()`** — Rewritten to use `createFromDevice()` with GATT pre-connect backoff
+- **`connectSerial()`** — Removed phantom `transport.connect()` call (method doesn't exist on serial transport either)
+- **`setupEventHandlers()`** — Fixed event name: `onDeviceMetadata` → `onDeviceMetadataPacket` (matches actual library API)
+- **`configure()`** — Fire-and-forget with `.catch()` (not awaited — the Promise resolves on sendRaw, not on config complete)
+
+#### Samsung/Android BLE Stability
+- **GATT pre-connect with exponential backoff** — Samsung BLE stack commonly fails first 1–3 GATT attempts with status 133 (GATT_ERROR) and holds stale half-open links at the OS level. New pattern: `gatt.connect()` in retry loop (5 attempts, 2s→4s→8s→16s backoff) with forced `gatt.disconnect()` between attempts. Based on Google Chrome [Web Bluetooth reconnect sample](https://googlechrome.github.io/samples/web-bluetooth/automatic-reconnect.html). Once GATT is stable, `createFromDevice()` resolves services on the already-connected link.
+- **`gattserverdisconnected` auto-reconnect** — Listens for Android/OS-level BLE disconnection events (Doze, interference, range). On disconnect: tears down stale transport + characteristic handles, re-establishes GATT with exponential backoff, rebuilds fresh transport + MeshDevice + event handlers, re-configures. All automatic, no user interaction needed.
+- **Screen Wake Lock** — Acquired on connect via `navigator.wakeLock.request('screen')`, released on disconnect, auto-reacquired on `visibilitychange`. Prevents Android Doze from suspending Chrome's BLE socket while the tab is active. Gracefully no-ops on platforms without Wake Lock API.
+- **`handleDisconnect()` cleanup** — Now releases wake lock, removes `gattserverdisconnected` listener, removes `visibilitychange` handler, clears `_bleDevice` reference. Prevents reconnect loops and event listener leaks.
+
+#### Previous Audit Fixes (retained, now operational on correct transport layer)
+- C1: Reconnect probe unwrapping — `withBleTimeout()` result properly destructured
+- C2: Mid-session auto-reconnect — now functional via `gattserverdisconnected` listener
+- C3: Queue processor duplicate interval prevention
+- H1–H4: Disconnect cleanup, event subscription leak prevention, watchdog, legacy listener removal
+- M1–M3: Config merging, page-load backoff, state desync prevention
+
+#### Verification
+- 46/46 functional checks passed against actual npm packages (`@meshtastic/transport-web-bluetooth` v0.1.5, `@meshtastic/core` v2.6.7, `@meshtastic/transport-web-serial` v0.2.5)
+- All 12 event subscriptions verified against library's 41 SimpleEventDispatcher events
+- Syntax validation: `node -c` pass on both `meshtastic-client.js` and `meshtastic.js`
+
 ## [6.57.81] - 2025-02-24
 
 ### Added — WiFi Sentinel: Passive Drone Detection (NEW Module)
