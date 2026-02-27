@@ -1024,7 +1024,6 @@ async function connectBLE() {
     
     // Try different export patterns (library API has changed between versions)
     const MeshDevice = core.MeshDevice || core.default?.MeshDevice || core.Client || core.default?.Client;
-    // Try different export patterns - library uses different names across versions
     // v2.6.x uses TransportWebBluetooth, older versions used WebBluetoothTransport
     const WebBluetoothTransport = bleTransport.TransportWebBluetooth || bleTransport.default?.TransportWebBluetooth ||
                                    bleTransport.WebBluetoothTransport || bleTransport.default?.WebBluetoothTransport || 
@@ -1044,139 +1043,186 @@ async function connectBLE() {
     console.log('[MeshtasticClient] Using MeshDevice:', MeshDevice.name || 'anonymous');
     console.log('[MeshtasticClient] Using Transport:', WebBluetoothTransport.name || 'anonymous');
     
-    // Debug: Log everything about the transport class
-    console.log('[MeshtasticClient] Transport type:', typeof WebBluetoothTransport);
-    console.log('[MeshtasticClient] Transport.create:', typeof WebBluetoothTransport.create);
-    console.log('[MeshtasticClient] Transport.prototype:', WebBluetoothTransport.prototype);
-    console.log('[MeshtasticClient] Transport keys:', Object.keys(WebBluetoothTransport));
-    console.log('[MeshtasticClient] Transport static methods:', Object.getOwnPropertyNames(WebBluetoothTransport));
+    const MESHTASTIC_SERVICE_UUID = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
+    const GATT_RETRIES = 3;
+    const GATT_RETRY_DELAY = 2000; // 2 seconds between GATT attempts
     
     let device, transport;
+    let bleDevice = null; // The Web Bluetooth device object (survives retries)
     
-    try {
-        // The Meshtastic BLE Service UUID
-        const MESHTASTIC_SERVICE_UUID = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
-        
-        // Method 1: Try Transport.create() factory (official API)
-        if (typeof WebBluetoothTransport.create === 'function') {
+    // =========================================================================
+    // PHASE 1: Device selection (requires user gesture — cannot be retried)
+    // =========================================================================
+    
+    // Method 1: Try Transport.create() factory — handles selection + GATT atomically.
+    // If create() exists, try it first. If it fails with a GATT error, we fall through
+    // to Method 2 which separates selection from connection for retryability.
+    if (typeof WebBluetoothTransport.create === 'function') {
+        try {
             console.log('[MeshtasticClient] Method 1: Using TransportWebBluetooth.create()...');
             transport = await WebBluetoothTransport.create();
             console.log('[MeshtasticClient] Transport created via create()');
+        } catch (createErr) {
+            console.warn('[MeshtasticClient] Method 1 create() failed:', createErr.message, '— falling through to Method 2 with retry');
+            transport = null;
         }
-        // Method 2: Request Bluetooth device first, then create transport with it
-        else if (navigator.bluetooth && navigator.bluetooth.requestDevice) {
-            console.log('[MeshtasticClient] Method 2: Requesting Bluetooth device directly...');
-            
-            // Request device from browser
-            const bleDevice = await navigator.bluetooth.requestDevice({
-                filters: [{ services: [MESHTASTIC_SERVICE_UUID] }],
-                optionalServices: [MESHTASTIC_SERVICE_UUID]
-            });
-            
-            console.log('[MeshtasticClient] Bluetooth device selected:', bleDevice.name);
-            MeshtasticClient.lastBleDeviceName = bleDevice.name || null;
-            
-            // Try creating transport with the device
-            if (typeof WebBluetoothTransport === 'function') {
-                // Check constructor signature
-                console.log('[MeshtasticClient] Transport constructor length:', WebBluetoothTransport.length);
-                
-                // Try passing device to constructor
+    }
+    
+    // Method 2: Request Bluetooth device first, then create transport separately.
+    // This lets us retry the GATT connection without re-prompting the user.
+    if (!transport && navigator.bluetooth && navigator.bluetooth.requestDevice) {
+        console.log('[MeshtasticClient] Method 2: Requesting Bluetooth device directly...');
+        
+        bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [MESHTASTIC_SERVICE_UUID] }],
+            optionalServices: [MESHTASTIC_SERVICE_UUID]
+        });
+        
+        console.log('[MeshtasticClient] Bluetooth device selected:', bleDevice.name);
+        MeshtasticClient.lastBleDeviceName = bleDevice.name || null;
+        
+        // Try creating transport with the device
+        if (typeof WebBluetoothTransport === 'function') {
+            try {
+                transport = new WebBluetoothTransport(bleDevice);
+            } catch (e1) {
                 try {
-                    transport = new WebBluetoothTransport(bleDevice);
-                    console.log('[MeshtasticClient] Transport created with device');
-                } catch (e1) {
-                    console.log('[MeshtasticClient] Constructor with device failed:', e1.message);
-                    // Try with options object
-                    try {
-                        transport = new WebBluetoothTransport({ device: bleDevice });
-                        console.log('[MeshtasticClient] Transport created with {device}');
-                    } catch (e2) {
-                        console.log('[MeshtasticClient] Constructor with {device} failed:', e2.message);
-                        throw new Error('Cannot create transport with Bluetooth device');
-                    }
+                    transport = new WebBluetoothTransport({ device: bleDevice });
+                } catch (e2) {
+                    throw new Error('Cannot create transport with Bluetooth device');
                 }
             }
         }
-        // Method 3: Fallback - just try constructor (may prompt user)
-        else if (typeof WebBluetoothTransport === 'function') {
-            console.log('[MeshtasticClient] Method 3: Trying bare constructor...');
-            transport = new WebBluetoothTransport();
-        } else {
-            throw new Error('No way to create WebBluetoothTransport');
-        }
-        
-        // Now create MeshDevice
-        if (!transport) {
-            throw new Error('Failed to create transport');
-        }
-        
-        console.log('[MeshtasticClient] Transport object:', transport);
-        console.log('[MeshtasticClient] Transport methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(transport)));
-        
-        // Create MeshDevice with transport
-        console.log('[MeshtasticClient] Creating MeshDevice with transport...');
-        device = new MeshDevice(transport);
-        console.log('[MeshtasticClient] MeshDevice created');
-        console.log('[MeshtasticClient] Device methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(device)));
-        
-        // Patch the logger BEFORE configure() or any event subscriptions fire
-        patchDeviceLogger(device);
-        
-        // Setup event handlers
-        setupEventHandlers(device);
-        
-        // Store device/transport BEFORE configure so they're available
-        // to event handlers that fire during configuration
-        MeshtasticClient.device = device;
-        MeshtasticClient.transport = transport;
-        MeshtasticClient.connectionType = 'ble';
-        
-        // Capture BLE device name for reconnect matching
-        // Method 2 stores it on transport as ._bleDevice, but transport internals vary
-        try {
-            MeshtasticClient.lastBleDeviceName = 
-                transport?.device?.name || transport?._device?.name || 
-                transport?._port?.device?.name || null;
-        } catch (e) { /* transport internals not accessible */ }
-        
-        // Some transports/devices need explicit connect/configure calls
-        if (typeof transport.connect === 'function') {
-            console.log('[MeshtasticClient] Calling transport.connect()...');
-            await transport.connect();
-        }
-        if (typeof device.configure === 'function') {
-            console.log('[MeshtasticClient] Calling device.configure()...');
-            
-            // IMPORTANT: Do NOT await configure(). In @meshtastic/core v2.6.x,
-            // configure() may never resolve even after the device is fully configured
-            // (status 7 / DEVICE_CONFIGURED emitted). The config exchange happens
-            // asynchronously via the event system — the status handler sets
-            // MeshtasticClient.isConnected = true when status 7 arrives, which the
-            // polling loop below detects.
-            device.configure().catch((configureErr) => {
-                if (configureErr.message && configureErr.message.includes('isNativeError')) {
-                    console.warn('[MeshtasticClient] Logger polyfill error during configure (non-fatal)');
-                } else {
-                    console.error('[MeshtasticClient] configure() error:', configureErr.message);
-                }
-            });
-        }
-        
-    } catch (err) {
-        console.error('[MeshtasticClient] Connection error:', err);
-        console.error('[MeshtasticClient] Error stack:', err.stack);
-        MeshtasticClient.device = null;
-        MeshtasticClient.transport = null;
-        MeshtasticClient.connectionType = null;
-        throw err;
     }
     
-    // Wait for configuration to complete.
-    // The status callback sets isConnected=true and calls _connectionResolver directly.
-    // The polling loop is a backup in case the callback fires before the resolver is registered.
+    // Method 3: Fallback - bare constructor
+    if (!transport && typeof WebBluetoothTransport === 'function') {
+        console.log('[MeshtasticClient] Method 3: Trying bare constructor...');
+        transport = new WebBluetoothTransport();
+    }
+    
+    if (!transport) {
+        throw new Error('No way to create WebBluetoothTransport');
+    }
+    
+    // =========================================================================
+    // PHASE 2: GATT connection + device setup (retryable with stale cleanup)
+    // =========================================================================
+    
+    let lastGattError = null;
+    
+    for (let attempt = 1; attempt <= GATT_RETRIES; attempt++) {
+        try {
+            // Clear stale GATT connection before retrying.
+            // Android's BLE stack holds onto dead connections and rejects new ones
+            // with "Connection attempt failed" until the old one is explicitly torn down.
+            if (attempt > 1) {
+                console.log(`[MeshtasticClient] GATT retry ${attempt}/${GATT_RETRIES} — clearing stale connections...`);
+                
+                // Try disconnecting through our transport
+                try {
+                    if (typeof transport.disconnect === 'function') {
+                        transport.disconnect();
+                    }
+                } catch (_) {}
+                
+                // Try disconnecting through the raw BLE device object
+                if (bleDevice?.gatt?.connected) {
+                    try {
+                        bleDevice.gatt.disconnect();
+                        console.log('[MeshtasticClient] Disconnected stale GATT connection');
+                    } catch (_) {}
+                }
+                
+                // Wait for Android BLE stack to release the connection
+                await new Promise(r => setTimeout(r, GATT_RETRY_DELAY));
+                
+                // Recreate transport for clean state (reuse same bleDevice)
+                if (bleDevice && typeof WebBluetoothTransport === 'function') {
+                    try {
+                        transport = new WebBluetoothTransport(bleDevice);
+                    } catch (_) {
+                        try { transport = new WebBluetoothTransport({ device: bleDevice }); } catch (__) {}
+                    }
+                }
+            }
+            
+            // Create MeshDevice with transport
+            console.log(`[MeshtasticClient] Creating MeshDevice (attempt ${attempt})...`);
+            device = new MeshDevice(transport);
+            
+            // Patch the logger BEFORE configure() or any event subscriptions fire
+            patchDeviceLogger(device);
+            
+            // Setup event handlers
+            setupEventHandlers(device);
+            
+            // Store device/transport BEFORE configure so they're available
+            // to event handlers that fire during configuration
+            MeshtasticClient.device = device;
+            MeshtasticClient.transport = transport;
+            MeshtasticClient.connectionType = 'ble';
+            
+            // Capture BLE device name for reconnect matching
+            try {
+                MeshtasticClient.lastBleDeviceName = 
+                    MeshtasticClient.lastBleDeviceName ||
+                    transport?.device?.name || transport?._device?.name || 
+                    transport?._port?.device?.name || null;
+            } catch (e) { /* transport internals not accessible */ }
+            
+            // Connect transport — this is the GATT handshake that fails
+            if (typeof transport.connect === 'function') {
+                console.log(`[MeshtasticClient] Calling transport.connect() (attempt ${attempt})...`);
+                await transport.connect();
+            }
+            
+            console.log('[MeshtasticClient] ✅ GATT connection established');
+            
+            // Start device configuration (fire-and-forget — see rationale below)
+            if (typeof device.configure === 'function') {
+                console.log('[MeshtasticClient] Calling device.configure()...');
+                
+                // IMPORTANT: Do NOT await configure(). In @meshtastic/core v2.6.x,
+                // configure() may never resolve even after the device is fully configured
+                // (status 7 / DEVICE_CONFIGURED emitted). The config exchange happens
+                // asynchronously via the event system — the status handler sets
+                // MeshtasticClient.isConnected = true when status 7 arrives, which the
+                // polling loop below detects.
+                device.configure().catch((configureErr) => {
+                    if (configureErr.message && configureErr.message.includes('isNativeError')) {
+                        console.warn('[MeshtasticClient] Logger polyfill error during configure (non-fatal)');
+                    } else {
+                        console.error('[MeshtasticClient] configure() error:', configureErr.message);
+                    }
+                });
+            }
+            
+            // GATT connected + configure started — break out of retry loop
+            lastGattError = null;
+            break;
+            
+        } catch (err) {
+            lastGattError = err;
+            console.warn(`[MeshtasticClient] GATT attempt ${attempt}/${GATT_RETRIES} failed:`, err.message || err);
+            
+            // Clean up partial state from this attempt
+            MeshtasticClient.device = null;
+            MeshtasticClient.transport = null;
+            MeshtasticClient.connectionType = null;
+            
+            if (attempt >= GATT_RETRIES) {
+                console.error('[MeshtasticClient] All GATT connection attempts failed');
+                throw err;
+            }
+        }
+    }
+    
+    // =========================================================================
+    // PHASE 3: Wait for device configuration to complete
+    // =========================================================================
+    
     console.log('[MeshtasticClient] Waiting for device configuration to complete...');
-    console.log('[MeshtasticClient] isConnected already?', MeshtasticClient.isConnected);
     
     // If status 7 already fired (before we got here), resolve immediately
     if (MeshtasticClient.isConnected) {
