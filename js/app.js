@@ -364,6 +364,7 @@ const App = (function() {
                 Events.on('atlasrf:track:update', throttledRFPanelRender);
                 Events.on('atlasrf:track:batch', throttledRFPanelRender);
                 Events.on('atlasrf:track:lost', throttledRFPanelRender);
+                Events.on('atlasrf:tracks:cleared', throttledRFPanelRender);
                 
                 Events.on('atlasrf:emergency:squawk', (data) => {
                     if (State.get('activePanel') === 'atlasrf') {

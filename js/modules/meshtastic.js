@@ -444,6 +444,8 @@ const MeshtasticModule = (function() {
         // Intervals (no longer needed - using EventManager)
         positionInterval: null,
         statusInterval: null,
+        _bleWatchdogInterval: null,
+        _positionBroadcastFailures: 0,
         
         // Callbacks
         onMessage: null,
@@ -497,6 +499,8 @@ const MeshtasticModule = (function() {
         if (state.connectionState === ConnectionState.CONNECTED) {
             disconnect();
         }
+        
+        stopBleHealthWatchdog();
         
         // Clear all tracked intervals and listeners
         if (meshEvents) {
@@ -805,7 +809,31 @@ const MeshtasticModule = (function() {
         console.log(`[Meshtastic] Auto-reconnect: attempting ${state.lastConnectionType} (device: ${state.lastBleDeviceName || 'unknown'})`);
         
         if (state.lastConnectionType === 'bluetooth') {
-            await attemptBleReconnect();
+            // Retry with backoff on page load (M2)
+            const RETRIES = 3;
+            const DELAYS = [0, 3000, 8000]; // Immediate, 3s, 8s
+            
+            for (let i = 0; i < RETRIES; i++) {
+                if (state.connectionState === ConnectionState.CONNECTED) return;
+                
+                if (DELAYS[i] > 0) {
+                    await new Promise(r => setTimeout(r, DELAYS[i]));
+                }
+                
+                console.log(`[Meshtastic] Auto-reconnect attempt ${i + 1}/${RETRIES}`);
+                
+                try {
+                    await attemptBleReconnect();
+                    return; // Success
+                } catch (e) {
+                    console.warn(`[Meshtastic] Auto-reconnect attempt ${i + 1} failed:`, e.message);
+                }
+            }
+            
+            // All attempts exhausted
+            if (typeof ModalsModule !== 'undefined') {
+                ModalsModule.showToast('Meshtastic: tap Connect to restore BLE', 'info');
+            }
         } else if (state.lastConnectionType === 'serial') {
             // Serial auto-reconnect not yet implemented — getPorts() could enable
             // this in the future, but transport library integration needs work
@@ -888,6 +916,7 @@ const MeshtasticModule = (function() {
             
             setConnectionState(ConnectionState.CONNECTED);
             startPositionBroadcast();
+            startBleHealthWatchdog();
             
             // Update stored device name in case it was resolved during reconnect
             state.lastBleDeviceName = MeshtasticClient.getLastBleDeviceName?.() || state.lastBleDeviceName;
@@ -908,6 +937,128 @@ const MeshtasticModule = (function() {
             if (typeof ModalsModule !== 'undefined') {
                 ModalsModule.showToast('Meshtastic: tap Connect to restore BLE', 'info');
             }
+        }
+    }
+    
+    /**
+     * Mid-session auto-reconnect with exponential backoff (C2).
+     * Triggered when BLE drops during active use. Attempts to silently
+     * reconnect using the previously paired device name.
+     */
+    async function attemptMidSessionReconnect() {
+        const MAX_RETRIES = 5;
+        const BASE_DELAY = 3000; // 3s, 6s, 12s, 24s, 48s
+        
+        // Guard: need MeshtasticClient.reconnectBLE
+        if (typeof MeshtasticClient === 'undefined' || !MeshtasticClient.reconnectBLE) {
+            return;
+        }
+        
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            const delay = BASE_DELAY * Math.pow(2, attempt - 1);
+            console.log(`[Meshtastic] Mid-session reconnect attempt ${attempt}/${MAX_RETRIES} in ${delay / 1000}s...`);
+            
+            setConnectionState(ConnectionState.CONNECTING);
+            await new Promise(r => setTimeout(r, delay));
+            
+            // Bail if user manually disconnected or connected via another path
+            if (!state.autoReconnect || state.connectionState === ConnectionState.CONNECTED) {
+                return;
+            }
+            
+            try {
+                // Wait for libraries if needed
+                if (!MeshtasticClient.isReady || !MeshtasticClient.isReady()) {
+                    await MeshtasticClient.loadLibraries();
+                }
+                
+                setupMeshtasticClientCallbacks();
+                const result = await MeshtasticClient.reconnectBLE(state.lastBleDeviceName);
+                
+                state.connectionType = 'bluetooth';
+                state.myNodeNum = result.nodeNum;
+                state.usingRealClient = true;
+                
+                const selfNode = result.nodeNum ? 
+                    (MeshtasticClient.getNodes().find(n => n.num === result.nodeNum)) : null;
+                state.myNodeId = selfNode?.id || result.nodeInfo?.user?.id || nodeNumToId(result.nodeNum);
+                if (selfNode?.longName || result.nodeInfo?.user?.longName) {
+                    state.longName = selfNode?.longName || result.nodeInfo?.user?.longName;
+                }
+                if (selfNode?.shortName || result.nodeInfo?.user?.shortName) {
+                    state.shortName = selfNode?.shortName || result.nodeInfo?.user?.shortName;
+                }
+                
+                if (result.config) {
+                    syncDeviceConfigFromClient(result.config);
+                }
+                
+                setConnectionState(ConnectionState.CONNECTED);
+                startPositionBroadcast();
+                startBleHealthWatchdog();
+                
+                state.lastBleDeviceName = MeshtasticClient.getLastBleDeviceName?.() || state.lastBleDeviceName;
+                saveReconnectState();
+                
+                console.log(`[Meshtastic] ✅ Mid-session reconnect succeeded on attempt ${attempt}`);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Meshtastic reconnected', 'success');
+                }
+                return;
+            } catch (e) {
+                console.warn(`[Meshtastic] Reconnect attempt ${attempt} failed:`, e.message);
+            }
+        }
+        
+        // All attempts exhausted
+        setConnectionState(ConnectionState.DISCONNECTED);
+        if (typeof ModalsModule !== 'undefined') {
+            ModalsModule.showToast('Meshtastic connection lost — tap Connect to restore', 'warning');
+        }
+    }
+    
+    /**
+     * BLE health watchdog (H3).
+     * Periodically probes the BLE link to detect zombie connections where
+     * isConnected is true but the GATT link is dead (common on Android sleep).
+     */
+    function startBleHealthWatchdog() {
+        if (state._bleWatchdogInterval) return;
+        if (state.connectionType !== 'bluetooth') return;
+        
+        state._bleWatchdogInterval = meshEvents ? meshEvents.setInterval(async () => {
+            if (state.connectionState !== ConnectionState.CONNECTED || !state.usingRealClient) return;
+            
+            try {
+                if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isConnected && MeshtasticClient.isConnected()) {
+                    // requestConfig is a lightweight round-trip that verifies the BLE link
+                    await Promise.race([
+                        MeshtasticClient.requestConfig(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('watchdog timeout')), 10000))
+                    ]);
+                }
+            } catch (e) {
+                console.warn('[Meshtastic] BLE watchdog: link appears dead, triggering disconnect');
+                state.usingRealClient = false;
+                setConnectionState(ConnectionState.DISCONNECTED);
+                stopPositionBroadcast();
+                stopBleHealthWatchdog();
+                
+                if (state.autoReconnect) {
+                    attemptMidSessionReconnect();
+                }
+            }
+        }, 60000) : null; // Check every 60 seconds
+    }
+    
+    function stopBleHealthWatchdog() {
+        if (state._bleWatchdogInterval) {
+            if (meshEvents) {
+                meshEvents.clearInterval(state._bleWatchdogInterval);
+            } else {
+                clearInterval(state._bleWatchdogInterval);
+            }
+            state._bleWatchdogInterval = null;
         }
     }
     
@@ -965,6 +1116,9 @@ const MeshtasticModule = (function() {
                 
                 // Start position broadcasting
                 startPositionBroadcast();
+                
+                // Start BLE health watchdog for zombie connection detection (H3)
+                startBleHealthWatchdog();
                 
                 // Save auto-reconnect state for page reload recovery
                 state.autoReconnect = true;
@@ -1152,6 +1306,7 @@ const MeshtasticModule = (function() {
      */
     async function disconnect() {
         stopPositionBroadcast();
+        stopBleHealthWatchdog();
         
         // User explicitly disconnected — don't auto-reconnect on next load
         state.autoReconnect = false;
@@ -1163,8 +1318,12 @@ const MeshtasticModule = (function() {
         }
         
         // Also handle legacy/fallback connections
-        if (state.connectionType === 'bluetooth' && state.device?.gatt?.connected) {
-            state.device.gatt.disconnect();
+        if (state.connectionType === 'bluetooth' && state.device) {
+            // Remove listener to prevent leak (H4)
+            state.device.removeEventListener('gattserverdisconnected', onDisconnected);
+            if (state.device.gatt?.connected) {
+                state.device.gatt.disconnect();
+            }
         }
         
         if (state.connectionType === 'serial') {
@@ -1247,6 +1406,12 @@ const MeshtasticModule = (function() {
             state.usingRealClient = false;
             setConnectionState(ConnectionState.DISCONNECTED);
             stopPositionBroadcast();
+            stopBleHealthWatchdog();
+            
+            // Attempt mid-session reconnect if this was an unexpected BLE drop (C2)
+            if (state.autoReconnect && state.lastConnectionType === 'bluetooth') {
+                attemptMidSessionReconnect();
+            }
         });
     }
     
@@ -1834,6 +1999,14 @@ const MeshtasticModule = (function() {
      * Routes to the appropriate API method based on message type
      */
     async function sendViaRealClient(data) {
+        // Double-check the client is actually connected (M3 — guard against desync)
+        if (typeof MeshtasticClient === 'undefined' || 
+            !MeshtasticClient.isConnected || !MeshtasticClient.isConnected()) {
+            state.usingRealClient = false;
+            setConnectionState(ConnectionState.DISCONNECTED);
+            throw new Error('Device connection lost');
+        }
+        
         const type = data.type;
         const griddownMessageId = data.id || null; // GridDown's app-level message ID
         
@@ -4262,14 +4435,11 @@ const MeshtasticModule = (function() {
         // Process immediately on start
         processOutboundQueue();
         
-        // Then process periodically
-        state.queueProcessorInterval = setInterval(() => {
-            processOutboundQueue();
-        }, QUEUE_RETRY_INTERVAL);
-        
-        // Also track with EventManager for cleanup
+        // Single interval tracked by EventManager for proper cleanup (C3)
         if (meshEvents) {
-            meshEvents.setInterval(processOutboundQueue, QUEUE_RETRY_INTERVAL);
+            state.queueProcessorInterval = meshEvents.setInterval(processOutboundQueue, QUEUE_RETRY_INTERVAL);
+        } else {
+            state.queueProcessorInterval = setInterval(processOutboundQueue, QUEUE_RETRY_INTERVAL);
         }
     }
     
@@ -4278,7 +4448,11 @@ const MeshtasticModule = (function() {
      */
     function stopQueueProcessor() {
         if (state.queueProcessorInterval) {
-            clearInterval(state.queueProcessorInterval);
+            if (meshEvents) {
+                meshEvents.clearInterval(state.queueProcessorInterval);
+            } else {
+                clearInterval(state.queueProcessorInterval);
+            }
             state.queueProcessorInterval = null;
             console.log('[Queue] Stopped queue processor');
         }

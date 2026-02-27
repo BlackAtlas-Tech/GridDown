@@ -23955,9 +23955,14 @@ After spreading:
                     `}
                     
                     ${isConnected ? `
-                        <button id="rfs-disconnect" class="btn btn--secondary" style="width:100%">
-                            Disconnect
-                        </button>
+                        <div style="display:flex;gap:0.5rem">
+                            <button id="rfs-disconnect" class="btn btn--secondary" style="flex:1">
+                                Disconnect
+                            </button>
+                            <button id="rfs-clear-tracks" class="btn btn--secondary" style="flex:1" ${totalTracks === 0 ? 'disabled' : ''} title="Clear all tracks from the display. Connection stays live — new detections will repopulate immediately.">
+                                ${Icons.get('trash')} Clear Tracks
+                            </button>
+                        </div>
                     ` : `
                         <button id="rfs-connect" class="btn btn--primary" style="width:100%" ${isConnecting ? 'disabled' : ''}>
                             ${isConnecting ? 'Connecting...' : 'Connect'}
@@ -24397,6 +24402,20 @@ After spreading:
                 if (typeof AtlasRFModule !== 'undefined') {
                     AtlasRFModule.disconnect();
                     ModalsModule.showToast('Disconnected from AtlasRF', 'info');
+                    renderAtlasRF();
+                }
+            };
+        }
+        
+        // Clear Tracks button — wipes display, keeps connection alive
+        const clearTracksBtn = document.getElementById('rfs-clear-tracks');
+        if (clearTracksBtn) {
+            clearTracksBtn.onclick = () => {
+                if (typeof AtlasRFModule !== 'undefined') {
+                    const counts = AtlasRFModule.getTrackCounts();
+                    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+                    AtlasRFModule.clearTracks();
+                    ModalsModule.showToast(`Cleared ${total} tracks — new detections will appear as they arrive`, 'info');
                     renderAtlasRF();
                 }
             };

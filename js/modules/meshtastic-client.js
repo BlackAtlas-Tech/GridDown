@@ -128,6 +128,9 @@ const MeshtasticClient = {
         onTraceroute: null   // Native firmware traceroute response
     },
     
+    // Event subscriptions (for cleanup on disconnect)
+    _subscriptions: [],
+    
     // Loading state
     librariesLoaded: false,
     loadingPromise: null
@@ -360,11 +363,27 @@ function setupEventHandlers(device) {
         return;
     }
     
+    // Clear any previous subscriptions before adding new ones
+    for (const unsub of MeshtasticClient._subscriptions) {
+        try { if (typeof unsub === 'function') unsub(); } catch (_) {}
+    }
+    MeshtasticClient._subscriptions = [];
+    
+    // Helper to subscribe and track the unsubscribe function
+    function trackSubscribe(eventObj, handler) {
+        if (eventObj?.subscribe) {
+            const unsub = eventObj.subscribe(handler);
+            if (typeof unsub === 'function') {
+                MeshtasticClient._subscriptions.push(unsub);
+            }
+            return true;
+        }
+        return false;
+    }
+    
     // Device status changes
-    if (device.events.onDeviceStatus?.subscribe) {
-        device.events.onDeviceStatus.subscribe((status) => {
+    if (!trackSubscribe(device.events.onDeviceStatus, (status) => {
             console.log('[MeshtasticClient] Device status:', status, '(type:', typeof status, ')');
-            console.log('[MeshtasticClient] isStatusConfigured:', isStatusConfigured(status), 'isStatusDisconnected:', isStatusDisconnected(status));
             
             if (isStatusDisconnected(status)) {
                 handleDisconnect();
@@ -391,102 +410,78 @@ function setupEventHandlers(device) {
                     });
                 }
             }
-        });
-    } else {
+        })) {
         console.warn('[MeshtasticClient] onDeviceStatus not available');
     }
     
     // My node info
-    if (device.events.onMyNodeInfo?.subscribe) {
-        device.events.onMyNodeInfo.subscribe((nodeInfo) => {
-            console.log('[MeshtasticClient] My node info:', nodeInfo);
-            MeshtasticClient.myNodeNum = nodeInfo.myNodeNum;
-            MeshtasticClient.myNodeInfo = nodeInfo;
-        });
-    }
+    trackSubscribe(device.events.onMyNodeInfo, (nodeInfo) => {
+        console.log('[MeshtasticClient] My node info:', nodeInfo);
+        MeshtasticClient.myNodeNum = nodeInfo.myNodeNum;
+        MeshtasticClient.myNodeInfo = nodeInfo;
+    });
     
     // Device metadata (firmware version, etc.)
-    if (device.events.onDeviceMetadata?.subscribe) {
-        device.events.onDeviceMetadata.subscribe((metadata) => {
-            console.log('[MeshtasticClient] Device metadata:', metadata);
-            if (MeshtasticClient.deviceConfig) {
-                MeshtasticClient.deviceConfig.firmwareVersion = metadata.firmwareVersion;
-                MeshtasticClient.deviceConfig.hwModel = metadata.hwModel;
-            }
-        });
-    }
+    trackSubscribe(device.events.onDeviceMetadata, (metadata) => {
+        console.log('[MeshtasticClient] Device metadata:', metadata);
+        if (MeshtasticClient.deviceConfig) {
+            MeshtasticClient.deviceConfig.firmwareVersion = metadata.firmwareVersion;
+            MeshtasticClient.deviceConfig.hwModel = metadata.hwModel;
+        }
+    });
     
     // LoRa config (region, modem preset, tx power, hop limit)
-    if (device.events.onConfigPacket?.subscribe) {
-        device.events.onConfigPacket.subscribe((config) => {
-            console.log('[MeshtasticClient] Config packet:', config);
-            handleConfigPacket(config);
-        });
-    }
+    trackSubscribe(device.events.onConfigPacket, (config) => {
+        console.log('[MeshtasticClient] Config packet:', config);
+        handleConfigPacket(config);
+    });
     
     // Channel updates
-    if (device.events.onChannelPacket?.subscribe) {
-        device.events.onChannelPacket.subscribe((channel) => {
-            console.log('[MeshtasticClient] Channel packet:', channel);
-            handleChannelPacket(channel);
-        });
-    }
+    trackSubscribe(device.events.onChannelPacket, (channel) => {
+        console.log('[MeshtasticClient] Channel packet:', channel);
+        handleChannelPacket(channel);
+    });
     
     // Node info from mesh
-    if (device.events.onNodeInfoPacket?.subscribe) {
-        device.events.onNodeInfoPacket.subscribe((nodeInfo) => {
-            console.log('[MeshtasticClient] Node info packet:', nodeInfo);
-            handleNodeInfoPacket(nodeInfo);
-        });
-    }
+    trackSubscribe(device.events.onNodeInfoPacket, (nodeInfo) => {
+        console.log('[MeshtasticClient] Node info packet:', nodeInfo);
+        handleNodeInfoPacket(nodeInfo);
+    });
     
     // Position updates
-    if (device.events.onPositionPacket?.subscribe) {
-        device.events.onPositionPacket.subscribe((position) => {
-            console.log('[MeshtasticClient] Position packet:', position);
-            handlePositionPacket(position);
-        });
-    }
+    trackSubscribe(device.events.onPositionPacket, (position) => {
+        console.log('[MeshtasticClient] Position packet:', position);
+        handlePositionPacket(position);
+    });
     
     // Text messages
-    if (device.events.onMessagePacket?.subscribe) {
-        device.events.onMessagePacket.subscribe((message) => {
-            console.log('[MeshtasticClient] Message packet:', message);
-            handleMessagePacket(message);
-        });
-    }
+    trackSubscribe(device.events.onMessagePacket, (message) => {
+        console.log('[MeshtasticClient] Message packet:', message);
+        handleMessagePacket(message);
+    });
     
     // Telemetry (battery, signal quality, etc.)
-    if (device.events.onTelemetryPacket?.subscribe) {
-        device.events.onTelemetryPacket.subscribe((telemetry) => {
-            handleTelemetryPacket(telemetry);
-        });
-    }
+    trackSubscribe(device.events.onTelemetryPacket, (telemetry) => {
+        handleTelemetryPacket(telemetry);
+    });
     
     // Mesh packets (for SNR/RSSI)
-    if (device.events.onMeshPacket?.subscribe) {
-        device.events.onMeshPacket.subscribe((packet) => {
-            handleMeshPacket(packet);
-        });
-    }
+    trackSubscribe(device.events.onMeshPacket, (packet) => {
+        handleMeshPacket(packet);
+    });
     
     // Routing packets (ACK/NACK for sent messages)
-    if (device.events.onRoutingPacket?.subscribe) {
-        device.events.onRoutingPacket.subscribe((routing) => {
-            handleRoutingPacket(routing);
-        });
-    }
+    trackSubscribe(device.events.onRoutingPacket, (routing) => {
+        handleRoutingPacket(routing);
+    });
     
     // Traceroute responses (RouteDiscovery protobuf)
-    // Some library versions fire this directly instead of via onMeshPacket
-    if (device.events.onTraceRoutePacket?.subscribe) {
-        device.events.onTraceRoutePacket.subscribe((packet) => {
-            console.log('[MeshtasticClient] TraceRoute packet (dedicated event):', packet);
-            handleTraceroutePacket(packet);
-        });
-    }
+    trackSubscribe(device.events.onTraceRoutePacket, (packet) => {
+        console.log('[MeshtasticClient] TraceRoute packet (dedicated event):', packet);
+        handleTraceroutePacket(packet);
+    });
     
-    console.log('[MeshtasticClient] Event handlers configured');
+    console.log('[MeshtasticClient] Event handlers configured (' + MeshtasticClient._subscriptions.length + ' subscriptions tracked)');
 }
 
 /**
@@ -884,11 +879,26 @@ function handleTraceroutePacket(packet) {
  * Handle disconnect
  */
 function handleDisconnect() {
+    const transport = MeshtasticClient.transport;
+    
+    // Unsubscribe all event handlers to prevent leaks (H2)
+    for (const unsub of MeshtasticClient._subscriptions) {
+        try { if (typeof unsub === 'function') unsub(); } catch (_) {}
+    }
+    MeshtasticClient._subscriptions = [];
+    
     MeshtasticClient.isConnected = false;
     MeshtasticClient.device = null;
     MeshtasticClient.transport = null;
     MeshtasticClient.connectionType = null;
     MeshtasticClient._connectionResolver = null;
+    
+    // Best-effort cleanup of transport resources (H1)
+    try {
+        if (transport && typeof transport.disconnect === 'function') {
+            transport.disconnect();
+        }
+    } catch (e) { /* already disconnected */ }
     
     if (MeshtasticClient.callbacks.onDisconnect) {
         MeshtasticClient.callbacks.onDisconnect();
@@ -1405,9 +1415,15 @@ async function reconnectBLE(deviceName) {
         for (const candidate of pairedDevices) {
             try {
                 console.log(`[MeshtasticClient] Reconnect: Probing "${candidate.name || candidate.id}"...`);
-                const server = await withBleTimeout(
+                const probeResult = await withBleTimeout(
                     candidate.gatt.connect(), 5000, 'reconnect probe'
                 );
+                // withBleTimeout returns { completed, result } — unwrap the GATT server
+                if (!probeResult.completed || !probeResult.result) {
+                    console.log(`[MeshtasticClient] Reconnect: "${candidate.name || candidate.id}" probe timed out`);
+                    continue;
+                }
+                const server = probeResult.result;
                 // Check if device has Meshtastic service
                 await server.getPrimaryService(MESHTASTIC_SERVICE_UUID);
                 bleDevice = candidate;
@@ -2004,7 +2020,15 @@ async function setPositionConfig(broadcastSecs, gpsUpdateInterval, gpsEnabled) {
         throw new Error('Not connected to device');
     }
     
-    const posConfig = {};
+    // Start from existing position config to avoid zeroing omitted fields (M1)
+    const dc = MeshtasticClient.deviceConfig || {};
+    const posConfig = {
+        positionBroadcastSecs: dc.positionBroadcastSecs,
+        gpsUpdateInterval: dc.gpsUpdateInterval,
+        gpsEnabled: dc.gpsEnabled !== false
+    };
+    
+    // Override only fields that were explicitly passed
     if (broadcastSecs !== undefined) posConfig.positionBroadcastSecs = broadcastSecs;
     if (gpsUpdateInterval !== undefined) posConfig.gpsUpdateInterval = gpsUpdateInterval;
     if (gpsEnabled !== undefined) posConfig.gpsEnabled = gpsEnabled;

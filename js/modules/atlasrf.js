@@ -658,6 +658,32 @@ const AtlasRFModule = (function() {
         }
     }
 
+    /**
+     * Clear all tracks from the display without disconnecting.
+     *
+     * Wipes state.tracks, resets counts, clears correlations, and
+     * refreshes the map.  The WebSocket/MQTT/REST connection stays
+     * alive — new detections will repopulate the map immediately
+     * as they arrive from AtlasRF.
+     *
+     * Use cases:
+     *  - Relocated AtlasRF station to a new site (purge old-location ghosts)
+     *  - Stuck/phantom tracks from clock skew or firmware bugs
+     *  - User wants a clean-slate view without cycling the connection
+     */
+    function clearTracks() {
+        const count = state.tracks.size;
+        state.tracks.clear();
+        state.trackCounts = { aircraft: 0, ship: 0, drone: 0, fpv: 0, radiosonde: 0, aprs: 0 };
+        state.emergencyTracks = [];
+        state.correlations.clear();
+        
+        emitEvent('tracks:cleared', { count });
+        requestMapRefresh();
+        
+        console.log(`AtlasRF: Cleared ${count} tracks (connection preserved)`);
+    }
+
     // ==================== WebSocket Connection ====================
 
     function connectWebSocket() {
@@ -2907,6 +2933,7 @@ const AtlasRFModule = (function() {
         getTrack: (id) => state.tracks.get(id),
         getTrackCounts: () => ({ ...state.trackCounts }),
         getTracksByType: (type) => [...state.tracks.values()].filter(t => t.type === type),
+        clearTracks,
         
         // Track type toggles
         setTrackTypeEnabled,
