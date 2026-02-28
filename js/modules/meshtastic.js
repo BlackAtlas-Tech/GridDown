@@ -350,7 +350,8 @@ const MeshtasticModule = (function() {
     
     let state = {
         connectionState: ConnectionState.DISCONNECTED,
-        connectionType: null, // 'bluetooth' or 'serial'
+        connectionType: null, // 'bluetooth', 'serial', or 'http'
+        httpAddress: null,    // HTTP device IP/hostname (e.g. '192.168.1.100')
         usingRealClient: false, // true when connected via MeshtasticClient (real library)
         autoReconnect: false,      // Persist: attempt reconnect on page load
         lastConnectionType: null,  // Persist: 'bluetooth', 'serial', or 'http' (for reconnect)
@@ -7547,6 +7548,13 @@ const MeshtasticModule = (function() {
     }
     
     /**
+     * Clear the active traceroute display
+     */
+    function clearActiveTraceroute() {
+        state.activeTraceroute = null;
+    }
+    
+    /**
      * Get traceroute by request ID
      */
     function getTraceroute(requestId) {
@@ -8565,6 +8573,7 @@ const MeshtasticModule = (function() {
         // Traceroute
         requestTraceroute,
         getActiveTraceroute,
+        clearActiveTraceroute,
         getTraceroute,
         getTracerouteHistory,
         clearTracerouteHistory,

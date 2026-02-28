@@ -5581,10 +5581,8 @@ const PanelsModule = (function() {
         const trClearBtn = container.querySelector('#traceroute-clear-btn');
         if (trClearBtn) {
             trClearBtn.onclick = () => {
-                if (typeof MeshtasticModule !== 'undefined') {
-                    // Clear active traceroute
-                    const state = MeshtasticModule.getState();
-                    if (state) state.activeTraceroute = null;
+                if (typeof MeshtasticModule !== 'undefined' && MeshtasticModule.clearActiveTraceroute) {
+                    MeshtasticModule.clearActiveTraceroute();
                     renderTeam();
                 }
             };
