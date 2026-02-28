@@ -1,4 +1,4 @@
-const CACHE_NAME = 'griddown-v6.61.0';
+const CACHE_NAME = 'griddown-v6.62.0';
 const TILE_CACHE_NAME = 'griddown-tiles-v1';
 const STATIC_ASSETS = [
     './', 'index.html', 'manifest.json', 'favicon.ico', 'css/app.css',
@@ -124,14 +124,64 @@ self.addEventListener('install', e => {
     console.log('[SW] Installing version:', CACHE_NAME);
     e.waitUntil(
         caches.open(CACHE_NAME)
-            .then(cache => cache.addAll(STATIC_ASSETS))
-            // Do NOT call self.skipWaiting() here.
-            // Let the new worker enter 'waiting' state so UpdateModule
-            // can show the "Refresh Now / Later" toast for user consent.
-            // On first install (no existing controller), the browser
-            // activates the worker automatically — no skipWaiting needed.
-            // On updates, the SKIP_WAITING message from UpdateModule
-            // (user clicks "Refresh Now") triggers activation.
+            .then(cache => {
+                // CRITICAL: Do NOT use cache.addAll() — it fetches through the
+                // browser's HTTP cache, which heuristically caches JS/CSS files.
+                // After 'griddown-update' (git pull), the new sw.js triggers
+                // install, but cache.addAll() re-fills the new SW cache with
+                // STALE JS from the browser's HTTP cache. Result: update
+                // activates but user still sees old code.
+                //
+                // fetch(url, { cache: 'reload' }) forces a network roundtrip
+                // that validates against the server, ensuring the new cache
+                // always contains the freshest files from disk.
+                return Promise.all(
+                    STATIC_ASSETS.map(url =>
+                        fetch(url, { cache: 'reload' })
+                            .then(response => {
+                                if (response.ok) {
+                                    return cache.put(url, response);
+                                }
+                                console.warn('[SW] Failed to cache:', url, response.status);
+                            })
+                            .catch(err => {
+                                // Offline or network error — skip this asset.
+                                // It will be fetched network-first on next request.
+                                console.warn('[SW] Skipping (offline?):', url, err.message);
+                            })
+                    )
+                );
+            })
+            .then(() => {
+                // Auto-activate after a grace period if no client sends
+                // SKIP_WAITING. Handles two field scenarios:
+                //   1. No tab open — gd-watch pulled update while app was
+                //      backgrounded, no one to show the toast to
+                //   2. User busy — toast appeared but operator is navigating
+                //      in the field and won't tap "Refresh Now" any time soon
+                //
+                // 120s gives UpdateModule time to show the toast and the user
+                // a chance to tap "Later". If they tap "Refresh Now" before
+                // the timeout, the explicit SKIP_WAITING message arrives first
+                // and this timer is cancelled (becomes a no-op).
+                return new Promise(resolve => {
+                    const autoSkipTimer = setTimeout(() => {
+                        console.log('[SW] Auto-activating after 120s grace period');
+                        self.skipWaiting();
+                        resolve();
+                    }, 120000);
+                    
+                    // Listen for explicit SKIP_WAITING (user tapped "Refresh Now")
+                    self.addEventListener('message', function onMsg(evt) {
+                        const d = evt.data;
+                        if (d === 'skipWaiting' || (d && d.type === 'SKIP_WAITING')) {
+                            clearTimeout(autoSkipTimer);
+                            self.removeEventListener('message', onMsg);
+                            resolve();
+                        }
+                    });
+                });
+            })
     );
 });
 
