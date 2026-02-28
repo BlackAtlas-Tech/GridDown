@@ -2,6 +2,26 @@
 
 All notable changes to GridDown will be documented in this file.
 
+## [6.63.0] - 2026-02-28
+### Added
+- Medical Guide: New Prolonged Field Care category (6 items) — Wound Reassessment Schedule, Field Fluid Management, Infection Recognition & Response, Managing a Patient Overnight, Improvised ORS & Field Nutrition, Extended Pain Management
+- Medical Guide: New Pediatric Emergencies category (6 items) — Pediatric Scaling Reference, Pediatric Airway Management, Pediatric CPR, Pediatric Hypothermia, Pediatric Fluid Requirements, Pediatric Fracture Considerations
+- Medical Guide: 4 new Quick Reference Cards — Pediatric Vital Signs by Age, Pediatric Medication Dosing, AVPU Scale, Wound Infection Timeline
+- Field Guide: 6 new Navigation items — Terrain Association, Pace Count & Dead Reckoning, Deliberate Offset & Handrailing, UTM/MGRS Grid Reading, Magnetic Declination, Night Navigation
+- Field Guide: New Weather Reading subcategory with 5 items — Cloud Identification, Reading Approaching Weather, Beaufort Wind Scale, Lightning Safety & Distance, Temperature Estimation & Effects
+- Field Guide: New Kit & Gear category (3 items) — The 10 Essentials, 72-Hour Go Bag, SAR Field Kit
+- Medical Guide: New Kit Contents category (3 items) — IFAK Contents, Team Medical Kit, Recommended Field Medications
+- Medical Guide: 2 new Quick Reference Cards — IFAK Resupply Checklist, Kit Weight Targets
+- Field Guide: New Tool Craft category (4 items) — Stone Cutting Tools, Natural Fiber Cordage, Char Cloth & Fire Kit, Improvised Containers & Rock Boiling
+- Field Guide: New Animal Protein subcategory under Plants (4 items) — Insect Foraging, Trapping Principles, Improvised Fishing, Processing Wild Foods
+- Field Guide: 2 new Signaling items — Signal Mirror Technique, Whistle Signals & Audio Signaling
+- Medical Guide: New Specialty Emergencies category (6 items) — Emergency Childbirth, Postpartum Hemorrhage, Crush Injury/Crush Syndrome, Dental Emergencies, Eye Injuries, Psychological First Aid
+- Medical Guide: 2 new Environmental items — Dehydration Assessment, Trench Foot/Immersion Foot
+- Medical Guide: 3 new Quick Reference Cards — Rapid Trauma Assessment (DCAP-BTLS), Crush Release Decision Matrix, Common Field Med Interactions
+- Field Guide: New Rescue Systems subcategory under Knots (5 items) — Z-Drag (3:1), C-Rig (5:1), Improvised Litter Construction, Field Anchor Systems, Improvised Lowering Systems
+- Field Guide: New Water Safety category (4 items) — Stream Crossing Techniques, Current & Depth Assessment, Improvised Flotation, Cold Water Immersion Response
+- FINAL: Field guide 69 items (was 36), Medical guide 59 items + 18 quick ref cards (was 42 + 9). Combined 128 items + 18 QR = 146 content items (was 87 + 9 = 96, +52%)
+
 ## [6.58.8] - 2025-02-26
 
 ### Fixed — Meshtastic BLE: Complete Connection Rewrite
