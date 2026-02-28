@@ -227,10 +227,11 @@ async function loadLibraries() {
             // Import without version pinning — esm.sh resolves to the latest
             // version it has built, which is more reliable than pinning specific
             // versions that may get purged from the CDN cache.
-            const [core, bleTransport, serialTransport, protobufs, protobufRuntime] = await Promise.all([
+            const [core, bleTransport, serialTransport, httpTransport, protobufs, protobufRuntime] = await Promise.all([
                 import(`${ESM_CDN}/@meshtastic/core`),
                 import(`${ESM_CDN}/@meshtastic/transport-web-bluetooth`),
                 import(`${ESM_CDN}/@meshtastic/transport-web-serial`),
+                import(`${ESM_CDN}/@meshtastic/transport-http`).catch(() => null),
                 import(`${ESM_CDN}/@meshtastic/protobufs`),
                 import(`${ESM_CDN}/@bufbuild/protobuf`).catch(() => null)
             ]);
@@ -238,6 +239,7 @@ async function loadLibraries() {
             MeshtasticClient.core = core;
             MeshtasticClient.bleTransport = bleTransport;
             MeshtasticClient.serialTransport = serialTransport;
+            MeshtasticClient.httpTransport = httpTransport; // may be null if import fails
             MeshtasticClient.protobufs = protobufs;
             MeshtasticClient.protobufRuntime = protobufRuntime; // may be null if import fails
             MeshtasticClient.librariesLoaded = true;
@@ -1511,6 +1513,154 @@ async function connectSerial() {
 }
 
 /**
+ * Connect to a Meshtastic device via HTTP API over WiFi.
+ * Uses @meshtastic/transport-http to poll the device's /api/v1/fromradio endpoint.
+ * The device must have WiFi enabled and be reachable at the given IP address.
+ *
+ * This is the preferred connection method for the T-Deck Cypher when the device
+ * is on the same WiFi network as the tablet (field router or hotspot).
+ *
+ * @param {string} address - IP address or hostname (e.g., "192.168.1.100" or "meshtastic.local")
+ * @param {boolean} [tls=false] - Use HTTPS (TLS) instead of HTTP
+ * @param {number} [fetchInterval=3000] - Polling interval in milliseconds
+ * @returns {Promise<{nodeNum, nodeInfo, config}>}
+ */
+async function connectHTTP(address, tls = false, fetchInterval = 3000) {
+    await loadLibraries();
+    
+    const core = MeshtasticClient.core;
+    const httpTransportModule = MeshtasticClient.httpTransport;
+    
+    if (!httpTransportModule) {
+        throw new Error('@meshtastic/transport-http library not available. It may have failed to load from CDN.');
+    }
+    
+    // Resolve exports — try different export patterns across library versions
+    const MeshDevice = core.MeshDevice || core.default?.MeshDevice || core.Client || core.default?.Client;
+    const HttpTransport = httpTransportModule.TransportHTTP || httpTransportModule.default?.TransportHTTP ||
+                           httpTransportModule.HttpTransport || httpTransportModule.default?.HttpTransport ||
+                           httpTransportModule.IHTTPConnection || httpTransportModule.default?.IHTTPConnection ||
+                           httpTransportModule.default;
+    
+    if (!MeshDevice) {
+        console.error('[MeshtasticClient] Available core exports:', Object.keys(core));
+        throw new Error('MeshDevice class not found in @meshtastic/core. Library API may have changed.');
+    }
+    
+    if (!HttpTransport) {
+        console.error('[MeshtasticClient] Available HTTP transport exports:', Object.keys(httpTransportModule));
+        throw new Error('TransportHTTP class not found. Library API may have changed.');
+    }
+    
+    console.log('[MeshtasticClient] Using MeshDevice:', MeshDevice.name || 'anonymous');
+    console.log('[MeshtasticClient] Using HTTP Transport:', HttpTransport.name || 'anonymous');
+    console.log('[MeshtasticClient] Connecting to:', address, 'TLS:', tls, 'Interval:', fetchInterval);
+    
+    let device, transport;
+    
+    try {
+        // Official API pattern from @meshtastic/transport-http:
+        //   const transport = await TransportHTTP.create("10.10.0.57");
+        //   const device = new MeshDevice(transport);
+        
+        if (typeof HttpTransport.create === 'function') {
+            console.log('[MeshtasticClient] Using TransportHTTP.create() factory method...');
+            transport = await HttpTransport.create(address, tls);
+            console.log('[MeshtasticClient] HTTP Transport created successfully');
+        } else if (typeof HttpTransport === 'function') {
+            // Fallback: older API used new IHTTPConnection() then .connect()
+            console.log('[MeshtasticClient] Trying HttpTransport as constructor...');
+            transport = new HttpTransport();
+            if (typeof transport.connect === 'function') {
+                await transport.connect({ address, fetchInterval, tls });
+            }
+        } else {
+            throw new Error('Cannot create HTTP transport - no create() method or constructor');
+        }
+        
+        // Create MeshDevice with transport
+        console.log('[MeshtasticClient] Creating MeshDevice with HTTP transport...');
+        device = new MeshDevice(transport);
+        console.log('[MeshtasticClient] MeshDevice created successfully');
+        
+        // Patch the logger BEFORE configure() fires
+        patchDeviceLogger(device);
+        
+        // Setup event handlers
+        setupEventHandlers(device);
+        
+        // Store device/transport BEFORE configure
+        MeshtasticClient.device = device;
+        MeshtasticClient.transport = transport;
+        MeshtasticClient.connectionType = 'http';
+        MeshtasticClient.httpAddress = address;
+        
+        // Configure device — triggers wantConfigId exchange
+        if (typeof device.configure === 'function') {
+            console.log('[MeshtasticClient] Calling device.configure()...');
+            device.configure().catch((configureErr) => {
+                if (configureErr.message && configureErr.message.includes('isNativeError')) {
+                    console.warn('[MeshtasticClient] Logger polyfill error during configure (non-fatal)');
+                } else {
+                    console.error('[MeshtasticClient] configure() error:', configureErr.message);
+                }
+            });
+        }
+        
+    } catch (err) {
+        console.error('[MeshtasticClient] HTTP connection error:', err);
+        console.error('[MeshtasticClient] Error stack:', err.stack);
+        MeshtasticClient.device = null;
+        MeshtasticClient.transport = null;
+        MeshtasticClient.connectionType = null;
+        MeshtasticClient.httpAddress = null;
+        throw err;
+    }
+    
+    // Wait for configuration to complete (same pattern as connectSerial)
+    console.log('[MeshtasticClient] HTTP: Waiting for device configuration...');
+    
+    if (MeshtasticClient.isConnected) {
+        console.log('[MeshtasticClient] HTTP: Already connected — resolving immediately');
+        return {
+            nodeNum: MeshtasticClient.myNodeNum,
+            nodeInfo: MeshtasticClient.myNodeInfo,
+            config: MeshtasticClient.deviceConfig
+        };
+    }
+    
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+            MeshtasticClient._connectionResolver = null;
+            reject(new Error('HTTP connection timeout - device at ' + address + ' did not respond. Check IP address and that WiFi is enabled on the device.'));
+        }, 30000);
+        
+        MeshtasticClient._connectionResolver = (result) => {
+            clearTimeout(timeout);
+            clearInterval(checkConfigured);
+            resolve(result);
+        };
+        
+        const checkConfigured = setInterval(() => {
+            if (MeshtasticClient.isConnected) {
+                console.log('[MeshtasticClient] HTTP: Connected detected by polling loop');
+                clearTimeout(timeout);
+                clearInterval(checkConfigured);
+                if (MeshtasticClient._connectionResolver) {
+                    const resolver = MeshtasticClient._connectionResolver;
+                    MeshtasticClient._connectionResolver = null;
+                    resolver({
+                        nodeNum: MeshtasticClient.myNodeNum,
+                        nodeInfo: MeshtasticClient.myNodeInfo,
+                        config: MeshtasticClient.deviceConfig
+                    });
+                }
+            }
+        }, 100);
+    });
+}
+
+/**
  * Reconnect to a previously paired BLE device WITHOUT user gesture.
  * Uses navigator.bluetooth.getDevices() (Chrome 85+) to retrieve previously
  * granted devices, then follows the same transport/MeshDevice/configure flow
@@ -2528,11 +2678,13 @@ window.MeshtasticClient = {
     connectBLE,
     reconnectBLE,
     connectSerial,
+    connectHTTP,
     disconnect,
     isConnected,
     isReady,
     getConnectionType,
     getLastBleDeviceName: () => MeshtasticClient.lastBleDeviceName,
+    getHttpAddress: () => MeshtasticClient.httpAddress || null,
     
     // Configuration
     getConfig,
@@ -2597,6 +2749,7 @@ export {
     connectBLE,
     reconnectBLE,
     connectSerial,
+    connectHTTP,
     disconnect,
     getConfig,
     setRegion,

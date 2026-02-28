@@ -297,6 +297,7 @@ const MeshtasticModule = (function() {
     
     // Position update interval (ms)
     const POSITION_BROADCAST_INTERVAL = 60000; // 1 minute
+    const POSITION_MOVEMENT_THRESHOLD = 10;    // Phase 2: meters — skip broadcast if moved less than this
     const STALE_THRESHOLD = 300000; // 5 minutes
     const OFFLINE_THRESHOLD = 900000; // 15 minutes
     const ACK_TIMEOUT = 30000; // 30 seconds to wait for ACK
@@ -352,8 +353,9 @@ const MeshtasticModule = (function() {
         connectionType: null, // 'bluetooth' or 'serial'
         usingRealClient: false, // true when connected via MeshtasticClient (real library)
         autoReconnect: false,      // Persist: attempt reconnect on page load
-        lastConnectionType: null,  // Persist: 'bluetooth' or 'serial' (for reconnect)
+        lastConnectionType: null,  // Persist: 'bluetooth', 'serial', or 'http' (for reconnect)
         lastBleDeviceName: null,   // Persist: BLE device name (for reconnect matching)
+        lastHttpAddress: null,     // Persist: HTTP IP address (for reconnect)
         device: null,
         characteristic: null,
         port: null,
@@ -446,6 +448,18 @@ const MeshtasticModule = (function() {
         statusInterval: null,
         _bleWatchdogInterval: null,
         _positionBroadcastFailures: 0,
+        _lastBroadcastLat: null,         // Phase 2: last broadcast position for movement filter
+        _lastBroadcastLon: null,
+        _lastBroadcastTime: 0,
+        httpPositionOverride: false,      // Phase 2: send Tab GPS even when device has GPS (HTTP)
+        
+        // Phase 3: MQTT multi-device fusion
+        mqttClient: null,                 // MQTT.js client instance
+        mqttConnected: false,             // MQTT connection state
+        mqttBrokerUrl: null,              // e.g., "ws://localhost:9001/mqtt"
+        mqttTopicRoot: 'msh/+/2/json/#', // Meshtastic JSON wildcard topic
+        mqttNodesReceived: 0,             // Counter for MQTT-sourced node updates
+        mqttLastMessage: 0,               // Timestamp of last MQTT message
         
         // Callbacks
         onMessage: null,
@@ -521,7 +535,8 @@ const MeshtasticModule = (function() {
         if (_cachedApiSupport === null) {
             _cachedApiSupport = {
                 bluetooth: 'bluetooth' in navigator,
-                serial: 'serial' in navigator
+                serial: 'serial' in navigator,
+                http: typeof fetch === 'function'  // HTTP always available in modern browsers
             };
             // Log once on first check
             console.log('Meshtastic API support:', _cachedApiSupport);
@@ -644,6 +659,7 @@ const MeshtasticModule = (function() {
                 state.autoReconnect = reconnectState.autoReconnect || false;
                 state.lastConnectionType = reconnectState.lastConnectionType || null;
                 state.lastBleDeviceName = reconnectState.lastBleDeviceName || null;
+                state.lastHttpAddress = reconnectState.lastHttpAddress || null;
             }
         } catch (e) {
             console.warn('Could not load Meshtastic settings:', e);
@@ -742,7 +758,8 @@ const MeshtasticModule = (function() {
             await Storage.Settings.set('meshtastic_reconnect', {
                 autoReconnect: state.autoReconnect,
                 lastConnectionType: state.lastConnectionType,
-                lastBleDeviceName: state.lastBleDeviceName
+                lastBleDeviceName: state.lastBleDeviceName,
+                lastHttpAddress: state.lastHttpAddress
             });
         } catch (e) {
             console.warn('Could not save reconnect state:', e);
@@ -840,6 +857,18 @@ const MeshtasticModule = (function() {
             console.log('[Meshtastic] Auto-reconnect: Serial reconnect not yet supported');
             if (typeof ModalsModule !== 'undefined') {
                 ModalsModule.showToast('Meshtastic serial: tap Connect to restore', 'info');
+            }
+        } else if (state.lastConnectionType === 'http' && state.lastHttpAddress) {
+            // HTTP auto-reconnect — simplest case, just re-poll the saved address
+            console.log(`[Meshtastic] Auto-reconnect: HTTP to ${state.lastHttpAddress}`);
+            try {
+                await connectHTTP(state.lastHttpAddress);
+                console.log('[Meshtastic] Auto-reconnect: HTTP reconnected successfully');
+            } catch (e) {
+                console.warn('[Meshtastic] Auto-reconnect: HTTP failed:', e.message);
+                if (typeof ModalsModule !== 'undefined') {
+                    ModalsModule.showToast('Meshtastic HTTP: tap Connect to restore', 'info');
+                }
             }
         }
     }
@@ -1296,6 +1325,81 @@ const MeshtasticModule = (function() {
             
         } catch (error) {
             console.error('Serial connection failed:', error);
+            setConnectionState(ConnectionState.ERROR);
+            throw error;
+        }
+    }
+    
+    /**
+     * Connect via HTTP API over WiFi
+     * For ESP32-based devices (T-Deck, T-Beam, Heltec) with WiFi enabled.
+     * Device must be on the same network as the tablet.
+     */
+    async function connectHTTP(address, tls, fetchInterval) {
+        if (!address || !address.trim()) {
+            throw new Error('IP address or hostname is required for HTTP connection.');
+        }
+        
+        address = address.trim();
+        
+        setConnectionState(ConnectionState.CONNECTING);
+        
+        try {
+            if (typeof MeshtasticClient !== 'undefined' && MeshtasticClient.isReady && MeshtasticClient.isReady()) {
+                console.log('Using MeshtasticClient for HTTP communication to', address);
+                
+                // Setup callbacks before connecting
+                setupMeshtasticClientCallbacks();
+                
+                // Connect via HTTP
+                const result = await MeshtasticClient.connectHTTP(address, tls, fetchInterval);
+                
+                state.connectionType = 'http';
+                state.myNodeNum = result.nodeNum;
+                state.usingRealClient = true;
+                state.httpAddress = address;
+                
+                // Resolve our own identity (same as BLE/Serial path)
+                const selfNode = result.nodeNum ? 
+                    (MeshtasticClient.getNodes().find(n => n.num === result.nodeNum)) : null;
+                state.myNodeId = selfNode?.id || result.nodeInfo?.user?.id || nodeNumToId(result.nodeNum);
+                if (selfNode?.longName || result.nodeInfo?.user?.longName) {
+                    state.longName = selfNode?.longName || result.nodeInfo?.user?.longName;
+                }
+                if (selfNode?.shortName || result.nodeInfo?.user?.shortName) {
+                    state.shortName = selfNode?.shortName || result.nodeInfo?.user?.shortName;
+                }
+                
+                // Sync device config
+                if (result.config) {
+                    syncDeviceConfigFromClient(result.config);
+                }
+                
+                setConnectionState(ConnectionState.CONNECTED);
+                Events.emit('meshtastic:connected', { type: 'http', address });
+                
+                // Update team members
+                updateTeamMembers();
+                
+                // Start position broadcast (startPositionBroadcast has its own
+                // GPS guard — if device has GPS and httpPositionOverride is off,
+                // it will skip and let the device broadcast its own position)
+                startPositionBroadcast();
+                
+                // Save reconnect state
+                state.autoReconnect = true;
+                state.lastConnectionType = 'http';
+                state.lastBleDeviceName = null;
+                state.lastHttpAddress = address;
+                saveReconnectState();
+                
+                return true;
+                
+            } else {
+                throw new Error('MeshtasticClient not ready. Libraries may not have loaded.');
+            }
+        } catch (error) {
+            console.error('HTTP connection failed:', error);
             setConnectionState(ConnectionState.ERROR);
             throw error;
         }
@@ -2267,22 +2371,44 @@ const MeshtasticModule = (function() {
         if (state.positionInterval) return;
         
         // Check if device has its own GPS enabled — if so, let the device handle it
+        // UNLESS this is an HTTP connection with position override enabled
+        // (user wants Tab GPS to override device GPS for the mesh node)
         if (state.usingRealClient) {
             const devConfig = state.deviceConfig || {};
-            if (devConfig.gpsEnabled !== false) {
+            if (devConfig.gpsEnabled !== false && !state.httpPositionOverride) {
                 console.log('[Meshtastic] Device GPS enabled — skipping phone position broadcast (device handles its own)');
+                if (state.connectionType === 'http') {
+                    console.log('[Meshtastic] Tip: Enable "Send Tab Position" in panel to override device GPS');
+                }
                 return;
             }
         }
         
-        // Reset failure counter
+        // Reset failure counter and last broadcast position
         state._positionBroadcastFailures = 0;
+        state._lastBroadcastLat = null;
+        state._lastBroadcastLon = null;
+        state._lastBroadcastTime = 0;
         
         // Broadcast immediately
         broadcastPosition();
         
         // Then periodically - use EventManager for tracking
         state.positionInterval = meshEvents.setInterval(broadcastPosition, POSITION_BROADCAST_INTERVAL);
+    }
+    
+    /**
+     * Haversine distance between two lat/lon points in meters.
+     * Used by movement threshold filter to avoid redundant position broadcasts.
+     */
+    function haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371000; // Earth radius in meters
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
     
     /**
@@ -2297,6 +2423,311 @@ const MeshtasticModule = (function() {
     }
     
     /**
+     * Phase 2: Toggle HTTP position override.
+     * When enabled, Tab GPS is sent to the mesh even if the connected device
+     * has its own GPS. The Tab position replaces the device's GPS-reported position.
+     * Only relevant for HTTP connections where device and Tab are co-located.
+     */
+    function setHttpPositionOverride(enabled) {
+        state.httpPositionOverride = !!enabled;
+        console.log(`[Meshtastic] HTTP position override: ${state.httpPositionOverride ? 'ON — Tab GPS will be broadcast' : 'OFF — device uses own GPS'}`);
+        
+        if (state.connectionState === ConnectionState.CONNECTED) {
+            if (enabled && !state.positionInterval) {
+                // Start broadcasting now
+                startPositionBroadcast();
+            } else if (!enabled && state.positionInterval && state.connectionType === 'http') {
+                // Stop if we were only broadcasting because of the override
+                const devConfig = state.deviceConfig || {};
+                if (devConfig.gpsEnabled !== false) {
+                    console.log('[Meshtastic] Device has GPS — stopping Tab position broadcast');
+                    stopPositionBroadcast();
+                }
+            }
+        }
+    }
+    
+    // =========================================================================
+    // PHASE 3: MQTT MULTI-DEVICE FUSION
+    // Subscribe to Meshtastic MQTT JSON topics for mesh-wide visibility
+    // beyond the single T-Deck's radio horizon. Runs alongside HTTP/BLE/Serial
+    // as a supplementary data source — not a replacement.
+    // =========================================================================
+    
+    /**
+     * Load MQTT.js library (shared with AtlasRF — uses same local/CDN pattern)
+     */
+    async function loadMqttLibrary() {
+        if (typeof mqtt !== 'undefined') return true;
+        
+        // Try local bundled copy first (works offline)
+        try {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'js/vendor/mqtt.min.js';
+                script.async = true;
+                script.onload = () => resolve();
+                script.onerror = () => reject();
+                document.head.appendChild(script);
+            });
+            console.log('[Meshtastic MQTT] MQTT.js loaded from local bundle');
+            return true;
+        } catch (_) {
+            console.warn('[Meshtastic MQTT] Local MQTT.js not found, trying CDN...');
+        }
+        
+        // Fallback to CDN
+        try {
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js';
+                script.async = true;
+                script.onload = () => resolve();
+                script.onerror = () => reject();
+                document.head.appendChild(script);
+            });
+            console.log('[Meshtastic MQTT] MQTT.js loaded from CDN');
+            return true;
+        } catch (_) {
+            throw new Error('MQTT.js library not available. Bundle js/vendor/mqtt.min.js for offline use.');
+        }
+    }
+    
+    /**
+     * Connect to an MQTT broker and subscribe to Meshtastic JSON topics.
+     * Can run alongside an active HTTP/BLE/Serial device connection.
+     * 
+     * @param {string} brokerUrl - WebSocket MQTT broker URL (e.g., "ws://192.168.1.1:9001/mqtt")
+     * @param {string} [topicRoot] - Topic filter (default: "msh/+/2/json/#")
+     * @param {object} [options] - MQTT connect options (username, password)
+     */
+    async function connectMqtt(brokerUrl, topicRoot, options = {}) {
+        if (!brokerUrl || !brokerUrl.trim()) {
+            throw new Error('MQTT broker URL is required (e.g., ws://localhost:9001/mqtt)');
+        }
+        
+        brokerUrl = brokerUrl.trim();
+        
+        // Disconnect existing MQTT if any
+        if (state.mqttClient) {
+            disconnectMqtt();
+        }
+        
+        await loadMqttLibrary();
+        
+        if (typeof mqtt === 'undefined') {
+            throw new Error('MQTT library not loaded');
+        }
+        
+        const topic = topicRoot || state.mqttTopicRoot;
+        
+        return new Promise((resolve, reject) => {
+            console.log(`[Meshtastic MQTT] Connecting to ${brokerUrl}, topic: ${topic}`);
+            
+            const connectTimeout = setTimeout(() => {
+                reject(new Error('MQTT connection timeout — check broker URL and that Mosquitto is running'));
+            }, 15000);
+            
+            try {
+                state.mqttClient = mqtt.connect(brokerUrl, {
+                    clientId: `griddown_mesh_${Math.random().toString(16).slice(2, 10)}`,
+                    keepalive: 30,
+                    reconnectPeriod: 5000,
+                    connectTimeout: 10000,
+                    ...options
+                });
+            } catch (e) {
+                clearTimeout(connectTimeout);
+                reject(e);
+                return;
+            }
+            
+            state.mqttClient.on('connect', () => {
+                clearTimeout(connectTimeout);
+                console.log('[Meshtastic MQTT] Connected to broker');
+                
+                state.mqttConnected = true;
+                state.mqttBrokerUrl = brokerUrl;
+                state.mqttNodesReceived = 0;
+                
+                // Subscribe to Meshtastic JSON topics
+                state.mqttClient.subscribe(topic, { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error('[Meshtastic MQTT] Subscribe failed:', err);
+                    } else {
+                        console.log(`[Meshtastic MQTT] Subscribed to ${topic}`);
+                    }
+                });
+                
+                Events.emit('meshtastic:mqtt:connected', { brokerUrl, topic });
+                resolve({ brokerUrl, topic });
+            });
+            
+            state.mqttClient.on('message', (topic, payload) => {
+                try {
+                    const json = JSON.parse(payload.toString());
+                    handleMeshtasticMqttMessage(topic, json);
+                } catch (e) {
+                    // Silently ignore non-JSON messages (protobuf topics)
+                }
+            });
+            
+            state.mqttClient.on('close', () => {
+                console.log('[Meshtastic MQTT] Connection closed');
+                if (state.mqttConnected) {
+                    state.mqttConnected = false;
+                    Events.emit('meshtastic:mqtt:disconnected', { reason: 'closed' });
+                }
+            });
+            
+            state.mqttClient.on('error', (error) => {
+                console.error('[Meshtastic MQTT] Error:', error.message);
+                clearTimeout(connectTimeout);
+                if (!state.mqttConnected) {
+                    reject(error);
+                }
+            });
+            
+            state.mqttClient.on('reconnect', () => {
+                console.log('[Meshtastic MQTT] Reconnecting...');
+            });
+        });
+    }
+    
+    /**
+     * Disconnect MQTT subscriber
+     */
+    function disconnectMqtt() {
+        if (state.mqttClient) {
+            try {
+                state.mqttClient.end(true);
+            } catch (_) {}
+            state.mqttClient = null;
+        }
+        state.mqttConnected = false;
+        state.mqttBrokerUrl = null;
+        console.log('[Meshtastic MQTT] Disconnected');
+        Events.emit('meshtastic:mqtt:disconnected', { reason: 'user' });
+    }
+    
+    /**
+     * Parse a Meshtastic MQTT JSON message and feed into existing handlers.
+     * 
+     * JSON topic format: msh/{region}/2/json/{channelName}/{gatewayId}
+     * JSON payload types: position, nodeinfo, sendtext, telemetry
+     * 
+     * Deduplication: Uses node ID as key. If the same node is visible via
+     * HTTP (direct T-Deck) and MQTT (remote gateway), the freshest update wins.
+     */
+    function handleMeshtasticMqttMessage(topic, json) {
+        if (!json || !json.from) return;
+        
+        const nodeNum = json.from;
+        const nodeId = nodeNumToId(nodeNum);
+        const type = (json.type || '').toLowerCase();
+        const payload = json.payload || {};
+        const sender = json.sender || '';
+        
+        state.mqttLastMessage = Date.now();
+        state.mqttNodesReceived++;
+        
+        switch (type) {
+            case 'position': {
+                // payload: { latitude_i, longitude_i, altitude, time, ... }
+                const lat = payload.latitude_i ? payload.latitude_i / 1e7 : null;
+                const lon = payload.longitude_i ? payload.longitude_i / 1e7 : null;
+                
+                if (!lat || !lon) return; // No valid position
+                
+                // Dedup: skip if we already have a fresher position for this node
+                // from HTTP/BLE/Serial (within last 30 seconds)
+                const existing = state.nodes.get(nodeId);
+                if (existing && existing.lastSeen && (Date.now() - existing.lastSeen) < 30000 &&
+                    existing._source !== 'mqtt') {
+                    return; // Direct connection data is fresher
+                }
+                
+                handlePositionFromClient({
+                    from: nodeNum,
+                    node: { id: nodeId },
+                    lat: lat,
+                    lon: lon,
+                    alt: payload.altitude || 0
+                });
+                
+                // Tag source for dedup decisions
+                const node = state.nodes.get(nodeId);
+                if (node) node._source = 'mqtt';
+                break;
+            }
+            
+            case 'nodeinfo': {
+                // payload: { id, longname, shortname, hardware }
+                handleNodeInfoFromClient({
+                    id: payload.id || nodeId,
+                    num: nodeNum,
+                    longName: payload.longname || payload.long_name || null,
+                    shortName: payload.shortname || payload.short_name || null,
+                    hwModel: payload.hardware || null,
+                    lastHeard: json.timestamp ? new Date(json.timestamp * 1000) : new Date()
+                });
+                
+                // Tag source
+                const node = state.nodes.get(payload.id || nodeId);
+                if (node) node._source = 'mqtt';
+                break;
+            }
+            
+            case 'sendtext':
+            case 'text': {
+                // payload: { text }
+                if (payload.text) {
+                    handleMessageFromClient({
+                        from: nodeNum,
+                        to: json.to || 0xFFFFFFFF,
+                        text: payload.text,
+                        channel: json.channel || 0,
+                        id: json.id || 0,
+                        _source: 'mqtt'
+                    });
+                }
+                break;
+            }
+            
+            case 'telemetry': {
+                // payload: { battery_level, voltage, air_util_tx, channel_utilization, ... }
+                // Update existing node with telemetry data
+                const existing = state.nodes.get(nodeId);
+                if (existing) {
+                    if (payload.battery_level !== undefined) existing.batteryLevel = payload.battery_level;
+                    if (payload.voltage !== undefined) existing.voltage = payload.voltage;
+                    existing.lastSeen = Date.now();
+                    existing.status = 'active';
+                    if (!existing._source || existing._source === 'mqtt') {
+                        existing._source = 'mqtt';
+                    }
+                    updateTeamMembers();
+                }
+                break;
+            }
+            
+            // Silently ignore other types (routing, waypoint, etc.)
+        }
+    }
+    
+    /**
+     * Get MQTT connection state for panel rendering
+     */
+    function getMqttState() {
+        return {
+            connected: state.mqttConnected,
+            brokerUrl: state.mqttBrokerUrl,
+            nodesReceived: state.mqttNodesReceived,
+            lastMessage: state.mqttLastMessage
+        };
+    }
+    
+    /**
      * Broadcast current position
      */
     async function broadcastPosition() {
@@ -2306,6 +2737,24 @@ const MeshtasticModule = (function() {
             // Get current GPS position
             const position = await getCurrentPosition();
             if (!position) return;
+            
+            // Phase 2: Movement threshold — skip broadcast if moved less than 10m
+            // Always send the first broadcast, and at least once every 5 minutes
+            // regardless of movement (keepalive for mesh tracking)
+            const KEEPALIVE_MS = 300000; // 5 minutes
+            const timeSinceLastBroadcast = Date.now() - (state._lastBroadcastTime || 0);
+            
+            if (state._lastBroadcastLat !== null && state._lastBroadcastLon !== null) {
+                const distance = haversineDistance(
+                    state._lastBroadcastLat, state._lastBroadcastLon,
+                    position.latitude, position.longitude
+                );
+                
+                if (distance < POSITION_MOVEMENT_THRESHOLD && timeSinceLastBroadcast < KEEPALIVE_MS) {
+                    // Haven't moved enough and keepalive not due — skip
+                    return;
+                }
+            }
             
             const message = {
                 type: MessageType.POSITION,
@@ -2319,16 +2768,21 @@ const MeshtasticModule = (function() {
             };
             
             await sendToDevice(message);
-            state._positionBroadcastFailures = 0; // Reset on success
+            
+            // Update last broadcast position
+            state._lastBroadcastLat = position.latitude;
+            state._lastBroadcastLon = position.longitude;
+            state._lastBroadcastTime = Date.now();
+            state._positionBroadcastFailures = 0;
             console.log('Position broadcast sent');
             
         } catch (e) {
             state._positionBroadcastFailures = (state._positionBroadcastFailures || 0) + 1;
             console.warn(`Failed to broadcast position (attempt ${state._positionBroadcastFailures}):`, e);
             
-            // Stop after 3 consecutive failures to avoid flooding BLE with failing packets
+            // Stop after 3 consecutive failures to avoid flooding transport with failing packets
             if (state._positionBroadcastFailures >= 3) {
-                console.warn('[Meshtastic] Position broadcast stopped after 3 consecutive failures — BLE transport may be congested');
+                console.warn('[Meshtastic] Position broadcast stopped after 3 consecutive failures');
                 stopPositionBroadcast();
             }
         }
@@ -7944,7 +8398,8 @@ const MeshtasticModule = (function() {
             nodeId: state.myNodeId,
             nodeName: state.longName,
             shortName: state.shortName,
-            activeChannelId: state.activeChannelId
+            activeChannelId: state.activeChannelId,
+            httpAddress: state.httpAddress || null
         };
     }
     
@@ -7980,6 +8435,7 @@ const MeshtasticModule = (function() {
         // Connection
         connectBluetooth,
         connectSerial,
+        connectHTTP,
         disconnect,
         getConnectionState,
         checkApiSupport,
@@ -7987,6 +8443,13 @@ const MeshtasticModule = (function() {
         
         // Position
         broadcastPosition,
+        setHttpPositionOverride,
+        isHttpPositionOverride: () => !!state.httpPositionOverride,
+        
+        // Phase 3: MQTT Multi-Device Fusion
+        connectMqtt,
+        disconnectMqtt,
+        getMqttState,
         
         // Messaging
         sendTextMessage,

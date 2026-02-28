@@ -4581,7 +4581,7 @@ const PanelsModule = (function() {
         const apiSupport = typeof MeshtasticModule !== 'undefined' 
             ? MeshtasticModule.checkApiSupport() 
             : { bluetooth: false, serial: false };
-        const hasApiSupport = apiSupport.bluetooth || apiSupport.serial;
+        const hasApiSupport = apiSupport.bluetooth || apiSupport.serial || apiSupport.http;
         
         // Get messages
         const messages = typeof MeshtasticModule !== 'undefined' 
@@ -4618,7 +4618,7 @@ const PanelsModule = (function() {
                             </div>
                             <div style="font-size:11px;color:rgba(255,255,255,0.5)">
                                 ${isConnected 
-                                    ? `via ${meshState.type === 'bluetooth' ? 'Bluetooth' : 'Serial'} • ${meshState.nodeName || 'Unknown'}` 
+                                    ? `via ${meshState.type === 'bluetooth' ? 'Bluetooth' : meshState.type === 'http' ? 'HTTP/WiFi' : 'Serial'} • ${meshState.type === 'http' && meshState.httpAddress ? meshState.httpAddress + ' • ' : ''}${meshState.nodeName || 'Unknown'}` 
                                     : hasApiSupport 
                                         ? 'Click Connect to pair your Meshtastic device' 
                                         : 'Web Bluetooth/Serial not supported in this browser'}
@@ -4643,6 +4643,17 @@ const PanelsModule = (function() {
                                 📊 Export Telemetry
                             </button>
                         </div>
+                        ${meshState.type === 'http' ? `
+                        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.15);border-radius:8px">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1;font-size:11px;color:rgba(255,255,255,0.7)">
+                                <input type="checkbox" id="mesh-http-pos-override" 
+                                    ${typeof MeshtasticModule !== 'undefined' && MeshtasticModule.isHttpPositionOverride() ? 'checked' : ''}
+                                    style="accent-color:#f97316">
+                                📍 Send Tab GPS to mesh
+                            </label>
+                            <span style="font-size:10px;color:rgba(255,255,255,0.35)">Override device GPS</span>
+                        </div>
+                        ` : ''}
                     ` : ''}
                 </div>
                 
@@ -4696,6 +4707,9 @@ const PanelsModule = (function() {
                 
                 <!-- Device Info (when connected) -->
                 ${isConnected ? renderConnectedDeviceInfo() : ''}
+                
+                <!-- Phase 3: MQTT Multi-Device Fusion -->
+                ${renderMqttFusionSection()}
             </div>
             
             <div class="divider"></div>
@@ -5019,6 +5033,7 @@ const PanelsModule = (function() {
                 
                 const supportsSerial = btn.dataset.serial === 'true';
                 const supportsBle = btn.dataset.ble === 'true';
+                const supportsHttp = btn.dataset.http === 'true';
                 const deviceName = btn.textContent.trim();
                 
                 // Update Serial button state
@@ -5028,7 +5043,6 @@ const PanelsModule = (function() {
                         serialBtn.title = `${deviceName} does not support Serial/USB connection`;
                         serialBtn.style.opacity = '0.5';
                     } else {
-                        // Only enable if browser supports it
                         const apiSupport = typeof MeshtasticModule !== 'undefined' 
                             ? MeshtasticModule.checkApiSupport() 
                             : { serial: false };
@@ -5038,15 +5052,28 @@ const PanelsModule = (function() {
                     }
                 }
                 
+                // Update HTTP section visibility
+                const httpSection = container.querySelector('#mesh-http-address')?.closest('div[style*="rgba(249,115,22"]');
+                if (httpSection) {
+                    httpSection.style.display = supportsHttp ? 'block' : 'none';
+                }
+                
                 // Show help message
                 if (helpMessage && helpText) {
-                    if (!supportsSerial) {
+                    if (!supportsSerial && !supportsHttp) {
                         helpMessage.style.display = 'block';
                         helpMessage.style.background = 'rgba(245,158,11,0.1)';
                         helpMessage.style.borderColor = 'rgba(245,158,11,0.3)';
                         helpIcon.textContent = '⚠️';
                         helpIcon.parentElement.style.color = '#f59e0b';
                         helpText.innerHTML = `<strong>${Helpers.escapeHtml(deviceName)}</strong> only supports Bluetooth. The USB port is for charging only.`;
+                    } else if (supportsHttp) {
+                        helpMessage.style.display = 'block';
+                        helpMessage.style.background = 'rgba(249,115,22,0.1)';
+                        helpMessage.style.borderColor = 'rgba(249,115,22,0.2)';
+                        helpIcon.textContent = '📡';
+                        helpIcon.parentElement.style.color = '#f97316';
+                        helpText.innerHTML = `<strong>${Helpers.escapeHtml(deviceName)}</strong> supports Bluetooth, Serial/USB, and HTTP/WiFi connections.`;
                     } else if (supportsBle && supportsSerial) {
                         helpMessage.style.display = 'block';
                         helpMessage.style.background = 'rgba(59,130,246,0.1)';
@@ -5108,6 +5135,46 @@ const PanelsModule = (function() {
             };
         }
         
+        // HTTP/WiFi connect
+        const connectHttpBtn = container.querySelector('#mesh-connect-http-btn');
+        if (connectHttpBtn) {
+            connectHttpBtn.onclick = async () => {
+                const addressInput = container.querySelector('#mesh-http-address');
+                const address = addressInput?.value?.trim();
+                
+                if (!address) {
+                    ModalsModule.showToast('Enter the device IP address or hostname', 'warning');
+                    if (addressInput) addressInput.focus();
+                    return;
+                }
+                
+                try {
+                    const longName = container.querySelector('#mesh-longname')?.value || 'GridDown User';
+                    const shortName = container.querySelector('#mesh-shortname')?.value || 'GDU';
+                    MeshtasticModule.setUserName(longName, shortName);
+                    
+                    await MeshtasticModule.connectHTTP(address);
+                    ModalsModule.showToast('Connected to Meshtastic via HTTP at ' + address, 'success');
+                    renderTeam();
+                } catch (err) {
+                    ModalsModule.showToast('HTTP connection failed: ' + err.message, 'error');
+                    renderTeam();
+                }
+            };
+        }
+        
+        // Allow Enter key in HTTP address field to trigger connect
+        const httpAddressInput = container.querySelector('#mesh-http-address');
+        if (httpAddressInput) {
+            httpAddressInput.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const btn = container.querySelector('#mesh-connect-http-btn');
+                    if (btn) btn.click();
+                }
+            };
+        }
+        
         // New Device Setup
         const deviceSetupBtn = container.querySelector('#mesh-device-setup-btn');
         if (deviceSetupBtn) {
@@ -5141,6 +5208,20 @@ const PanelsModule = (function() {
             };
         }
         
+        // HTTP position override toggle (Phase 2)
+        const httpPosOverride = container.querySelector('#mesh-http-pos-override');
+        if (httpPosOverride) {
+            httpPosOverride.onchange = () => {
+                MeshtasticModule.setHttpPositionOverride(httpPosOverride.checked);
+                ModalsModule.showToast(
+                    httpPosOverride.checked 
+                        ? 'Tab GPS will be broadcast to mesh' 
+                        : 'Device will use its own GPS',
+                    'info'
+                );
+            };
+        }
+        
         // Device Config button (Phase 1)
         const configBtn = container.querySelector('#mesh-config-btn');
         if (configBtn) {
@@ -5154,6 +5235,53 @@ const PanelsModule = (function() {
         if (exportBtn) {
             exportBtn.onclick = () => {
                 openTelemetryExportModal();
+            };
+        }
+        
+        // Phase 3: MQTT Connect button
+        const mqttConnectBtn = container.querySelector('#mesh-mqtt-connect-btn');
+        if (mqttConnectBtn) {
+            mqttConnectBtn.onclick = async () => {
+                const brokerInput = container.querySelector('#mesh-mqtt-broker');
+                const topicInput = container.querySelector('#mesh-mqtt-topic');
+                const brokerUrl = brokerInput ? brokerInput.value.trim() : '';
+                const topic = topicInput ? topicInput.value.trim() : '';
+                
+                if (!brokerUrl) {
+                    ModalsModule.showToast('Enter an MQTT broker URL (e.g., ws://192.168.1.1:9001/mqtt)', 'warning');
+                    return;
+                }
+                
+                mqttConnectBtn.disabled = true;
+                mqttConnectBtn.textContent = '⏳ Connecting...';
+                
+                try {
+                    await MeshtasticModule.connectMqtt(brokerUrl, topic || undefined);
+                    ModalsModule.showToast(`MQTT connected to ${brokerUrl}`, 'success');
+                    render(); // Re-render panel to show connected state
+                } catch (e) {
+                    ModalsModule.showToast(`MQTT connection failed: ${e.message}`, 'error');
+                    mqttConnectBtn.disabled = false;
+                    mqttConnectBtn.textContent = '📡 Connect MQTT';
+                }
+            };
+            
+            // Enter key in broker input
+            const brokerInput = container.querySelector('#mesh-mqtt-broker');
+            if (brokerInput) {
+                brokerInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') mqttConnectBtn.click();
+                };
+            }
+        }
+        
+        // Phase 3: MQTT Disconnect button
+        const mqttDisconnectBtn = container.querySelector('#mesh-mqtt-disconnect-btn');
+        if (mqttDisconnectBtn) {
+            mqttDisconnectBtn.onclick = () => {
+                MeshtasticModule.disconnectMqtt();
+                ModalsModule.showToast('MQTT disconnected', 'info');
+                render(); // Re-render panel
             };
         }
         
@@ -5745,28 +5873,33 @@ const PanelsModule = (function() {
                 
                 <!-- Device Type Buttons -->
                 <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+                    <button class="btn btn--secondary device-type-btn" data-device="t_deck_cypher" 
+                        data-ble="true" data-serial="true" data-http="true"
+                        style="padding:8px 12px;font-size:11px">
+                        📡 T-Deck Cypher
+                    </button>
                     <button class="btn btn--secondary device-type-btn" data-device="wismesh_pocket" 
-                        data-ble="true" data-serial="false"
+                        data-ble="true" data-serial="false" data-http="false"
                         style="padding:8px 12px;font-size:11px">
                         📱 WisMesh Pocket
                     </button>
                     <button class="btn btn--secondary device-type-btn" data-device="t_echo" 
-                        data-ble="true" data-serial="false"
+                        data-ble="true" data-serial="false" data-http="false"
                         style="padding:8px 12px;font-size:11px">
                         📱 T-Echo
                     </button>
                     <button class="btn btn--secondary device-type-btn" data-device="t_beam" 
-                        data-ble="true" data-serial="true"
+                        data-ble="true" data-serial="true" data-http="true"
                         style="padding:8px 12px;font-size:11px">
                         📡 T-Beam
                     </button>
                     <button class="btn btn--secondary device-type-btn" data-device="heltec" 
-                        data-ble="true" data-serial="true"
+                        data-ble="true" data-serial="true" data-http="true"
                         style="padding:8px 12px;font-size:11px">
                         📡 Heltec
                     </button>
                     <button class="btn btn--secondary device-type-btn selected" data-device="other" 
-                        data-ble="true" data-serial="true"
+                        data-ble="true" data-serial="true" data-http="true"
                         style="padding:8px 12px;font-size:11px">
                         🔧 Other
                     </button>
@@ -5781,13 +5914,29 @@ const PanelsModule = (function() {
                 </div>
                 
                 <!-- Connect Buttons -->
-                <div style="display:flex;gap:8px">
+                <div style="display:flex;gap:8px;margin-bottom:8px">
                     <button class="btn btn--primary" id="mesh-connect-ble-btn" style="flex:1" ${!apiSupport.bluetooth ? 'disabled' : ''}>
                         📶 Bluetooth
                     </button>
                     <button class="btn btn--secondary" id="mesh-connect-serial-btn" style="flex:1" ${!apiSupport.serial ? 'disabled' : ''}>
                         🔌 Serial/USB
                     </button>
+                </div>
+                
+                <!-- HTTP/WiFi Connection -->
+                <div style="padding:10px;background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.15);border-radius:8px;margin-bottom:8px">
+                    <div style="font-size:10px;color:rgba(249,115,22,0.7);margin-bottom:6px;font-weight:600">HTTP/WiFi CONNECTION</div>
+                    <div style="display:flex;gap:8px">
+                        <input type="text" id="mesh-http-address" placeholder="Device IP (e.g. 192.168.1.100)" 
+                            value="${typeof MeshtasticClient !== 'undefined' && MeshtasticClient.getHttpAddress ? (MeshtasticClient.getHttpAddress() || '') : ''}"
+                            style="flex:1;padding:8px;font-size:12px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:inherit">
+                        <button class="btn btn--secondary" id="mesh-connect-http-btn" style="padding:8px 14px;font-size:12px;white-space:nowrap;border-color:rgba(249,115,22,0.4);color:#f97316">
+                            📡 Connect
+                        </button>
+                    </div>
+                    <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:4px">
+                        Device must have WiFi enabled and be on the same network
+                    </div>
                 </div>
                 
                 <!-- New Device Setup -->
@@ -5798,8 +5947,9 @@ const PanelsModule = (function() {
                 <!-- Quick reference -->
                 <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.1)">
                     <div style="font-size:10px;color:rgba(255,255,255,0.35)">
-                        <strong>Bluetooth only:</strong> WisMesh Pocket/Tap, T-Echo, RAK Tracker<br>
-                        <strong>Both supported:</strong> T-Beam, Heltec, Station G2, WisBlock
+                        <strong>BLE only:</strong> WisMesh Pocket/Tap, T-Echo, RAK Tracker<br>
+                        <strong>BLE + Serial:</strong> T-Beam, Heltec, Station G2, WisBlock<br>
+                        <strong>BLE + Serial + HTTP:</strong> T-Deck Cypher, T-Deck, any ESP32 with WiFi
                     </div>
                 </div>
             </div>
@@ -5855,6 +6005,73 @@ const PanelsModule = (function() {
                         ${deviceCaps.notes}
                     </div>
                 ` : ''}
+            </div>
+        `;
+    }
+    
+    // =========================================================================
+    // PHASE 3: MQTT MULTI-DEVICE FUSION UI
+    // =========================================================================
+    
+    /**
+     * Render MQTT broker connection section.
+     * Independent of primary device connection — MQTT is a supplementary
+     * data source for mesh-wide visibility beyond the single T-Deck's horizon.
+     */
+    function renderMqttFusionSection() {
+        const mqttState = typeof MeshtasticModule !== 'undefined' && MeshtasticModule.getMqttState
+            ? MeshtasticModule.getMqttState()
+            : { connected: false, brokerUrl: null, nodesReceived: 0, lastMessage: 0 };
+        
+        const isConnected = mqttState.connected;
+        const savedBroker = mqttState.brokerUrl || '';
+        
+        // Time since last message
+        let lastMsgText = '';
+        if (isConnected && mqttState.lastMessage > 0) {
+            const ago = Math.floor((Date.now() - mqttState.lastMessage) / 1000);
+            if (ago < 60) lastMsgText = `${ago}s ago`;
+            else if (ago < 3600) lastMsgText = `${Math.floor(ago / 60)}m ago`;
+            else lastMsgText = `${Math.floor(ago / 3600)}h ago`;
+        }
+        
+        return `
+            <div style="padding:12px;background:rgba(255,255,255,0.03);border-radius:10px;margin-top:12px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <div style="font-size:11px;color:rgba(255,255,255,0.4)">MQTT MESH FUSION</div>
+                    ${isConnected ? '<span style="font-size:10px;padding:2px 6px;background:rgba(168,85,247,0.2);color:#a855f7;border-radius:4px">● Connected</span>' : '<span style="font-size:10px;color:rgba(255,255,255,0.25)">○ Disconnected</span>'}
+                </div>
+                
+                ${isConnected ? `
+                    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:8px">
+                        ${savedBroker} • ${mqttState.nodesReceived} updates${lastMsgText ? ' • last ' + lastMsgText : ''}
+                    </div>
+                    <button class="btn btn--secondary" id="mesh-mqtt-disconnect-btn" style="width:100%;font-size:11px;padding:6px;color:#a855f7;border-color:rgba(168,85,247,0.3)">
+                        Disconnect MQTT
+                    </button>
+                ` : `
+                    <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:8px">
+                        Subscribe to a Mosquitto broker for mesh-wide node visibility beyond your direct radio horizon.
+                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:6px">
+                        <input type="text" id="mesh-mqtt-broker" 
+                            placeholder="ws://192.168.1.1:9001/mqtt" 
+                            value="${savedBroker}"
+                            style="flex:1;padding:8px;font-size:11px">
+                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:6px">
+                        <input type="text" id="mesh-mqtt-topic" 
+                            placeholder="msh/+/2/json/#" 
+                            value="msh/+/2/json/#"
+                            style="flex:1;padding:8px;font-size:11px">
+                    </div>
+                    <button class="btn btn--secondary" id="mesh-mqtt-connect-btn" style="width:100%;font-size:11px;padding:6px;color:#a855f7;border-color:rgba(168,85,247,0.3)">
+                        📡 Connect MQTT
+                    </button>
+                    <div style="font-size:9px;color:rgba(255,255,255,0.25);margin-top:4px">
+                        Requires Mosquitto with WebSocket listener on port 9001
+                    </div>
+                `}
             </div>
         `;
     }
