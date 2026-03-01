@@ -21,7 +21,14 @@ gd-bg() {
 
 # Stop GridDown server
 gd-stop() {
-    if pkill -f 'griddown-server' 2>/dev/null; then
+    local killed=0
+    for pid_dir in /proc/[0-9]*; do
+        [ -r "$pid_dir/cmdline" ] || continue
+        if tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null | grep -q "griddown-server"; then
+            kill "${pid_dir##*/}" 2>/dev/null && killed=1
+        fi
+    done
+    if [ "$killed" = "1" ]; then
         echo "GridDown server stopped"
     else
         echo "Server not running"
@@ -30,18 +37,25 @@ gd-stop() {
 
 # Check if server is running
 gd-status() {
-    local pid
-    pid=$(pgrep -f 'griddown-server' 2>/dev/null | head -1)
-    if [ -n "$pid" ]; then
-        echo "✓ GridDown server running (PID $pid)"
+    # Scan /proc for portability (pgrep -f not always available on Termux)
+    local server_pid="" bridge_pid=""
+    for pid_dir in /proc/[0-9]*; do
+        [ -r "$pid_dir/cmdline" ] || continue
+        local cmd
+        cmd=$(tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null) || continue
+        if echo "$cmd" | grep -q "griddown-server"; then
+            server_pid="${pid_dir##*/}"
+        elif echo "$cmd" | grep -q "wifi-scan-bridge"; then
+            bridge_pid="${pid_dir##*/}"
+        fi
+    done
+    if [ -n "$server_pid" ]; then
+        echo "✓ GridDown server running (PID $server_pid)"
     else
         echo "✗ GridDown server not running"
     fi
-    # WiFi Sentinel bridge status
-    local ws_pid
-    ws_pid=$(pgrep -f 'wifi-scan-bridge' 2>/dev/null | head -1)
-    if [ -n "$ws_pid" ]; then
-        echo "✓ WiFi Sentinel Tier 0 bridge running (PID $ws_pid)"
+    if [ -n "$bridge_pid" ]; then
+        echo "✓ WiFi Sentinel Tier 0 bridge running (PID $bridge_pid)"
     else
         echo "○ WiFi Sentinel Tier 0 bridge not running"
     fi
@@ -49,15 +63,31 @@ gd-status() {
 
 # Restart server (and WiFi Sentinel bridge)
 gd-restart() {
-    pkill -f 'griddown-server' 2>/dev/null
-    pkill -f 'wifi-scan-bridge' 2>/dev/null
-    pkill -f 'websocat.*8765' 2>/dev/null
+    # Kill existing processes via /proc scan (portable)
+    for pid_dir in /proc/[0-9]*; do
+        [ -r "$pid_dir/cmdline" ] || continue
+        local cmd pid
+        cmd=$(tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null) || continue
+        pid="${pid_dir##*/}"
+        [ "$pid" = "$$" ] && continue  # Don't kill ourselves
+        if echo "$cmd" | grep -q "griddown-server\|wifi-scan-bridge\|websocat.*8765"; then
+            kill "$pid" 2>/dev/null
+        fi
+    done
     sleep 1
+    # Restart server
     nohup python3 "$GRIDDOWN_DIR/scripts/griddown-server.py" > /dev/null 2>&1 &
     echo "GridDown server restarted (PID $!)"
+    # Restart bridge
     if command -v termux-wifi-scaninfo > /dev/null 2>&1 && command -v websocat > /dev/null 2>&1; then
         nohup "$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh" 8765 > /dev/null 2>&1 &
-        echo "WiFi Sentinel Tier 0 bridge restarted (PID $!)"
+        local bridge_pid=$!
+        sleep 1
+        if kill -0 "$bridge_pid" 2>/dev/null; then
+            echo "WiFi Sentinel Tier 0 bridge restarted (PID $bridge_pid)"
+        else
+            echo "⚠ WiFi Sentinel bridge failed to start"
+        fi
     fi
 }
 
@@ -80,10 +110,19 @@ griddown-update() {
         echo "Cache: $old_ver → $new_ver"
         echo "App will auto-update within ~3 minutes, or tap 'Refresh Now' in the toast."
     fi
-    if [ "$old_server_hash" != "$new_server_hash" ] && pgrep -f 'griddown-server' >/dev/null 2>&1; then
-        echo ""
-        echo "⚠ Server script changed — restarting server..."
-        gd-restart
+    if [ "$old_server_hash" != "$new_server_hash" ]; then
+        # Check if server is running via /proc
+        local server_running=0
+        for pid_dir in /proc/[0-9]*; do
+            if [ -r "$pid_dir/cmdline" ] && tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null | grep -q "griddown-server"; then
+                server_running=1; break
+            fi
+        done
+        if [ "$server_running" = "1" ]; then
+            echo ""
+            echo "⚠ Server script changed — restarting server..."
+            gd-restart
+        fi
     fi
 }
 
@@ -268,24 +307,49 @@ gd-start() {
     fi
     # Start WiFi Sentinel Tier 0 bridge if termux-api + websocat available
     if command -v termux-wifi-scaninfo > /dev/null 2>&1 && command -v websocat > /dev/null 2>&1; then
-        # Check if bridge is already running
-        if ! pgrep -f 'wifi-scan-bridge' > /dev/null 2>&1; then
+        # Check if bridge is already running (scan /proc for portability)
+        local bridge_running=0
+        for pid_dir in /proc/[0-9]*; do
+            if [ -r "$pid_dir/cmdline" ] && tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null | grep -q "wifi-scan-bridge"; then
+                bridge_running=1
+                break
+            fi
+        done
+        if [ "$bridge_running" = "0" ]; then
             nohup "$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh" 8765 > /dev/null 2>&1 &
-            echo "WiFi Sentinel Tier 0 bridge started on port 8765 (PID $!)"
+            local bridge_pid=$!
+            # Give bridge a moment to start websocat
+            sleep 1
+            if kill -0 "$bridge_pid" 2>/dev/null; then
+                echo "WiFi Sentinel Tier 0 bridge started on port 8765 (PID $bridge_pid)"
+            else
+                echo "⚠ WiFi Sentinel bridge failed to start — run manually:"
+                echo "  ./scripts/wifi-scan-bridge.sh &"
+            fi
         else
             echo "WiFi Sentinel Tier 0 bridge already running"
         fi
+    elif command -v websocat > /dev/null 2>&1; then
+        echo "○ WiFi Sentinel Tier 0: termux-api not installed (pkg install termux-api)"
+    elif command -v termux-wifi-scaninfo > /dev/null 2>&1; then
+        echo "○ WiFi Sentinel Tier 0: websocat not installed (pkg install websocat)"
     fi
 }
 
 # Full shutdown: stop server + watcher + WiFi Sentinel + release wake lock
 gd-shutdown() {
-    pkill -f 'griddown-server' 2>/dev/null || true
+    # Kill all GridDown-related processes via /proc scan
+    for pid_dir in /proc/[0-9]*; do
+        [ -r "$pid_dir/cmdline" ] || continue
+        local cmd pid
+        cmd=$(tr '\0' ' ' < "$pid_dir/cmdline" 2>/dev/null) || continue
+        pid="${pid_dir##*/}"
+        [ "$pid" = "$$" ] && continue
+        if echo "$cmd" | grep -q "griddown-server\|wifi-scan-bridge\|serial-ws-bridge\|websocat.*876[567]"; then
+            kill "$pid" 2>/dev/null
+        fi
+    done
     gd-watch-stop 2>/dev/null || true
-    # Stop WiFi Sentinel bridges
-    pkill -f 'wifi-scan-bridge' 2>/dev/null || true
-    pkill -f 'serial-ws-bridge' 2>/dev/null || true
-    pkill -f 'websocat.*876[567]' 2>/dev/null || true
     termux-wake-unlock 2>/dev/null || true
     echo "GridDown shut down (server + watcher + WiFi Sentinel bridges)"
 }

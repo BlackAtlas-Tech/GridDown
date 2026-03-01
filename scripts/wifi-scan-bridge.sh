@@ -76,14 +76,23 @@ if ! command -v termux-wifi-scaninfo &>/dev/null && [ ! -f "$TERMUX_PREFIX/bin/t
         echo "  ..."
     fi
 
-    # Check if the companion APK is installed
+    # Check if the companion APK is installed (multiple detection methods)
+    api_app_found=0
     if command -v pm &>/dev/null; then
-        if pm list packages 2>/dev/null | grep -q 'com.termux.api'; then
-            echo "  ✓ Termux:API Android app is installed."
-        else
-            echo "  ✗ Termux:API Android app is NOT installed."
-            echo "    Download from: github.com/termux/termux-api/releases"
+        if pm list packages com.termux.api 2>/dev/null | grep -q 'com.termux.api'; then
+            api_app_found=1
+        elif pm path com.termux.api 2>/dev/null | grep -q 'package:'; then
+            api_app_found=1
+        elif dumpsys package com.termux.api 2>/dev/null | grep -q 'versionName'; then
+            api_app_found=1
         fi
+    fi
+    if [ "$api_app_found" = "1" ]; then
+        echo "  ✓ Termux:API Android app is installed."
+    else
+        echo "  ? Termux:API Android app status unknown (pm detection failed)."
+        echo "    If scans work, the app is installed. If not:"
+        echo "    Download from: github.com/termux/termux-api/releases"
     fi
     echo ""
     missing=1
