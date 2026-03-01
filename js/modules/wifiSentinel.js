@@ -321,7 +321,7 @@ const WiFiSentinelModule = (function() {
             alertOnDeauthFlood: true,
             alertSoundEnabled: true,
             connectionMethod: 'auto',   // 'serial' | 'websocket' | 'auto'
-            termuxWsHost: (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : 'localhost',
+            termuxWsHost: 'localhost',  // Termux bridge always runs on same device
         },
 
         // IndexedDB handle
