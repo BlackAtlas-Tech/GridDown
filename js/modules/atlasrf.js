@@ -28,7 +28,7 @@ const AtlasRFModule = (function() {
     const CONFIG = {
         // Connection settings
         defaultHost: 'atlasrf.local',
-        defaultPort: 8085,
+        defaultPort: 8080,
         defaultConnectionMethod: 'auto',  // 'auto' | 'websocket' | 'mqtt' | 'rest'
         wsReconnectDelayMs: 5000,
         wsMaxReconnectAttempts: 10,

@@ -52,8 +52,25 @@ gd-restart() {
 # Pull latest from GitHub and show version
 griddown-update() {
     cd "$GRIDDOWN_DIR" || return
+    local old_ver new_ver server_changed
+    old_ver=$(grep "CACHE_NAME" sw.js 2>/dev/null | head -1 | grep -oP "v[\d.]+")
+    # Track if server script changes (needs restart for new cache headers)
+    local old_server_hash
+    old_server_hash=$(md5sum scripts/griddown-server.py 2>/dev/null | cut -d' ' -f1)
     git pull
+    new_ver=$(grep "CACHE_NAME" sw.js 2>/dev/null | head -1 | grep -oP "v[\d.]+")
+    local new_server_hash
+    new_server_hash=$(md5sum scripts/griddown-server.py 2>/dev/null | cut -d' ' -f1)
     echo "Updated to $(git describe --tags 2>/dev/null || git rev-parse --short HEAD)"
+    if [ "$old_ver" != "$new_ver" ] && [ -n "$new_ver" ]; then
+        echo "Cache: $old_ver → $new_ver"
+        echo "App will auto-update within ~3 minutes, or tap 'Refresh Now' in the toast."
+    fi
+    if [ "$old_server_hash" != "$new_server_hash" ] && pgrep -f 'griddown-server' >/dev/null 2>&1; then
+        echo ""
+        echo "⚠ Server script changed — restarting server..."
+        gd-restart
+    fi
 }
 
 # Show last 10 commits

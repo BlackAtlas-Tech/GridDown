@@ -48,22 +48,6 @@
             "purpose": "any"
         }
     ],
-    "screenshots": [
-        {
-            "src": "screenshots/map-wide.png",
-            "sizes": "1280x720",
-            "type": "image/png",
-            "form_factor": "wide",
-            "label": "Tactical map with offline tile caching and waypoint management"
-        },
-        {
-            "src": "screenshots/map-narrow.png",
-            "sizes": "750x1334",
-            "type": "image/png",
-            "form_factor": "narrow",
-            "label": "Mobile navigation with floating action button and GPS tracking"
-        }
-    ],
     "shortcuts": [
         {
             "name": "Search",

@@ -28,6 +28,15 @@ import argparse
 # Files that must never be served from browser HTTP cache
 NO_CACHE_FILES = {'sw.js', 'manifest.json'}
 
+# File extensions that should get short revalidation cache headers.
+# Without explicit Cache-Control, the browser heuristically caches files
+# for ~10% of (now - Last-Modified), which can be hours or days for files
+# that haven't changed in a while. After 'griddown-update' (git pull),
+# the new sw.js install handler uses fetch({ cache: 'reload' }) to bust
+# the browser cache, but the belt-and-suspenders approach is to also tell
+# the browser to always revalidate these files with the server.
+REVALIDATE_EXTENSIONS = {'.js', '.css', '.html'}
+
 
 class GridDownHandler(http.server.SimpleHTTPRequestHandler):
     """HTTP handler that injects cache-control headers for critical PWA files."""
@@ -35,11 +44,17 @@ class GridDownHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         # Get the basename of the requested path
         basename = os.path.basename(self.path.split('?')[0].split('#')[0])
+        _, ext = os.path.splitext(basename)
 
         if basename in NO_CACHE_FILES:
             self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
             self.send_header('Pragma', 'no-cache')
             self.send_header('Expires', '0')
+        elif ext in REVALIDATE_EXTENSIONS:
+            # Allow caching but force revalidation on every request.
+            # The server responds 304 Not Modified if the file hasn't changed
+            # (fast), or 200 with new content if it has (correct).
+            self.send_header('Cache-Control', 'no-cache')
 
         super().end_headers()
 
@@ -85,7 +100,8 @@ def main():
     print(f"Serving: {serve_dir}")
     print(f"URL:     http://localhost:{args.port}")
     print(f"")
-    print(f"Cache-Control: no-cache applied to: {', '.join(sorted(NO_CACHE_FILES))}")
+    print(f"Cache-Control: no-cache, no-store applied to: {', '.join(sorted(NO_CACHE_FILES))}")
+    print(f"Cache-Control: no-cache (revalidate) applied to: {', '.join(sorted(REVALIDATE_EXTENSIONS))}")
     print(f"Press Ctrl+C to stop.")
 
     try:
