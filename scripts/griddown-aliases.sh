@@ -37,14 +37,28 @@ gd-status() {
     else
         echo "✗ GridDown server not running"
     fi
+    # WiFi Sentinel bridge status
+    local ws_pid
+    ws_pid=$(pgrep -f 'wifi-scan-bridge' 2>/dev/null | head -1)
+    if [ -n "$ws_pid" ]; then
+        echo "✓ WiFi Sentinel Tier 0 bridge running (PID $ws_pid)"
+    else
+        echo "○ WiFi Sentinel Tier 0 bridge not running"
+    fi
 }
 
-# Restart server
+# Restart server (and WiFi Sentinel bridge)
 gd-restart() {
     pkill -f 'griddown-server' 2>/dev/null
+    pkill -f 'wifi-scan-bridge' 2>/dev/null
+    pkill -f 'websocat.*8765' 2>/dev/null
     sleep 1
     nohup python3 "$GRIDDOWN_DIR/scripts/griddown-server.py" > /dev/null 2>&1 &
     echo "GridDown server restarted (PID $!)"
+    if command -v termux-wifi-scaninfo > /dev/null 2>&1 && command -v websocat > /dev/null 2>&1; then
+        nohup "$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh" 8765 > /dev/null 2>&1 &
+        echo "WiFi Sentinel Tier 0 bridge restarted (PID $!)"
+    fi
 }
 
 # ── Updates ─────────────────────────────────────────────────────
@@ -243,7 +257,7 @@ gd-watch-status() {
 # View watcher log
 alias gd-watch-log='tail -30 "$HOME/griddown-watch.log" 2>/dev/null || echo "No log file"'
 
-# Full startup: wake lock + background server + update watcher
+# Full startup: wake lock + background server + update watcher + WiFi Sentinel
 gd-start() {
     termux-wake-lock 2>/dev/null || true
     nohup python3 "$GRIDDOWN_DIR/scripts/griddown-server.py" > /dev/null 2>&1 &
@@ -252,12 +266,26 @@ gd-start() {
     if [ ! -f "$GD_WATCH_PIDFILE" ] || ! kill -0 "$(cat "$GD_WATCH_PIDFILE" 2>/dev/null)" 2>/dev/null; then
         gd-watch 15
     fi
+    # Start WiFi Sentinel Tier 0 bridge if termux-api + websocat available
+    if command -v termux-wifi-scaninfo > /dev/null 2>&1 && command -v websocat > /dev/null 2>&1; then
+        # Check if bridge is already running
+        if ! pgrep -f 'wifi-scan-bridge' > /dev/null 2>&1; then
+            nohup "$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh" 8765 > /dev/null 2>&1 &
+            echo "WiFi Sentinel Tier 0 bridge started on port 8765 (PID $!)"
+        else
+            echo "WiFi Sentinel Tier 0 bridge already running"
+        fi
+    fi
 }
 
-# Full shutdown: stop server + watcher + release wake lock
+# Full shutdown: stop server + watcher + WiFi Sentinel + release wake lock
 gd-shutdown() {
     pkill -f 'griddown-server' 2>/dev/null || true
     gd-watch-stop 2>/dev/null || true
+    # Stop WiFi Sentinel bridges
+    pkill -f 'wifi-scan-bridge' 2>/dev/null || true
+    pkill -f 'serial-ws-bridge' 2>/dev/null || true
+    pkill -f 'websocat.*876[567]' 2>/dev/null || true
     termux-wake-unlock 2>/dev/null || true
-    echo "GridDown shut down"
+    echo "GridDown shut down (server + watcher + WiFi Sentinel bridges)"
 }

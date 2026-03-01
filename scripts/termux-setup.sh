@@ -162,6 +162,11 @@ if [ -e /dev/atlasrf/wifi5g ] && command -v websocat &>/dev/null; then
     "$GRIDDOWN_DIR/scripts/serial-ws-bridge.sh" /dev/atlasrf/wifi5g 8767 &
 fi
 
+# Start WiFi Sentinel Tier 0 bridge (Android WiFi scan → WebSocket)
+if command -v termux-wifi-scaninfo &>/dev/null && command -v websocat &>/dev/null; then
+    "$GRIDDOWN_DIR/scripts/wifi-scan-bridge.sh" 8765 &
+fi
+
 # Start update watcher (checks every 15 min, pulls if update found)
 # GridDown shows in-app toast — user decides when to apply.
 source "$GRIDDOWN_DIR/scripts/griddown-aliases.sh"
